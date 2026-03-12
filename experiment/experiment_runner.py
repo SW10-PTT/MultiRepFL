@@ -72,7 +72,7 @@ def run_experiment(dataset_name: str, experiment_config, writer: AsyncWriter=Non
                                               PRIVKEYS)
   manager.build_contract()
 
-  configs = manager.deploy_challenge_contract(experiment_config.min_buy_in,
+  configs = manager.deploy_joblisting_contract(experiment_config.min_buy_in,
                                           experiment_config.max_buy_in,
                                           experiment_config.reward, 
                                           experiment_config.minimum_rounds,

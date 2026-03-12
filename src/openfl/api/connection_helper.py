@@ -136,11 +136,11 @@ class ConnectionHelper:
     def get_w3():
         return w3
     
-    def initialize(self):
+    def initializeManager(self):
         bytecode_path = Path(__file__).resolve().parents[3] / "artifacts" / "bytecode"
-        with open(bytecode_path / "abi.txt") as abiFile:
+        with open(bytecode_path / "manager_abi.json") as abiFile:
             abi = re.sub("\n|\t|\ ", "", abiFile.read())
-        with open(bytecode_path /  "bytecode.txt") as abiFile:
+        with open(bytecode_path /  "manager_bytecode.bin") as abiFile:
             bytecode = abiFile.read().strip()
         return self.w3.eth.contract(bytecode=bytecode, abi=abi)
     
@@ -148,9 +148,20 @@ class ConnectionHelper:
     
     def initialize_model(self, address=None):
         bytecode_path = Path(__file__).resolve().parents[3] / "artifacts" / "bytecode"
-        with open(bytecode_path / "abi_model.txt") as abiFile:
+        with open(bytecode_path / "model_abi.json") as abiFile:
             abi = re.sub("\n|\t|\ ", "", abiFile.read())
-        with open(bytecode_path / "bytecode_model.txt") as abiFile:
+        with open(bytecode_path / "model_bytecode.bin") as abiFile:
+            bytecode = abiFile.read().strip()
+        if address is not None:
+            return self.w3.eth.contract(address=address, bytecode=bytecode, abi=abi)
+        else:
+            return self.w3.eth.contract(bytecode=bytecode, abi=abi)
+    
+    def initialize_job(self, address=None):
+        bytecode_path = Path(__file__).resolve().parents[3] / "artifacts" / "bytecode"
+        with open(bytecode_path / "job_listing_abi.json") as abiFile:
+            abi = re.sub("\n|\t|\ ", "", abiFile.read())
+        with open(bytecode_path / "job_listing_bytecode.bin") as abiFile:
             bytecode = abiFile.read().strip()
         if address is not None:
             return self.w3.eth.contract(address=address, bytecode=bytecode, abi=abi)
@@ -230,5 +241,32 @@ class ConnectionHelper:
             'value': value
         }
         
+    def get_events(self, w3: Web3, receipt, event_names: list[str]):
+        """
+        Returns decoded events without ABI mismatch warnings.
+
+        Args:
+            w3: Web3 instance
+            contract: Contract instance
+            receipt: transaction receipt
+            event_names: list of event names to extract
+
+        Returns:
+            dict: {eventName: [decodedEvents...]}
+        """
+        results = {name: [] for name in event_names}
+
+        for name in event_names:
+            event_abi = getattr(self.contract.events, name)().abi
+            event_signature = w3.keccak(
+                text=f"{name}(" + ",".join(i["type"] for i in event_abi["inputs"]) + ")").hex()
+
+            for log in receipt.logs:
+                if log["topics"][0].hex() == event_signature:
+                    decoded = getattr(self.contract.events, name)().process_log(log)
+                    results[name].append(decoded)
+
+        return results
+    
 class NotEnoughUnlockedAccounts(Exception):
     pass

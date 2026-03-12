@@ -30,7 +30,7 @@ from openfl.utils.shapley import check_shapley_compliance
 #   - Round settlement and visualization
 UINT256_MAX = 2**256 - 1
 
-class FLChallenge(FLManager):
+class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManager to ConnectionHelper
     def __init__(self, manager, configs, pyTorchModel, experiment_config, writer: AsyncWriter=None):
         self.manager = manager
         self.w3 = manager.w3
@@ -89,45 +89,45 @@ class FLChallenge(FLManager):
         print("strategy: ", strategy)
         return self._contribution_score_calculators[strategy]
         
-    def register_all_users(self):
-        """
-        Register all participants in the federated learning model
-        via the smart contract.
-        """
-        txs = []
-        for acc in self.pytorch_model.participants:
-            if acc.isRegistered:
-                continue
-            if self.fork:
-                # Simple tx builder for forked (dev) chain
-                tx = super().build_tx(acc.address, self.modelAddress, acc.collateral)
-                txHash = self.model.functions.register().transact(tx)
-            else:
-                # Non-fork: build and sign a raw transaction manually
-                nonce = self.w3.eth.get_transaction_count(acc.address) 
-                reg = super().build_non_fork_tx(acc.address, nonce, value=acc.collateral)
-                reg = self.model.functions.register().build_transaction(reg)
-                signed = self.w3.eth.account.sign_transaction(reg, private_key=acc.privateKey)
-                txHash = self.w3.eth.send_raw_transaction(signed.raw_transaction)
-            txs.append(txHash)
-            bal = self.w3.eth.get_balance(self.w3.eth.default_account)
-            acc.isRegistered = True
-            print("{:<17} {} | {} | {:>25,.0f} WEI".format("Account registered:", 
-                                                           acc.address[0:16] + "...", 
-                                                           txHash.hex()[0:6] + "...", 
-                                                           acc.collateral
-                                                           ))
+    # def register_all_users(self):
+    #     """
+    #     Register all participants in the federated learning model
+    #     via the smart contract.
+    #     """
+    #     txs = []
+    #     for acc in self.pytorch_model.participants:
+    #         if acc.isRegistered:
+    #             continue
+    #         if self.fork:
+    #             # Simple tx builder for forked (dev) chain
+    #             tx = super().build_tx(acc.address, self.modelAddress, acc.collateral)
+    #             txHash = self.model.functions.register().transact(tx)
+    #         else:
+    #             # Non-fork: build and sign a raw transaction manually
+    #             nonce = self.w3.eth.get_transaction_count(acc.address) 
+    #             reg = super().build_non_fork_tx(acc.address, nonce, value=acc.collateral)
+    #             reg = self.model.functions.register().build_transaction(reg)
+    #             signed = self.w3.eth.account.sign_transaction(reg, private_key=acc.privateKey)
+    #             txHash = self.w3.eth.send_raw_transaction(signed.raw_transaction)
+    #         txs.append(txHash)
+    #         bal = self.w3.eth.get_balance(self.w3.eth.default_account)
+    #         acc.isRegistered = True
+    #         print("{:<17} {} | {} | {:>25,.0f} WEI".format("Account registered:", 
+    #                                                        acc.address[0:16] + "...", 
+    #                                                        txHash.hex()[0:6] + "...", 
+    #                                                        acc.collateral
+    #                                                        ))
         
-        l = len(txs)
-        for i, txHash in enumerate(txs):
-            printer.print_bar(i, l)
-            receipt = self.w3.eth.wait_for_transaction_receipt(txHash,
-                                                            timeout=600, 
-                                                            poll_latency=1)
+    #     l = len(txs)
+    #     for i, txHash in enumerate(txs):
+    #         printer.print_bar(i, l)
+    #         receipt = self.w3.eth.wait_for_transaction_receipt(txHash,
+    #                                                         timeout=600, 
+    #                                                         poll_latency=1)
             
-            self.gas_register.append(receipt["gasUsed"])
-            self.txHashes.append(("register",receipt["transactionHash"].hex(), receipt["gasUsed"]))
-        printer._print("-----------------------------------------------------------------------------------", "\n")
+    #         self.gas_register.append(receipt["gasUsed"])
+    #         self.txHashes.append(("register",receipt["transactionHash"].hex(), receipt["gasUsed"]))
+    #     printer._print("-----------------------------------------------------------------------------------", "\n")
         
     
     def get_hashed_weights_of(self, user):
@@ -612,33 +612,6 @@ class FLChallenge(FLManager):
             self.txHashes.append(("exit", receipt["transactionHash"].hex(), receipt["gasUsed"]))
         printer._print("-----------------------------------------------------------------------------------\n")
 
-    def get_events(self, w3, contract, receipt, event_names):
-        """
-        Returns decoded events without ABI mismatch warnings.
-
-        Args:
-            w3: Web3 instance
-            contract: Contract instance
-            receipt: transaction receipt
-            event_names: list of event names to extract
-
-        Returns:
-            dict: {eventName: [decodedEvents...]}
-        """
-        results = {name: [] for name in event_names}
-
-        for name in event_names:
-            event_abi = getattr(contract.events, name)().abi
-            event_signature = w3.keccak(
-                text=f"{name}(" + ",".join(i["type"] for i in event_abi["inputs"]) + ")").hex()
-
-            for log in receipt.logs:
-                if log["topics"][0].hex() == event_signature:
-                    decoded = getattr(contract.events, name)().process_log(log)
-                    results[name].append(decoded)
-
-        return results
-    
     def print_round_summary(self, receipt):
 
         events = self.get_events(
@@ -1024,7 +997,7 @@ class FLChallenge(FLManager):
 
 
     def get_round_rewards(self, receipt):
-        events = self.get_events(
+        events = get_events(
             w3=self.w3,
             contract=self.model,
             receipt=receipt,
@@ -1064,7 +1037,7 @@ class FLChallenge(FLManager):
         At the end, all users exit the system.
         """
         print(self.modelAddress)
-        self.register_all_users()
+        self.let_users_join()
         
         grs = [(user.address, user._globalrep[-1]) for user in self.pytorch_model.participants + self.pytorch_model.disqualified]
         
@@ -1295,6 +1268,9 @@ class FLChallenge(FLManager):
         plt.savefig(os.path.join(output_folder_path, f"{self.pytorch_model.DATASET}_simulation.pdf"), bbox_inches='tight')
         #plt.show()
         return plt
+    
+    def let_users_join(JobListingAddr: str):
+        
 
 
 # def calc_contribution_score(local_model, global_model, num_mergers, eps=1e-12) -> int:
@@ -1481,6 +1457,7 @@ def remove_outliers_mad(arr, threshold=0.70, return_mask=False):
     if return_mask:
         return arr, mask
     return flat[mask]
+
 
 runtime_warnings = []
 

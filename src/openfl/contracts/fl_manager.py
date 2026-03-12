@@ -34,7 +34,7 @@ class FLManager(ConnectionHelper):
                                                          MINIMUM_ROUNDS=MINIMUM_ROUNDS, pytorch_model=self.pytorch_model,
                                                          infura_url=infuraurl, manual_setup=self.manual_setup, fork=fork,
                                                          accounts=accounts)
-        self.manager = super().initialize()
+        self.manager = super().initializeManager()
         return self
     
     
@@ -74,24 +74,12 @@ class FLManager(ConnectionHelper):
         return 
 
 
-    def get_model_of(self, p, c):
-        return self.manager.functions.ModelOf(p.address, c).call({"to": self.manager.address,
-                                                                  "from": p.address})
+    def get_model_of(self, participant, addr):
+        return self.manager.functions.getModel(participant.address, addr).call({"to": self.manager.address,
+                                                                  "from": participant.address})
     
-    
-    def get_model_count_of(self, p):
-        print(f"[DEBUG] get_model_count_of(): manager.address={self.manager.address}, "
-              f"participant.address={p.address}, "
-              f"challenge.address={getattr(self, 'challenge_contract', None) and getattr(self.challenge_contract, 'address', None)}")
-
-        # ModelCountOf is exposed on the manager contract ABI
-        return self.manager.functions.ModelCountOf(p.address).call({
-            "from": p.address
-        })
-
-    
-    def deploy_challenge_contract(self, *args):
-        print(b("Starting simulation..."))
+    def deploy_joblisting_contract(self, *args):
+        print(b("Creating Job Listing..."))
         print(b("-----------------------------------------------------------------------------------"))
         min_buyin, max_buyin, reward, min_rounds, punishment, punish_contrib, freerider_fee = args
         p1_collateral = self.pytorch_model.participants[0].collateral
@@ -100,14 +88,14 @@ class FLManager(ConnectionHelper):
         modelHash = self.pytorch_model.participants[0].modelHash
         model_hash_bytes = Web3.to_bytes(hexstr=modelHash)
 
-        # 💡 Helpful debug info
+        # Helpful debug info
         balance_eth = self.w3.from_wei(self.w3.eth.get_balance(deployer), 'ether')
         est_cost_eth = self.w3.from_wei(value, 'ether')
         print(f"Balance: {balance_eth:.4f} ETH | Estimated tx+value cost: {est_cost_eth:.4f} ETH")
 
         if self.fork:
             tx = super().build_tx(deployer, self.manager.address, value)
-            txHash = self.manager.functions.deployModel(
+            txHash = self.manager.functions.CreateNewJob(
                 model_hash_bytes,
                 min_buyin,
                 max_buyin,
@@ -121,7 +109,7 @@ class FLManager(ConnectionHelper):
             nonce = self.w3.eth.get_transaction_count(deployer)
             # When building the transaction via contract ABI we must not pre-set the `to` field.
             depl = super().build_non_fork_tx(deployer, nonce, value=value)
-            depl = self.manager.functions.deployModel(
+            depl = self.manager.functions.CreateNewJob(
                 model_hash_bytes,
                 min_buyin,
                 max_buyin,
@@ -137,20 +125,30 @@ class FLManager(ConnectionHelper):
         receipt = self.w3.eth.wait_for_transaction_receipt(txHash, timeout=600, poll_latency=1)
         if receipt.get("status", 0) != 1:
             raise RuntimeError(
-                f"Challenge deployment failed (tx={txHash.hex()}, status={receipt.get('status')}). "
+                f"Creating Job listing failed failed (tx={txHash.hex()}, status={receipt.get('status')}). "
                 "Contract creation likely ran out of gas or reverted. "
                 "Recheck reward/buy-in sizing and Sepolia balances."
             )
 
         self.gas_deploy.append(receipt["gasUsed"])
-        self.txHashes.append(("buildChallenge", receipt["transactionHash"].hex(), receipt["gasUsed"]))
-        c = self.get_model_count_of(self.pytorch_model.participants[0])
-        deployed_address = self.get_model_of(self.pytorch_model.participants[0], c)
+        self.txHashes.append(("buildJobListing", receipt["transactionHash"].hex(), receipt["gasUsed"]))
+        #c = self.get_model_count_of(self.pytorch_model.participants[0])
+        #deployed_address = self.get_model_of(self.pytorch_model.participants[0], c)
+
+        events = self.get_events(
+            self.w3,
+            self.manager,
+            receipt,
+            ["JobCreated"]
+        )
+
+        deployed_address = events["JobCreated"][0]["args"]["job"]
         deployed_address = Web3.to_checksum_address(deployed_address)
 
-        self.challenge_contract = super().initialize_model(deployed_address)
-        print("\n{:<17} {} | {}\n".format("Model deployed", 
-                                          "@ Address " + self.challenge_contract.address, 
+        
+        self.job_listing = super().initialize_job(deployed_address)
+        print("\n{:<17} {} | {}\n".format("Listing deployed", 
+                                          "@ Address " + self.job_listing.address, 
                                           txHash.hex()[0:6]+"..."))
         print("-----------------------------------------------------------------------------------")
         print("{:<17} {} | {} | {:>25,.0f} WEI".format(
@@ -161,5 +159,4 @@ class FLManager(ConnectionHelper):
         ))
 
         self.pytorch_model.participants[0].isRegistered = True
-        return (self.challenge_contract, self.challenge_contract.address) + args
-
+        return (self.job_listing, self.job_listing.address) + args

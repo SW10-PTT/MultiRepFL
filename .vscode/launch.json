@@ -28,6 +28,20 @@
       "preLaunchTask": "compile-contracts"
     },
     {
+      "name": "Compile - Debug: Sample",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "experiment/sample.py",
+      "args": [
+        "--skipFolder",
+        "experiment/data",
+        "--author",
+        "Nykjaer"
+      ],
+      "console": "integratedTerminal",
+      "preLaunchTask": "compile-contracts"
+    },
+    {
       "name": "Debug: Experiments",
       "type": "debugpy",
       "request": "launch",

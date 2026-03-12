@@ -14,6 +14,8 @@ contracts_dir = root / "contracts"
 sources = {
     "OpenFLManager.sol": {"content": (contracts_dir / "OpenFLManager.sol").read_text(encoding="utf-8")},
     "OpenFLModel.sol":   {"content": (contracts_dir / "OpenFLModel.sol").read_text(encoding="utf-8")},
+    "JobListing.sol":   {"content": (contracts_dir / "JobListing.sol").read_text(encoding="utf-8")},
+    "Types.sol":   {"content": (contracts_dir / "Types.sol").read_text(encoding="utf-8")},
 }
 
 # 3) Compile
@@ -36,16 +38,21 @@ print(f"Contract size: {size_bytes} bytes ({size_kb:.2f} KB)")
 # 4) Extract artifacts
 mgr = compiled["contracts"]["OpenFLManager.sol"]["OpenFLManager"]
 mdl = compiled["contracts"]["OpenFLModel.sol"]["OpenFLModel"]
+jls = compiled["contracts"]["JobListing.sol"]["JobListing"]
 
 build = root / "artifacts" / "bytecode"
 build.mkdir(parents=True, exist_ok=True)
 
 # IMPORTANT: abi.txt should be JSON, because Python should json.load it later
-(Path(build / "abi.txt")).write_text(json.dumps(mgr["abi"], separators=(",",":")), encoding="utf-8")
-(Path(build / "bytecode.txt")).write_text(mgr["evm"]["bytecode"]["object"], encoding="utf-8")
+(Path(build / "manager_abi.json")).write_text(json.dumps(mgr["abi"], separators=(",",":")), encoding="utf-8")
+(Path(build / "manager_bytecode.bin")).write_text(mgr["evm"]["bytecode"]["object"], encoding="utf-8")
 
-(Path(build / "abi_model.txt")).write_text(json.dumps(mdl["abi"], separators=(",",":")), encoding="utf-8")
-(Path(build / "bytecode_model.txt")).write_text(mdl["evm"]["bytecode"]["object"], encoding="utf-8")
+(Path(build / "model_abi.json")).write_text(json.dumps(mdl["abi"], separators=(",",":")), encoding="utf-8")
+(Path(build / "model_bytecode.bin")).write_text(mdl["evm"]["bytecode"]["object"], encoding="utf-8")
+
+(Path(build / "job_listing_abi.json")).write_text(json.dumps(jls["abi"], separators=(",",":")), encoding="utf-8")
+(Path(build / "job_listing_bytecode.bin")).write_text(jls["evm"]["bytecode"]["object"], encoding="utf-8")
+
 # Write ABI as a Python variable file
 abi_py_file = build / "abi_model.py"
 
@@ -59,4 +66,4 @@ with open(abi_py_file, "w", encoding="utf-8") as f:
 
 
 
-print("Artifacts written to build/: abi.txt, OPEN_FL_MODEL_ABI.py, bytecode.txt, abi_model.txt, bytecode_model.txt")
+print("Artifacts written to build/: manager_abi.json, OPEN_FL_MODEL_ABI.py, manager_bytecode.bin, model_abi.json, model_bytecode.bin, job_listing_abi.json, job_listing_bytecode.bin")
