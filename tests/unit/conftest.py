@@ -8,7 +8,7 @@ import types
 
 
 
-from openfl.contracts.fl_challenge import FLChallenge
+from openfl.contracts.FLChallenge import FLChallenge
 
 
 @pytest.fixture

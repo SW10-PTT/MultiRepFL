@@ -4,13 +4,16 @@ import re
 import os
 import time
 import signal
+from typing import Type
 import numpy as np
 import pandas as pd
 from web3 import Web3
+from web3.contract import Contract
 from termcolor import colored
 from subprocess import Popen, PIPE
 from openfl.ml.pytorch_model import gb, rb, b, green, red
 from openfl.utils import require_env_var
+from openfl.api import globals
 
 class ConnectionHelper:
     # Start Ganache client with connection to infura
@@ -29,7 +32,6 @@ class ConnectionHelper:
                          manual_setup=False,
                          fork=True,
                          accounts=None):
-        global w3
         NUMBER_OF_CONTRIBUTORS = NUMBER_OF_GOOD_CONTRIBUTORS \
                                     + NUMBER_OF_BAD_CONTRIBUTORS \
                                     + NUMBER_OF_FREERIDER_CONTRIBUTORS \
@@ -37,10 +39,7 @@ class ConnectionHelper:
         infura_url = require_env_var("RPC_URL")
 
 
-
-
-
-        if fork:
+        if globals.fork:
             if not manual_setup:
                 port = require_env_var("RPC_URL").split(':')[1]
                 process = Popen(["lsof", "-i", ":{0}".format(port)], stdout=PIPE, stderr=PIPE)
@@ -57,25 +56,25 @@ class ConnectionHelper:
             time.sleep(1)
             try:
                 if fork:
-                    w3 = Web3(Web3.HTTPProvider(infura_url))
-                    print("Connected:", w3.is_connected())
-                    print("Client:", w3.client_version)
-                    print("Chain ID:", w3.eth.chain_id)
-                    print("Latest block:", w3.eth.block_number)
-                    print("Accounts:", w3.eth.accounts[:3])
-                    print("Default account:", w3.eth.default_account)
-                    w3.eth.default_account = w3.eth.accounts[0]
-                    print("New Default account:", w3.eth.default_account)
+                    globals.w3 = Web3(Web3.HTTPProvider(infura_url))
+                    print("Connected:", globals.w3.is_connected())
+                    print("Client:", globals.w3.client_version)
+                    print("Chain ID:", globals.w3.eth.chain_id)
+                    print("Latest block:", globals.w3.eth.block_number)
+                    print("Accounts:", globals.w3.eth.accounts[:3])
+                    print("Default account:", globals.w3.eth.default_account)
+                    globals.w3.eth.default_account = globals.w3.eth.accounts[0]
+                    print("New Default account:", globals.w3.eth.default_account)
 
                 else:
-                    w3 = Web3(Web3.HTTPProvider(infura_url))
-                latestBlock = w3.eth.block_number
+                    globals.w3 = Web3(Web3.HTTPProvider(infura_url))
+                latestBlock = globals.w3.eth.block_number
             except:
                 latestBlock = 1000000
         
         
         #print("\n==================================================================================\n")
-        print("Connected to Ethereum: {}".format(colored(w3.is_connected(), "green", attrs=['bold'])))
+        print("Connected to Ethereum: {}".format(colored(globals.w3.is_connected(), "green", attrs=['bold'])))
         print("initiated Ganache-Client @ Block Nr. {:,.0f}\n".format(latestBlock))        
         print("Total Contributers:       {}".format(NUMBER_OF_CONTRIBUTORS))
         print("Good Contributers:        {} ({:.0f}%)".format(NUMBER_OF_GOOD_CONTRIBUTORS,
@@ -91,27 +90,27 @@ class ConnectionHelper:
         print("-----------------------------------------------------------------------------------")
         
         if fork:
-            while not w3.eth.default_account:
+            while not globals.w3.eth.default_account:
                 time.sleep(0.2)
                 try:
-                    w3.eth.default_account = w3.eth.accounts[0]
+                    globals.w3.eth.default_account = globals.w3.eth.accounts[0]
                 except:
-                    w3.eth.default_account = None
+                    globals.w3.eth.default_account = None
             
-            if len(w3.eth.accounts) < len(self.pytorch_model.participants):
+            if len(globals.w3.eth.accounts) < len(self.pytorch_model.participants):
                 print(rb("Nr. of Ganache Addresses <> Nr. of Model Participants"))
-                print(rb(str(len(w3.eth.accounts))  + "<>" +  str(len(self.pytorch_model.participants))))
+                print(rb(str(len(globals.w3.eth.accounts))  + "<>" +  str(len(self.pytorch_model.participants))))
                 print(rb("Increase number of unlocked accounts"))
                 raise NotEnoughUnlockedAccounts()
                 
         # Every user receives an address
         for ix in range(len(self.pytorch_model.participants)):
-            if fork:
-                self.pytorch_model.participants[ix].address = w3.to_checksum_address(w3.eth.accounts[ix])
+            if globals.fork:
+                self.pytorch_model.participants[ix].address = globals.w3.to_checksum_address(globals.w3.eth.accounts[ix])
             else:
                 if ix == 0:
-                    w3.eth.default_account = accounts[ix].address 
-                self.pytorch_model.participants[ix].address = w3.to_checksum_address(accounts[ix].address)
+                    globals.w3.eth.default_account = accounts[ix].address 
+                self.pytorch_model.participants[ix].address = globals.w3.to_checksum_address(accounts[ix].address)
                 self.pytorch_model.participants[ix].privateKey = accounts[ix].privateKey           
                 
             
@@ -124,17 +123,13 @@ class ConnectionHelper:
                 prefix = "AFK "
             else:
                 prefix = "MAL."
-            bal = w3.eth.get_balance(acc.address)
+            bal = globals.w3.eth.get_balance(acc.address)
             print("{:<17} {} with {:<4,.1f} ETH | {} USER".format("Account initiated", 
                                                            "@ Address "+acc.address[0:25]+"...",
                                                            bal/1e18,
                                                            prefix))
         print("-----------------------------------------------------------------------------------")
-        self.w3 = w3
-        return w3, latestBlock
-
-    def get_w3():
-        return w3
+        return latestBlock
     
     def initializeManager(self):
         bytecode_path = Path(__file__).resolve().parents[3] / "artifacts" / "bytecode"
@@ -142,8 +137,7 @@ class ConnectionHelper:
             abi = re.sub("\n|\t|\ ", "", abiFile.read())
         with open(bytecode_path /  "manager_bytecode.bin") as abiFile:
             bytecode = abiFile.read().strip()
-        return self.w3.eth.contract(bytecode=bytecode, abi=abi)
-    
+        return globals.w3.eth.contract(bytecode=bytecode, abi=abi)
     
     
     def initialize_model(self, address=None):
@@ -153,27 +147,27 @@ class ConnectionHelper:
         with open(bytecode_path / "model_bytecode.bin") as abiFile:
             bytecode = abiFile.read().strip()
         if address is not None:
-            return self.w3.eth.contract(address=address, bytecode=bytecode, abi=abi)
+            return globals.w3.eth.contract(address=address, bytecode=bytecode, abi=abi)
         else:
-            return self.w3.eth.contract(bytecode=bytecode, abi=abi)
+            return globals.w3.eth.contract(bytecode=bytecode, abi=abi)
     
-    def initialize_job(self, address=None):
+    def initialize_job(self, address=None) -> Contract:
         bytecode_path = Path(__file__).resolve().parents[3] / "artifacts" / "bytecode"
         with open(bytecode_path / "job_listing_abi.json") as abiFile:
             abi = re.sub("\n|\t|\ ", "", abiFile.read())
         with open(bytecode_path / "job_listing_bytecode.bin") as abiFile:
             bytecode = abiFile.read().strip()
         if address is not None:
-            return self.w3.eth.contract(address=address, bytecode=bytecode, abi=abi)
+            return globals.w3.eth.contract(address=address, bytecode=bytecode, abi=abi)
         else:
-            return self.w3.eth.contract(bytecode=bytecode, abi=abi)
+            return globals.w3.eth.contract(bytecode=bytecode, abi=abi)
     
     
     
     def build_tx(self, _from, _to, _value=0):
         assert(_to != "0x0000000000000000000000000000000000000000")
-        _from = w3.to_checksum_address(_from)
-        _to = w3.to_checksum_address(_to)
+        _from = globals.w3.to_checksum_address(_from)
+        _to = globals.w3.to_checksum_address(_to)
         return {
             'from': _from,
             'to': _to,
@@ -187,22 +181,22 @@ class ConnectionHelper:
     
     def build_non_fork_tx(self, addr, nonce, to=None, value=0, data=None, gas_limit=None):
         # Dynamically detect correct chain ID
-        chain_id = w3.eth.chain_id
+        chain_id = globals.w3.eth.chain_id
 
         # Give on-chain deployments breathing room unless caller overrides
         if gas_limit is None:
             gas_limit = 5_000_000
 
         # Adaptive low gas fee settings
-        max_fee_per_gas = w3.to_wei(10, 'gwei')
-        max_priority_fee_per_gas = w3.to_wei(1, 'gwei')
+        max_fee_per_gas = globals.w3.to_wei(10, 'gwei')
+        max_priority_fee_per_gas = globals.w3.to_wei(1, 'gwei')
 
         # Check balance before building TX
-        balance = w3.eth.get_balance(addr)
+        balance = globals.w3.eth.get_balance(addr)
         est_cost = gas_limit * max_fee_per_gas
         if balance < est_cost:
-            print(f"\n Warning: Account {addr} has only {w3.from_wei(balance, 'ether'):.4f} ETH, "
-                f"but may need {w3.from_wei(est_cost, 'ether'):.4f} ETH for gas.\n")
+            print(f"\n Warning: Account {addr} has only {globals.w3.from_wei(balance, 'ether'):.4f} ETH, "
+                f"but may need {globals.w3.from_wei(est_cost, 'ether'):.4f} ETH for gas.\n")
 
         # Build TX (same structure as before)
         if data:
@@ -240,14 +234,42 @@ class ConnectionHelper:
             'nonce': nonce,
             'value': value
         }
+    
+    def transact(self, func_name: str, account, collateral: int,  event_names: list[str], *args):
+        """
+        Returns (receipt, event returns as tuple)
+        funcname: contract function name
+        acc: account performing the transaction
+        event_names: names of the 
+        *args: arguments forwarded to the contract function
+        """
+        func = getattr(self.contract.functions, func_name)
+
+        if globals.fork:
+            tx = self.build_tx(account.address, self.contract.address, collateral)
+            txHash = func(*args).transact(tx)
+        else:
+            nonce = globals.w3.eth.get_transaction_count(account.address)
+            # When building the transaction via contract ABI we must not pre-set the `to` field.
+            depl = super().build_non_fork_tx(account.address, nonce, value=collateral)
+            depl = func(*args).build_transaction(depl)
+            signed = globals.w3.eth.account.sign_transaction(depl, private_key=account.privateKey)
+            txHash = globals.w3.eth.send_raw_transaction(signed.raw_transaction)
+
+        receipt = globals.w3.eth.wait_for_transaction_receipt(txHash, timeout=600, poll_latency=1)
+        if receipt.get("status", 0) != 1:
+            raise RuntimeError(
+                f"Transaction: \"{func_name}\" failed (tx={txHash.hex()}, status={receipt.get('status')}). "
+            )
         
-    def get_events(self, w3: Web3, receipt, event_names: list[str]):
+        return (receipt, self.get_events(receipt, event_names))
+
+        
+    def get_events(self, receipt, event_names: list[str]):
         """
         Returns decoded events without ABI mismatch warnings.
 
         Args:
-            w3: Web3 instance
-            contract: Contract instance
             receipt: transaction receipt
             event_names: list of event names to extract
 
@@ -258,7 +280,7 @@ class ConnectionHelper:
 
         for name in event_names:
             event_abi = getattr(self.contract.events, name)().abi
-            event_signature = w3.keccak(
+            event_signature = globals.w3.keccak(
                 text=f"{name}(" + ",".join(i["type"] for i in event_abi["inputs"]) + ")").hex()
 
             for log in receipt.logs:

@@ -2,15 +2,18 @@ import os
 import time
 from pathlib import Path
 from openfl.ml import pytorch_model as PM
-from openfl.contracts import fl_manager as Manager, fl_challenge as Challenge
+from openfl.contracts import FLChallenge as Challenge, FLManager as Manager
 from openfl.utils import require_env_var
 from types import SimpleNamespace
 from web3 import Web3, Account
+from openfl.api import globals
 
 from openfl.utils.async_writer import AsyncWriter
 
 
 def run_experiment(dataset_name: str, experiment_config, writer: AsyncWriter=None):
+
+  globals.fork = experiment_config.fork
 
   dataset_name = dataset_name.replace(".", "-")
 
@@ -21,7 +24,7 @@ def run_experiment(dataset_name: str, experiment_config, writer: AsyncWriter=Non
 # In order to use a non-locally forked blockchain, 
 # private keys are required to unlock accounts
   if experiment_config.fork == False:
-    w3 = Web3(Web3.HTTPProvider(RPC_ENDPOINT))
+    globals.w3 = Web3(Web3.HTTPProvider(RPC_ENDPOINT))
 
     raw_keys = require_env_var("PRIVATE_KEYS")
     privKeys = [k.strip() for k in raw_keys.splitlines() if k.strip()]
@@ -62,32 +65,42 @@ def run_experiment(dataset_name: str, experiment_config, writer: AsyncWriter=Non
       pytorch_model.add_participant("inactive",1)
 
 
-  manager = Manager.FLManager(pytorch_model, True).init(experiment_config.number_of_good_contributors, 
+  manager = Manager(pytorch_model, True).init(experiment_config.number_of_good_contributors, 
                                               experiment_config.number_of_bad_contributors,
                                               experiment_config.number_of_freerider_contributors,
                                               experiment_config.number_of_inactive_contributors,
                                               experiment_config.minimum_rounds,
                                               RPC_ENDPOINT,
-                                              experiment_config.fork,
                                               PRIVKEYS)
   manager.build_contract()
 
-  configs = manager.deploy_joblisting_contract(experiment_config.min_buy_in,
+  newJobListing, configs = manager.deploy_joblisting_contract(
+                                          manager.pytorch_model.participants[0], # TODO: Fix
+                                          experiment_config.min_buy_in,
                                           experiment_config.max_buy_in,
                                           experiment_config.reward, 
                                           experiment_config.minimum_rounds,
                                           experiment_config.punish_factor,
                                           experiment_config.punish_factor_contrib,
-                                          experiment_config.first_round_fee)
+                                          experiment_config.first_round_fee,
+                                          0 ## TODO THIS IS TASKTYPE ENUM AS AN INT
+                                          )
+
   writer.writeComment(f"$startingUserConfig${[p.getStatus() for p in pytorch_model.participants]}")
 
   extra_configs = {}
   if experiment_config.contribution_score_strategy is not None:
       extra_configs["contribution_score_strategy"] = (
           experiment_config.contribution_score_strategy
-      )
+      ) # WTF is this????
 
-  model = Challenge.FLChallenge(manager, 
+
+  newJobListing.let_all_participants_register(pytorch_model.participants)
+
+  
+
+  # This happens after deciding on users
+  model = Challenge(manager, 
                       configs,
                       pytorch_model,
                       experiment_config,

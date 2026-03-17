@@ -14,10 +14,11 @@ from web3 import Web3
 from termcolor import colored
 import matplotlib.pyplot as plt
 from web3.exceptions import ContractLogicError
-from openfl.contracts import FLManager
+from openfl.contracts import FLManager, JobListing
 from openfl.ml.pytorch_model import gb, rb, b, green, red
 from openfl.utils import printer, config
-from openfl.api.connection_helper import ConnectionHelper
+from openfl.api.ConnectionHelper import ConnectionHelper
+from openfl.api import globals
 from openfl.utils.async_writer import AsyncWriter, NullWriter
 import openfl.utils.config
 from openfl.utils.shapley import check_shapley_compliance
@@ -33,15 +34,13 @@ UINT256_MAX = 2**256 - 1
 class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManager to ConnectionHelper
     def __init__(self, manager, configs, pyTorchModel, experiment_config, writer: AsyncWriter=None):
         self.manager = manager
-        self.w3 = manager.w3
 
-        self.model, self.modelAddress = configs[:2]
+        self.contract, self.contractAddress = configs[:2]
         self.pytorch_model = pyTorchModel
         self.MIN_BUY_IN, self.MAX_BUY_IN, self.REWARD, self.MIN_ROUNDS = configs[2:6]
         self.PUNISHMENT_FACTOR = configs[6]
         self.PUNISHMENT_FACTOR_CONTRIB = configs[7]
         self.FREERIDER_FACTOR = configs[8]
-        self.fork = manager.fork
         
         self.gas_feedback = [] 
         self.gas_register = [] 
@@ -71,8 +70,8 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
 
         self.disqualifiedUserEvents = []
 
-        print("Contract address:", self.model.address)
-        print("Contract ABI functions:", [f["name"] for f in self.model.abi if f["type"] == "function"])
+        print("Contract address:", self.contract.address)
+        print("Contract ABI functions:", [f["name"] for f in self.contract.abi if f["type"] == "function"])
 
     def _get_contribution_score_calculator(self):
         """
@@ -100,17 +99,17 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
     #             continue
     #         if self.fork:
     #             # Simple tx builder for forked (dev) chain
-    #             tx = super().build_tx(acc.address, self.modelAddress, acc.collateral)
-    #             txHash = self.model.functions.register().transact(tx)
+    #             tx = super().build_tx(acc.address, self.contractAddress, acc.collateral)
+    #             txHash = self.contract.functions.register().transact(tx)
     #         else:
     #             # Non-fork: build and sign a raw transaction manually
-    #             nonce = self.w3.eth.get_transaction_count(acc.address) 
+    #             nonce = globals.w3.eth.get_transaction_count(acc.address) 
     #             reg = super().build_non_fork_tx(acc.address, nonce, value=acc.collateral)
-    #             reg = self.model.functions.register().build_transaction(reg)
-    #             signed = self.w3.eth.account.sign_transaction(reg, private_key=acc.privateKey)
-    #             txHash = self.w3.eth.send_raw_transaction(signed.raw_transaction)
+    #             reg = self.contract.functions.register().build_transaction(reg)
+    #             signed = globals.w3.eth.account.sign_transaction(reg, private_key=acc.privateKey)
+    #             txHash = globals.w3.eth.send_raw_transaction(signed.raw_transaction)
     #         txs.append(txHash)
-    #         bal = self.w3.eth.get_balance(self.w3.eth.default_account)
+    #         bal = globals.w3.eth.get_balance(globals.w3.eth.default_account)
     #         acc.isRegistered = True
     #         print("{:<17} {} | {} | {:>25,.0f} WEI".format("Account registered:", 
     #                                                        acc.address[0:16] + "...", 
@@ -121,7 +120,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
     #     l = len(txs)
     #     for i, txHash in enumerate(txs):
     #         printer.print_bar(i, l)
-    #         receipt = self.w3.eth.wait_for_transaction_receipt(txHash,
+    #         receipt = globals.w3.eth.wait_for_transaction_receipt(txHash,
     #                                                         timeout=600, 
     #                                                         poll_latency=1)
             
@@ -131,21 +130,21 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
         
     
     def get_hashed_weights_of(self, user):
-        return self.model.functions.weightsOf(user.address,self.pytorch_model.round-1).call({"to": self.modelAddress})
+        return self.contract.functions.weightsOf(user.address,self.pytorch_model.round-1).call({"to": self.contractAddress})
     
     def get_global_reputation_of_user(self, userAddr):
-        user = self.model.functions.getUser(userAddr).call()
+        user = self.contract.functions.getUser(userAddr).call()
         return user[2]
     
     def get_round_reputation_of_user(self, user):
-        user_struct = self.model.functions.users(user).call()
+        user_struct = self.contract.functions.users(user).call()
         return user_struct[2]
 
     def get_reward_left(self):
-        return self.model.functions.rewardLeft().call({"to": self.modelAddress})
+        return self.contract.functions.rewardLeft().call({"to": self.contractAddress})
 
     def users_provide_hashed_weights(self):
-
+        global fork
         txs = []
         for acc in self.pytorch_model.participants:
             if acc.attitude == "inactive":
@@ -155,16 +154,16 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                                                                          self.get_global_reputation_of_user(acc.address)
                                                                          ))
                 continue
-            if self.fork:
-                tx = super().build_tx(acc.address, self.modelAddress, 0)
-                txHash = self.model.functions.provideHashedWeights(acc.hashedModel, acc.secret).transact(tx)
+            if fork:
+                tx = super().build_tx(acc.address, self.contractAddress, 0)
+                txHash = self.contract.functions.provideHashedWeights(acc.hashedModel, acc.secret).transact(tx)
 
             else:          
-                nonce = self.w3.eth.get_transaction_count(acc.address) 
+                nonce = globals.w3.eth.get_transaction_count(acc.address) 
                 hw = super().build_non_fork_tx(acc.address, nonce)
-                hw =  self.model.functions.provideHashedWeights(acc.hashedModel, acc.secret).build_transaction(hw)
-                signed = self.w3.eth.account.sign_transaction(hw, private_key=acc.privateKey)
-                txHash = self.w3.eth.send_raw_transaction(signed.raw_transaction)
+                hw =  self.contract.functions.provideHashedWeights(acc.hashedModel, acc.secret).build_transaction(hw)
+                signed = globals.w3.eth.account.sign_transaction(hw, private_key=acc.privateKey)
+                txHash = globals.w3.eth.send_raw_transaction(signed.raw_transaction)
             txs.append(txHash)
             print("{:<17}   {} | {} | {:>25,.0f} WEI".format("Weights provided:", 
                                                                          acc.address[0:16] + "...", 
@@ -174,7 +173,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
         l = len(txs)
         for i, txHash in enumerate(txs):
             printer.print_bar(i, l)
-            receipt = self.w3.eth.wait_for_transaction_receipt(txHash,
+            receipt = globals.w3.eth.wait_for_transaction_receipt(txHash,
                                                             timeout=600, 
                                                             poll_latency=1)
             
@@ -193,26 +192,28 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
 
         If target is in feedbackGiver.cheater list, force score to -1.
         """
+        global fork
+        global w3
         time.sleep(0.1)
-        tx = super().build_tx(feedbackGiver.address, self.modelAddress, 0)
+        tx = super().build_tx(feedbackGiver.address, self.contractAddress, 0)
         #data = "0x" + encode_abi(['address', 'uint'], [target, score]).hex()
         if target in feedbackGiver.cheater:
             score = -1
         try:
-            if self.fork:
-                txHash = self.model.functions.feedback(target.address, score).transact(tx)
+            if fork:
+                txHash = self.contract.functions.feedback(target.address, score).transact(tx)
             else:          
-                nonce = self.w3.eth.get_transaction_count(feedbackGiver.address)
+                nonce = w3.eth.get_transaction_count(feedbackGiver.address)
                 fe = super().build_non_fork_tx(feedbackGiver.address, nonce)
-                fe =  self.model.functions.feedback(target.address, score).build_transaction(fe)
-                signed = self.w3.eth.account.sign_transaction(fe, private_key=feedbackGiver.privateKey)
-                txHash = self.w3.eth.send_raw_transaction(signed.raw_transaction)
+                fe =  self.contract.functions.feedback(target.address, score).build_transaction(fe)
+                signed = w3.eth.account.sign_transaction(fe, private_key=feedbackGiver.privateKey)
+                txHash = w3.eth.send_raw_transaction(signed.raw_transaction)
         except ContractLogicError as e:
             if "FRC" in str(e):
                 input("Inactive users found - such users do not provide hashed weights.. \nGoing to forward time for 1 day\n")
-                self.w3.provider.make_request("evm_increaseTime", [self.config.WAIT_DELAY])
+                w3.provider.make_request("evm_increaseTime", [self.config.WAIT_DELAY])
                 time.sleep(1)
-                txHash = self.model.functions.feedback(target.address, score).transact(tx)
+                txHash = self.contract.functions.feedback(target.address, score).transact(tx)
             else:
                 print(rb("Encountered error at feedback function"))
                 raise 
@@ -273,7 +274,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
             if txHash == None:
                 continue
             printer.print_bar(i, l)
-            receipt = self.w3.eth.wait_for_transaction_receipt(txHash,
+            receipt = globals.w3.eth.wait_for_transaction_receipt(txHash,
                                                             timeout=600, 
                                                             poll_latency=1)
             
@@ -338,54 +339,54 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
             rb_fbb = Web3.to_bytes(hexstr="0x" + fbb)
 
             if self.experiment_config.contribution_score_strategy in [ "naive", "dotproduct" ]:
-                if self.fork:
-                    tx = super().build_tx(user.address, self.modelAddress)
-                    tx_hash = self.model.functions.submitFeedbackBytes(
+                if globals.fork:
+                    tx = super().build_tx(user.address, self.contractAddress)
+                    tx_hash = self.contract.functions.submitFeedbackBytes(
                         rb_fbb
                     ).transact(tx)
                 else:
                     tx_hash = self.sign_and_send_tx(
                         user,
-                        self.model.functions.submitFeedbackBytes(rb_fbb)
+                        self.contract.functions.submitFeedbackBytes(rb_fbb)
                     )
                 txs.append(tx_hash)
 
             elif self.experiment_config.contribution_score_strategy == "accuracy_loss":
                 prev_acc = prev_accs[idx]
                 prev_loss = prev_losses[idx]
-                if self.fork:
-                    tx = super().build_tx(user.address, self.modelAddress)
-                    tx_hash = self.model.functions.submitFeedbackBytesAndAccuraciesLosses(rb_fbb, filtered_accs, filtered_losses, prev_acc, prev_loss).transact(tx)
+                if globals.fork:
+                    tx = super().build_tx(user.address, self.contractAddress)
+                    tx_hash = self.contract.functions.submitFeedbackBytesAndAccuraciesLosses(rb_fbb, filtered_accs, filtered_losses, prev_acc, prev_loss).transact(tx)
                 else:
                     tx_hash = self.sign_and_send_tx(
                         user,
-                        self.model.functions.submitFeedbackBytesAndAccuraciesLosses(rb_fbb, filtered_accs, filtered_losses, prev_acc, prev_loss)
+                        self.contract.functions.submitFeedbackBytesAndAccuraciesLosses(rb_fbb, filtered_accs, filtered_losses, prev_acc, prev_loss)
                     )
                 txs.append(tx_hash)
 
             elif self.experiment_config.contribution_score_strategy == "accuracy_only":
                 prev_acc = prev_accs[idx]
-                if self.fork:
-                    tx = super().build_tx(user.address, self.modelAddress)
-                    tx_hash = self.model.functions.submitFeedbackBytesAndAccuracies(rb_fbb, filtered_accs, prev_acc).transact(tx)
+                if globals.fork:
+                    tx = super().build_tx(user.address, self.contractAddress)
+                    tx_hash = self.contract.functions.submitFeedbackBytesAndAccuracies(rb_fbb, filtered_accs, prev_acc).transact(tx)
 
                 else:
                     tx_hash = self.sign_and_send_tx(
                         user,
-                        self.model.functions.submitFeedbackBytesAndAccuracies(rb_fbb, filtered_accs, prev_acc)
+                        self.contract.functions.submitFeedbackBytesAndAccuracies(rb_fbb, filtered_accs, prev_acc)
                     )
                 txs.append(tx_hash)
 
             elif self.experiment_config.contribution_score_strategy == "loss_only":
                 prev_loss = prev_losses[idx]
-                if self.fork:
-                    tx = super().build_tx(user.address, self.modelAddress)
-                    tx_hash = self.model.functions.submitFeedbackBytesAndLosses(rb_fbb, filtered_losses, prev_loss).transact(tx)
+                if globals.fork:
+                    tx = super().build_tx(user.address, self.contractAddress)
+                    tx_hash = self.contract.functions.submitFeedbackBytesAndLosses(rb_fbb, filtered_losses, prev_loss).transact(tx)
 
                 else:
                     tx_hash = self.sign_and_send_tx(
                         user,
-                        self.model.functions.submitFeedbackBytesAndLosses(rb_fbb, filtered_losses, prev_loss)
+                        self.contract.functions.submitFeedbackBytesAndLosses(rb_fbb, filtered_losses, prev_loss)
                     )
                 txs.append(tx_hash)
 
@@ -411,19 +412,19 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
 
 
     def sign_and_send_tx(self, user, contract_fn_call):
-        nonce = self.w3.eth.get_transaction_count(user.address)
+        nonce = globals.w3.eth.get_transaction_count(user.address)
         tx = super().build_non_fork_tx(user.address, nonce)
         tx = contract_fn_call.build_transaction(tx)
 
-        signed = self.w3.eth.account.sign_transaction(tx, private_key=user.privateKey)
-        return self.w3.eth.send_raw_transaction(signed.raw_transaction)
+        signed = globals.w3.eth.account.sign_transaction(tx, private_key=user.privateKey)
+        return globals.w3.eth.send_raw_transaction(signed.raw_transaction)
 
 
 
 
     def log_receipt(self, i, tx_hash, len_txs, receipt_type: str):
         printer.print_bar(i, len_txs)
-        receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash,
+        receipt = globals.w3.eth.wait_for_transaction_receipt(tx_hash,
                                                            timeout=600,
                                                            poll_latency=1)
 
@@ -433,22 +434,22 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
 
     def send_fallback_transaction_onchain(self, _to, _from, data, private_key=None):
         try:
-            if self.fork:
-                tx_hash = self.w3.eth.send_transaction({'to': _to, 'from': _from, 'data': data})
+            if globals.fork:
+                tx_hash = globals.w3.eth.send_transaction({'to': _to, 'from': _from, 'data': data})
             else:
-                nonce = self.w3.eth.get_transaction_count(_from)
-                hw = super().build_non_fork_tx(_from, nonce, self.modelAddress, 0, data)
-                signed = self.w3.eth.account.sign_transaction(hw, private_key=private_key)
-                tx_hash = self.w3.eth.send_raw_transaction(signed.raw_transaction)
+                nonce = globals.w3.eth.get_transaction_count(_from)
+                hw = super().build_non_fork_tx(_from, nonce, self.contractAddress, 0, data)
+                signed = globals.w3.eth.account.sign_transaction(hw, private_key=private_key)
+                tx_hash = globals.w3.eth.send_raw_transaction(signed.raw_transaction)
 
         except ContractLogicError as e:
             if "FRC" in str(e):
                 input("Inactive users found - such users do not " \
                       + "provide hashed weights.. \nGoing to forward time for 1 day\n")
 
-                self.w3.provider.make_request("evm_increaseTime", [self.config.WAIT_DELAY])
+                globals.w3.provider.make_request("evm_increaseTime", [self.config.WAIT_DELAY])
                 time.sleep(1)
-                tx_hash = self.w3.eth.send_transaction({'to': _to,
+                tx_hash = globals.w3.eth.send_transaction({'to': _to,
                                                        'from': _from,
                                                        'data': data,
                                                        "gas": 500000})
@@ -460,21 +461,21 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
     # Not used
     # def call_close_feedback_round(self, force):
     #     if self.fork:
-    #         tx = super().build_tx(self.w3.eth.default_account, self.modelAddress, 0)
-    #         txHash = self.model.functions.closeFeedBackRound(force).transact(tx)
+    #         tx = super().build_tx(globals.w3.eth.default_account, self.contractAddress, 0)
+    #         txHash = self.contract.functions.closeFeedBackRound(force).transact(tx)
     #
     #     else:
-    #         nonce = self.w3.eth.get_transaction_count(self.pytorch_model.participants[0].address)
+    #         nonce = globals.w3.eth.get_transaction_count(self.pytorch_model.participants[0].address)
     #         cl = super().build_non_fork_tx(self.pytorch_model.participants[0].address,
     #                                     nonce,
-    #                                     self.modelAddress,
+    #                                     self.contractAddress,
     #                                     0)
-    #         cl =  self.model.functions.closeFeedBackRound(force).buildTransaction(cl)
+    #         cl =  self.contract.functions.closeFeedBackRound(force).buildTransaction(cl)
     #         pk = self.pytorch_model.participants[0].privateKey
-    #         signed = self.w3.eth.account.signTransaction(cl, private_key=pk)
-    #         txHash = self.w3.eth.sendRawTransaction(signed.rawTransaction)
+    #         signed = globals.w3.eth.account.signTransaction(cl, private_key=pk)
+    #         txHash = globals.w3.eth.sendRawTransaction(signed.rawTransaction)
     #
-    #     return self.w3.eth.wait_for_transaction_receipt(txHash,
+    #     return globals.w3.eth.wait_for_transaction_receipt(txHash,
     #                                                     timeout=600,
     #                                                     poll_latency=1)
 
@@ -482,12 +483,12 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
         if "inactive" in [acc.attitude for acc in self.pytorch_model.participants]:
                 input("Inactive users found - such users do not provide feedback.. " \
                           + "\nGoing to forward time for 1 day\n")
-                self.w3.provider.make_request("evm_increaseTime", [self.config.WAIT_DELAY])
+                globals.w3.provider.make_request("evm_increaseTime", [self.config.WAIT_DELAY])
         
         print(b(f"\Feedback round: {self.pytorch_model.round}"))
         settleStart = datetime.datetime.now(datetime.timezone.utc).timestamp()
         while (datetime.datetime.now(datetime.timezone.utc).timestamp() < settleStart + config.get_contracts_config().FEEDBACK_ROUND_TIMEOUT):
-            if (self.model.functions.isFeedBackRoundDone().call()):
+            if (self.contract.functions.isFeedBackRoundDone().call()):
                 print("Feedback round completed")
                 break
             print("Feedback round not done, sleeping for 10 seconds...")
@@ -498,7 +499,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
         print(b(f"\Contribution round: {self.pytorch_model.round}"))
         contributionStart = datetime.datetime.now(datetime.timezone.utc).timestamp()
         while (datetime.datetime.now(datetime.timezone.utc).timestamp() < contributionStart + config.get_contracts_config().CONTRIBUTION_ROUND_TIMEOUT):
-            if (self.model.functions.isContributionRoundDone().call()):
+            if (self.contract.functions.isContributionRoundDone().call()):
                 print("Contribution round completed")
                 break
             print("Contribution round not done, sleeping for 10 seconds...")
@@ -508,18 +509,18 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
 
 
         print(b(f"\Settling round: {self.pytorch_model.round}"))
-        if self.fork:
-            tx = super().build_tx(self.w3.eth.default_account, self.modelAddress, 0)
-            txHash = self.model.functions.settle().transact(tx)
+        if globals.fork:
+            tx = super().build_tx(globals.w3.eth.default_account, self.contractAddress, 0)
+            txHash = self.contract.functions.settle().transact(tx)
         else:
-            nonce = self.w3.eth.get_transaction_count(self.pytorch_model.participants[0].address, 'pending')
+            nonce = globals.w3.eth.get_transaction_count(self.pytorch_model.participants[0].address, 'pending')
             cl = super().build_non_fork_tx(self.pytorch_model.participants[0].address, nonce)
-            cl =  self.model.functions.settle().build_transaction(cl)
+            cl =  self.contract.functions.settle().build_transaction(cl)
             pk = self.pytorch_model.participants[0].privateKey
-            signed = self.w3.eth.account.sign_transaction(cl, private_key=pk)
-            txHash = self.w3.eth.send_raw_transaction(signed.raw_transaction)
+            signed = globals.w3.eth.account.sign_transaction(cl, private_key=pk)
+            txHash = globals.w3.eth.send_raw_transaction(signed.raw_transaction)
 
-        receipt = self.w3.eth.wait_for_transaction_receipt(txHash,
+        receipt = globals.w3.eth.wait_for_transaction_receipt(txHash,
                                                         timeout=600,
                                                         poll_latency=1)
         print("settling round completed")
@@ -548,14 +549,14 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
             reservation = Web3.solidity_keccak(['bytes32', 'uint256', 'address'],
                                               [acc.hashedModel,
                                                acc.secret, acc.address])
-            if self.fork:
-                tx = super().build_tx(acc.address, self.modelAddress, 0)
-                txHash = self.model.functions.registerSlot(reservation).transact(tx)
+            if globals.fork:
+                tx = super().build_tx(acc.address, self.contractAddress, 0)
+                txHash = self.contract.functions.registerSlot(reservation).transact(tx)
             else:
                 w3 = ConnectionHelper.get_w3()          
                 nonce = w3.eth.get_transaction_count(acc.address) 
                 sl = super().build_non_fork_tx(acc.address, nonce)
-                sl =  self.model.functions.registerSlot(reservation).build_transaction(sl)
+                sl =  self.contract.functions.registerSlot(reservation).build_transaction(sl)
                 signed = w3.eth.account.sign_transaction(sl, private_key=acc.privateKey)
                 txHash = w3.eth.send_raw_transaction(signed.raw_transaction)
             txs.append(txHash)
@@ -567,7 +568,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
         l = len(txs)
         for i, txHash in enumerate(txs):
             printer.print_bar(i, l)
-            receipt = self.w3.eth.wait_for_transaction_receipt(txHash,
+            receipt = globals.w3.eth.wait_for_transaction_receipt(txHash,
                                                             timeout=600, 
                                                             poll_latency=1)
             
@@ -585,26 +586,26 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
         txs = []
         for acc in self.pytorch_model.participants:
             
-            if self.fork:
-                tx = super().build_tx(acc.address, self.modelAddress, 0)
-                txHash = self.model.functions.exitModel().transact(tx)
+            if globals.fork:
+                tx = super().build_tx(acc.address, self.contractAddress, 0)
+                txHash = self.contract.functions.exitModel().transact(tx)
             else:
                 w3 = ConnectionHelper.get_w3()          
                 nonce = w3.eth.get_transaction_count(acc.address) 
                 ex = super().build_non_fork_tx(acc.address, nonce)
-                ex =  self.model.functions.exitModel().build_transaction(ex)
+                ex =  self.contract.functions.exitModel().build_transaction(ex)
                 signed = w3.eth.account.sign_transaction(ex, private_key=acc.privateKey)
                 txHash = w3.eth.send_raw_transaction(signed.raw_transaction)
             txs.append(txHash)
             print("{:<17}   {} | {} | {:>27,.0f} WEI".format("Account exited:  ", 
                                                              acc.address[0:16] + "...", 
                                                              txHash.hex()[0:6] + "...",
-                                                             self.w3.eth.get_balance(acc.address)
+                                                             globals.w3.eth.get_balance(acc.address)
                                                              ))
         l = len(txs)
         for i, txHash in enumerate(txs):
             printer.print_bar(i, l)
-            receipt = self.w3.eth.wait_for_transaction_receipt(txHash,
+            receipt = globals.w3.eth.wait_for_transaction_receipt(txHash,
                                                             timeout=600, 
                                                             poll_latency=1)
             
@@ -615,8 +616,8 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
     def print_round_summary(self, receipt):
 
         events = self.get_events(
-            w3=self.w3,
-            contract=self.model,
+            w3=globals.w3,
+            contract=self.contract,
             receipt=receipt,
             event_names=["EndRound", "Reward", "Punishment", "Disqualification"]
         )
@@ -723,23 +724,23 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
             u.is_contrib_score_negative = True if score < 0 else False
             u.contribution_score = score
 
-            if self.fork:
-                tx = super().build_tx(u.address, self.modelAddress)
-                tx_hash = self.model.functions.submitContributionScore(
+            if globals.fork:
+                tx = super().build_tx(u.address, self.contractAddress)
+                tx_hash = self.contract.functions.submitContributionScore(
                     score
                 ).transact(tx)
             else:  # TODO: Dobbeltjek at logic er rigtig her.
-                nonce = self.w3.eth.get_transaction_count(u.address)
+                nonce = globals.w3.eth.get_transaction_count(u.address)
                 cl = super().build_non_fork_tx(
                     u.address,
                     nonce,
                 )
-                cl = self.model.functions.submitContributionScore(
+                cl = self.contract.functions.submitContributionScore(
                     score,
                 ).build_transaction(cl)
                 pk = u.privateKey
-                signed = self.w3.eth.account.sign_transaction(cl, private_key=pk)
-                tx_hash = self.w3.eth.send_raw_transaction(signed.raw_transaction)
+                signed = globals.w3.eth.account.sign_transaction(cl, private_key=pk)
+                tx_hash = globals.w3.eth.send_raw_transaction(signed.raw_transaction)
             txs.append(tx_hash)
 
             print(green(f"\nUSER @ {u.id}"))
@@ -792,7 +793,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
         # prev_acc, prev_loss: int
 
         # Array of previous accuracies and losses from all users: A tuple of arrays
-        prev_accuracies, prev_losses = self.model.functions.getAllPreviousAccuraciesAndLosses().call()
+        prev_accuracies, prev_losses = self.contract.functions.getAllPreviousAccuraciesAndLosses().call()
 
         # use mad on these and average them
 
@@ -808,7 +809,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
         for u in users: # For loop to extract accuracies and loses.
 
             # All accuracies and loses per user
-            _, accuracies, losses = self.model.functions.getAllAccuraciesLossesAbout(u.address).call()
+            _, accuracies, losses = self.contract.functions.getAllAccuraciesLossesAbout(u.address).call()
 
             try:
                 # Multiple accuracies and losses per user
@@ -858,7 +859,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
         # prev_acc: int
 
         # Array of previous accuracies from all users: A tuple of arrays
-        prev_accuracies, _ = self.model.functions.getAllPreviousAccuraciesAndLosses().call()
+        prev_accuracies, _ = self.contract.functions.getAllPreviousAccuraciesAndLosses().call()
 
         # use mad on these and average them
         mad_prev_accuracies = remove_outliers_mad(prev_accuracies, mad_threshold)
@@ -867,7 +868,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
 
         for u in users: # For loop to extract accuracies.
             # All accuracies per user
-            _, accuracies = self.model.functions.getAllAccuraciesAbout(u.address).call()
+            _, accuracies = self.contract.functions.getAllAccuraciesAbout(u.address).call()
 
             try:
                 # Multiple accuracies per user
@@ -903,7 +904,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
         # prev_loss: int
 
         # Array of previous losses from all users: A tuple of arrays
-        _, prev_losses = self.model.functions.getAllPreviousAccuraciesAndLosses().call()
+        _, prev_losses = self.contract.functions.getAllPreviousAccuraciesAndLosses().call()
 
         # use mad on these and average them
         mad_prev_losses = remove_outliers_mad(prev_losses, mad_threshold)
@@ -912,7 +913,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
 
         for u in users: # For loop to extract losses.
             # All loses per user
-            _, losses = self.model.functions.getAllLossesAbout(u.address).call()
+            _, losses = self.contract.functions.getAllLossesAbout(u.address).call()
 
             try:
                 # Multiple accuracies and losses per user
@@ -997,9 +998,9 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
 
 
     def get_round_rewards(self, receipt):
-        events = get_events(
-            w3=self.w3,
-            contract=self.model,
+        events = self.get_events(
+            w3=globals.w3,
+            contract=self.contract,
             receipt=receipt,
             event_names=["Reward"]
         )
@@ -1036,8 +1037,8 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
           9) Close round, print summary
         At the end, all users exit the system.
         """
-        print(self.modelAddress)
-        self.let_users_join()
+        print(self.contractAddress)
+        #self.let_users_join()
         
         grs = [(user.address, user._globalrep[-1]) for user in self.pytorch_model.participants + self.pytorch_model.disqualified]
         
@@ -1269,7 +1270,46 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
         #plt.show()
         return plt
     
-    def let_users_join(JobListingAddr: str):
+    def let_users_join(self, JobListing: JobListing):
+        txs = JobListing.let_all_participants_register(self.pytorch_model.participants)
+        # for acc in self.pytorch_model.participants:
+        #     if acc.isRegistered:
+        #         continue
+
+        #     (receipt, _) = self.transact("register", acc.address, acc.collateral, [])
+            
+        #     txHash = receipt["transactionHash"]
+
+        #     # if self.fork:
+        #     #     # Simple tx builder for forked (dev) chain
+        #     #     tx = super().build_tx(acc.address, self.contractAddress, acc.collateral)
+        #     #     txHash = self.contract.functions.register().transact(tx)
+        #     # else:
+        #     #     # Non-fork: build and sign a raw transaction manually
+        #     #     nonce = globals.w3.eth.get_transaction_count(acc.address) 
+        #     #     reg = super().build_non_fork_tx(acc.address, nonce, value=acc.collateral)
+        #     #     reg = self.contract.functions.register().build_transaction(reg)
+        #     #     signed = globals.w3.eth.account.sign_transaction(reg, private_key=acc.privateKey)
+        #     #     txHash = globals.w3.eth.send_raw_transaction(signed.raw_transaction)
+        #     txs.append(txHash)
+        #     bal = globals.w3.eth.get_balance(globals.w3.eth.default_account)
+        #     acc.isRegistered = True
+        #     print("{:<17} {} | {} | {:>25,.0f} WEI".format("Account registered:", 
+        #                                                    acc.address[0:16] + "...", 
+        #                                                    txHash.hex()[0:6] + "...", 
+        #                                                    acc.collateral
+        #                                                    ))
+        
+        l = len(txs)
+        for i, txHash in enumerate(txs):
+            printer.print_bar(i, l)
+            receipt = globals.w3.eth.wait_for_transaction_receipt(txHash,
+                                                            timeout=600, 
+                                                            poll_latency=1)
+            
+            self.gas_register.append(receipt["gasUsed"])
+            self.txHashes.append(("register",receipt["transactionHash"].hex(), receipt["gasUsed"]))
+        printer._print("-----------------------------------------------------------------------------------", "\n")
         
 
 

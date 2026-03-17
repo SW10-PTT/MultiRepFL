@@ -10,7 +10,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch, call
 from web3.exceptions import ContractLogicError
 
-from openfl.contracts.fl_challenge import (
+from openfl.contracts.FLChallenge import (
     FLChallenge,
     calc_contribution_scores_dotproduct,
     remove_outliers_mad,

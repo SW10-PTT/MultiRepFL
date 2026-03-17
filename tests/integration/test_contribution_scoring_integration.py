@@ -8,7 +8,7 @@ import numpy as np
 # All scoring helpers come from the challenge contract. These tests
 # validate how the contract normalizes/weights participant updates across the
 # three scoring strategies exposed in production (dotproduct, naive, accuracy).
-from openfl.contracts.fl_challenge import (
+from openfl.contracts.FLChallenge import (
     FLChallenge,
     calc_contribution_score_naive,
     calc_contribution_scores_dotproduct,

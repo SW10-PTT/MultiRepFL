@@ -9,7 +9,9 @@
 // represent Proof-of-Concepts and have not been developed to be used in productive
 // environments. Do not use them, except for testing purpose.
 
-pragma solidity =0.8.9;
+pragma solidity ^0.8.0;
+
+import "./Types.sol";
 
 contract OpenFLModel {
     bytes32 public modelHash;
@@ -31,6 +33,7 @@ contract OpenFLModel {
     uint public roundStart;
     uint public contributionStart;
     uint public freeriderPenalty;
+    TaskType taskType;
     uint constant ONE_DAY = 864e2;
 
     address[] public participants;
@@ -77,7 +80,6 @@ contract OpenFLModel {
         uint16[] loss;
     }
 
-
     mapping(uint8 => mapping(address => uint16)) public prev_accs;
     mapping(uint8 => mapping(address => uint16)) public prev_losses;
 
@@ -90,7 +92,6 @@ contract OpenFLModel {
 
     mapping(uint16 => mapping(address => LossSubmission[]))
         private lossSubmissions;
-
 
     modifier onlyRegisteredUsers() {
         require(users[msg.sender].isRegistered, "SNR");
@@ -122,8 +123,8 @@ contract OpenFLModel {
         _;
     }
 
-    modifier onlyNotYetRegisteredUsers() {
-        require(!users[msg.sender].isRegistered, "SAR");
+    modifier onlyNotYetRegisteredUsers(address userAddr) {
+        require(!users[userAddr].isRegistered, "SAR");
         _;
     }
 
@@ -188,31 +189,33 @@ contract OpenFLModel {
         uint newReputation
     );
 
-    event Reward(address user, int256 roundScore, uint win, uint newReputation, bool is_reward);
+    event Reward(
+        address user,
+        int256 roundScore,
+        uint win,
+        uint newReputation,
+        bool is_reward
+    );
 
-    constructor(
-        bytes32 _modelHash,
-        uint _min_collateral,
-        uint _max_collateral,
-        uint _reward,
-        uint8 _min_rounds,
-        uint8 _punishfactor,
-        uint8 _punishfactorContrib,
-        uint8 _freeriderPenalty
-    ) payable {
+    constructor(TrainingSpecifications memory taskSpecs) payable {
         // Initialize Contract
         initTS = block.timestamp;
         roundStart = block.timestamp;
-        modelHash = _modelHash;
-        min_collateral = _min_collateral;
-        max_collateral = _max_collateral;
-        totalReward = _reward;
-        min_rounds = _min_rounds;
-        punishfactor = _punishfactor;
-        punishfactorContrib = _punishfactorContrib;
-        freeriderPenalty = (min_collateral * _freeriderPenalty) / 100;
+        modelHash = taskSpecs.modelHash;
+        min_collateral = taskSpecs.min_collateral;
+        max_collateral = taskSpecs.max_collateral;
+        totalReward = taskSpecs.reward;
+        min_rounds = taskSpecs.min_rounds;
+        punishfactor = taskSpecs.punishfactor;
+        punishfactorContrib = taskSpecs.punishfactorContrib;
+        taskType = taskSpecs.taskType;
+        freeriderPenalty = (min_collateral * freeriderPenalty) / 100;
         rewardPerRound = totalReward / min_rounds;
         rewardLeft = totalReward;
+
+        for (uint16 i = 0; i < taskSpecs.selectedParticipants.length; i++) {
+            registrationProcess(taskSpecs.selectedParticipants[i]);
+        }
 
         emit FederatedLerningModelDeployed(
             initTS,
@@ -228,29 +231,15 @@ contract OpenFLModel {
         testing = _testing;
     }
 
-    // Register participants
-    function register() public payable onlyNotYetRegisteredUsers {
+    // Registration
+    function registrationProcess(
+        address userAddr
+    ) internal onlyNotYetRegisteredUsers(userAddr) {
         require(
             msg.value >= min_collateral && msg.value <= max_collateral,
             "NWR"
         );
-        registrationProcess(msg.sender);
-    }
 
-    // Register initiator of model
-    function register(
-        address initiator
-    ) public payable onlyNotYetRegisteredUsers {
-        require(
-            msg.value >= min_collateral && msg.value <= max_collateral,
-            "NWR"
-        );
-        // Require Staking here
-        registrationProcess(initiator);
-    }
-
-    // Registration helper
-    function registrationProcess(address userAddr) internal {
         User storage user = users[userAddr];
         user.isRegistered = true;
         user.globalReputationScore = msg.value;
@@ -258,12 +247,13 @@ contract OpenFLModel {
         user.addr = userAddr;
         nrOfActiveParticipants += 1;
         participants.push(userAddr);
-        emit Registered(
-            user.addr,
-            msg.value,
-            address(this).balance,
-            nrOfActiveParticipants
-        );
+
+        // emit Registered(
+        //     user.addr,
+        //     msg.value,
+        //     address(this).balance,
+        //     nrOfActiveParticipants
+        // );
     }
 
     // Register Slot
@@ -393,9 +383,14 @@ contract OpenFLModel {
                 if (user.roundReputation < 0) {
                     votesPerRound -= user.nrOfVotesFromUser;
 
-                    uint punishment = uint(user.globalReputationScore / punishfactor);
+                    uint punishment = uint(
+                        user.globalReputationScore / punishfactor
+                    );
 
-                    if (user.globalReputationScore > min_collateral / punishfactor) {
+                    if (
+                        user.globalReputationScore >
+                        min_collateral / punishfactor
+                    ) {
                         user.isPunished = true;
                         punishedAddresses.push(participants[i]);
                         user.whitelistedForRewards = false;
@@ -490,33 +485,59 @@ contract OpenFLModel {
             uint reward = rewardPerRound;
             reward += totalPunishment;
 
-
             // Compute weights
             for (uint i = 0; i < participants.length; i++) {
                 User storage user = users[participants[i]];
 
-                if (_isEligibleForRewards(user) && contributionScore[round][user.addr] > 0) {
-                    int256 weight = int256(uint(user.nrOfVotesFromUser)) * contributionScore[round][user.addr];
+                if (
+                    _isEligibleForRewards(user) &&
+                    contributionScore[round][user.addr] > 0
+                ) {
+                    int256 weight = int256(uint(user.nrOfVotesFromUser)) *
+                        contributionScore[round][user.addr];
                     user.weightedContribScore = weight;
                     sumOfWeightedContribScore += weight;
                 }
             }
-            require(sumOfWeightedContribScore > 0, "sumOfWeightedContribScore is <= 0 in settle!");
-            positiveSumOfWeightedContribScore = uint256(sumOfWeightedContribScore);
+            require(
+                sumOfWeightedContribScore > 0,
+                "sumOfWeightedContribScore is <= 0 in settle!"
+            );
+            positiveSumOfWeightedContribScore = uint256(
+                sumOfWeightedContribScore
+            );
 
             // check if a user should be disqualified or punished
             for (uint i = 0; i < participants.length; i++) {
                 User storage user = users[participants[i]];
 
-                if (_isEligibleForRewards(user) && contributionScore[round][user.addr] < 0) {
-                    require(punishfactorContrib > 0, "punishfactorcontrib <= 0");
-                    require(user.globalReputationScore > 0, "user.globalreputation <= 0");
-                    require(contributionScore[round][user.addr] < 0, "contrib >= 0");
-                    uint punishment = (user.globalReputationScore / punishfactorContrib) * absUint((contributionScore[round][user.addr]));
+                if (
+                    _isEligibleForRewards(user) &&
+                    contributionScore[round][user.addr] < 0
+                ) {
+                    require(
+                        punishfactorContrib > 0,
+                        "punishfactorcontrib <= 0"
+                    );
+                    require(
+                        user.globalReputationScore > 0,
+                        "user.globalreputation <= 0"
+                    );
+                    require(
+                        contributionScore[round][user.addr] < 0,
+                        "contrib >= 0"
+                    );
+                    uint punishment = (user.globalReputationScore /
+                        punishfactorContrib) *
+                        absUint((contributionScore[round][user.addr]));
                     require(punishment > 0, "punishment is <= 0 in settle! 1");
                     punishment /= 1e18;
                     require(punishment > 0, "punishment is <= 0 in settle! 2");
-                    if (user.globalReputationScore <= min_collateral / punishfactorContrib || user.globalReputationScore <= punishment) {
+                    if (
+                        user.globalReputationScore <=
+                        min_collateral / punishfactorContrib ||
+                        user.globalReputationScore <= punishment
+                    ) {
                         reward += user.globalReputationScore;
 
                         emit Disqualification(
@@ -529,8 +550,8 @@ contract OpenFLModel {
                         user.globalReputationScore = 0;
                         nrOfActiveParticipants -= 1;
                         user.isDisqualified = true;
-                    }
-                    else { // this is a punishment
+                    } else {
+                        // this is a punishment
                         user.globalReputationScore -= punishment;
                         reward += punishment;
 
@@ -552,8 +573,14 @@ contract OpenFLModel {
             for (uint i = 0; i < participants.length; i++) {
                 User storage user = users[participants[i]];
 
-                if (_isEligibleForRewards(user) && contributionScore[round][user.addr] >= 0) { // NOTE: This refactor adds the case of !user.Disqualified, in contrast to before)
-                    uint personalReward = (reward * uint(user.weightedContribScore)) / positiveSumOfWeightedContribScore;
+                if (
+                    _isEligibleForRewards(user) &&
+                    contributionScore[round][user.addr] >= 0
+                ) {
+                    // NOTE: This refactor adds the case of !user.Disqualified, in contrast to before)
+                    uint personalReward = (reward *
+                        uint(user.weightedContribScore)) /
+                        positiveSumOfWeightedContribScore;
 
                     user.globalReputationScore += personalReward;
 
@@ -641,16 +668,15 @@ contract OpenFLModel {
             accuracies.length == ads.length,
             "INVALID_LENGTH OF ACCURACY ARRAY"
         );
-        require(
-            losses.length == ads.length, "INVALID_LENGTH OF LOSS ARRAY");
-            accuracyLossSubmissions[round][msg.sender].push(
+        require(losses.length == ads.length, "INVALID_LENGTH OF LOSS ARRAY");
+        accuracyLossSubmissions[round][msg.sender].push(
             AccuracyLossSubmission({adrs: ads, acc: accuracies, loss: losses})
         );
         require(
             prev_acc >= 0 && prev_acc <= 10000,
             "PREVIOUS ACCURACY NOT BETWEEN 0 AND 10000 in submitFeedbackBytesAndAccuraciesLosses"
         );
-        require (
+        require(
             prev_loss >= 0 && prev_loss <= 10000,
             "PREVIOUS LOSS NOT BETWEEN 0 AND 10000 in submitFeedbackBytesAndAccuraciesLosses"
         );
@@ -662,8 +688,7 @@ contract OpenFLModel {
         }
     }
 
-
-     function submitFeedbackBytesAndAccuracies(
+    function submitFeedbackBytesAndAccuracies(
         bytes calldata raw,
         uint16[] calldata accuracies,
         uint16 prev_acc
@@ -671,14 +696,14 @@ contract OpenFLModel {
         address[] memory ads;
         int16[] memory ints;
 
-         (ads, ints) = parseRaw(raw);
+        (ads, ints) = parseRaw(raw);
 
         require(
             accuracies.length == ads.length,
             "INVALID_LENGTH OF ACCURACY ARRAY"
         );
 
-         accuracySubmissions[round][msg.sender].push(
+        accuracySubmissions[round][msg.sender].push(
             AccuracySubmission({adrs: ads, acc: accuracies})
         );
         require(
@@ -695,7 +720,6 @@ contract OpenFLModel {
         }
     }
 
-
     function submitFeedbackBytesAndLosses(
         bytes calldata raw,
         uint16[] calldata losses,
@@ -706,9 +730,8 @@ contract OpenFLModel {
 
         (ads, ints) = parseRaw(raw);
 
-        require(
-            losses.length == ads.length, "INVALID_LENGTH OF LOSS ARRAY");
-            lossSubmissions[round][msg.sender].push(
+        require(losses.length == ads.length, "INVALID_LENGTH OF LOSS ARRAY");
+        lossSubmissions[round][msg.sender].push(
             LossSubmission({adrs: ads, loss: losses})
         );
 
@@ -727,12 +750,9 @@ contract OpenFLModel {
         }
     }
 
-    function parseRaw(bytes calldata raw)
-        internal
-        pure
-        returns (address[] memory ads, int16[] memory ints)
-    {
-
+    function parseRaw(
+        bytes calldata raw
+    ) internal pure returns (address[] memory ads, int16[] memory ints) {
         assembly {
             let tmp := 0
             let tmp2 := 0
@@ -776,7 +796,6 @@ contract OpenFLModel {
             }
         }
     }
-
 
     function getAllPreviousAccuraciesAndLosses()
         external
@@ -826,12 +845,13 @@ contract OpenFLModel {
             uint subCount = accuracyLossSubmissions[round][sender.addr].length;
 
             for (uint j = 0; j < subCount; j++) {
-                AccuracyLossSubmission storage sub = accuracyLossSubmissions[round][
-                    sender.addr
-                ][j];
+                AccuracyLossSubmission storage sub = accuracyLossSubmissions[
+                    round
+                ][sender.addr][j];
 
                 for (uint k = 0; k < sub.adrs.length; k++) {
-                    if (sub.adrs[k] == target && _isEligibleVoter(sender)) { // TODO: GØR whitelisted eller lign. ACCESSIBLE OG CLEAR DEN EFTER ROUND END!
+                    if (sub.adrs[k] == target && _isEligibleVoter(sender)) {
+                        // TODO: GØR whitelisted eller lign. ACCESSIBLE OG CLEAR DEN EFTER ROUND END!
                         totalCount++;
                     }
                 }
@@ -851,33 +871,28 @@ contract OpenFLModel {
             uint subCount = accuracyLossSubmissions[round][sender.addr].length;
 
             for (uint j = 0; j < subCount; j++) {
-                AccuracyLossSubmission storage sub = accuracyLossSubmissions[round][
-                    sender.addr
-                ][j];
+                AccuracyLossSubmission storage sub = accuracyLossSubmissions[
+                    round
+                ][sender.addr][j];
 
                 for (uint k = 0; k < sub.adrs.length; k++) {
                     if (sub.adrs[k] == target && _isEligibleVoter(sender)) {
-                            voters[idx] = sender.addr;
-                            accuracies[idx] = sub.acc[k];
-                            losses[idx] = sub.loss[k];
-                            idx++;
+                        voters[idx] = sender.addr;
+                        accuracies[idx] = sub.acc[k];
+                        losses[idx] = sub.loss[k];
+                        idx++;
                     }
                 }
             }
         }
     }
 
-
-
     function getAllAccuraciesAbout(
         address target
     )
         external
         view
-        returns (
-            address[] memory voters,
-            uint16[] memory accuracies
-        )
+        returns (address[] memory voters, uint16[] memory accuracies)
     {
         uint totalCount = 0;
 
@@ -893,7 +908,7 @@ contract OpenFLModel {
 
                 for (uint k = 0; k < sub.adrs.length; k++) {
                     if (sub.adrs[k] == target && _isEligibleVoter(sender)) {
-                            totalCount++;
+                        totalCount++;
                     }
                 }
             }
@@ -917,26 +932,18 @@ contract OpenFLModel {
 
                 for (uint k = 0; k < sub.adrs.length; k++) {
                     if (sub.adrs[k] == target && _isEligibleVoter(sender)) {
-                            voters[idx] = sender.addr;
-                            accuracies[idx] = sub.acc[k];
-                            idx++;
+                        voters[idx] = sender.addr;
+                        accuracies[idx] = sub.acc[k];
+                        idx++;
                     }
                 }
             }
         }
     }
 
-
     function getAllLossesAbout(
         address target
-    )
-        external
-        view
-        returns (
-            address[] memory voters,
-            uint16[] memory losses
-        )
-    {
+    ) external view returns (address[] memory voters, uint16[] memory losses) {
         uint totalCount = 0;
 
         // 1️. First, count total matching entries to size arrays
@@ -951,7 +958,7 @@ contract OpenFLModel {
 
                 for (uint k = 0; k < sub.adrs.length; k++) {
                     if (sub.adrs[k] == target && _isEligibleVoter(sender)) {
-                            totalCount++;
+                        totalCount++;
                     }
                 }
             }
@@ -975,32 +982,32 @@ contract OpenFLModel {
 
                 for (uint k = 0; k < sub.adrs.length; k++) {
                     if (sub.adrs[k] == target && _isEligibleVoter(sender)) {
-                            voters[idx] = sender.addr;
-                            losses[idx] = sub.loss[k];
-                            idx++;
+                        voters[idx] = sender.addr;
+                        losses[idx] = sub.loss[k];
+                        idx++;
                     }
                 }
             }
         }
     }
 
-    function _isEligibleVoter(User storage sender) internal view returns (bool) {
-        return sender.isRegistered && !sender.isDisqualified && sender.roundReputation >= 0;
+    function _isEligibleVoter(
+        User storage sender
+    ) internal view returns (bool) {
+        return
+            sender.isRegistered &&
+            !sender.isDisqualified &&
+            sender.roundReputation >= 0;
     }
 
-    function _isEligibleForRewards(User storage user)
-        internal
-        view
-        returns (bool)
-    {
-        return (
-            user.isRegistered &&
+    function _isEligibleForRewards(
+        User storage user
+    ) internal view returns (bool) {
+        return (user.isRegistered &&
             user.whitelistedForRewards &&
             !user.isPunished &&
-            !user.isDisqualified
-        );
+            !user.isDisqualified);
     }
-
 
     // Fallback function parses dynamic size feedback arrays
     // @dev This allows the contract to have an arbitrary number of participants

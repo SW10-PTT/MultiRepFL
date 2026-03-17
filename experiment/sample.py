@@ -67,7 +67,8 @@ def getPath(experimentConfig: ExperimentConfiguration):
     return path
 
 if __name__ == "__main__":
-    mp.freeze_support()
+    if (False):
+        mp.freeze_support()
     main()
     for p in mp.active_children():
         #print("Terminating:", p.pid)

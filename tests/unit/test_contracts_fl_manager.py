@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-import openfl.contracts.fl_manager as fl_manager
+import openfl.contracts.FLManager as FLManager
 
 
 # Maybe delete these tests
@@ -18,10 +18,10 @@ class DummyHelper:
 
 def test_init_delegates_to_connection_helper(monkeypatch):
     helper = DummyHelper()
-    monkeypatch.setattr(fl_manager.ConnectionHelper, "initiate_rpc", lambda self, **kwargs: helper.initiate_rpc(**kwargs))
-    monkeypatch.setattr(fl_manager.ConnectionHelper, "initialize", lambda self: helper.initialize())
+    monkeypatch.setattr(FLManager.ConnectionHelper, "initiate_rpc", lambda self, **kwargs: helper.initiate_rpc(**kwargs))
+    monkeypatch.setattr(FLManager.ConnectionHelper, "initialize", lambda self: helper.initialize())
 
-    mgr = fl_manager.FLManager(pytorch_model="model")
+    mgr = FLManager.FLManager(pytorch_model="model")
     result = mgr.init(1, 0, 0, 0, 5)
 
     assert result is mgr
@@ -50,7 +50,7 @@ def test_get_model_queries_manager(monkeypatch):
             return FakeCall()
 
     manager_obj = SimpleNamespace(functions=FakeFunctions(), address="0xmanager")
-    mgr = fl_manager.FLManager(pytorch_model="model")
+    mgr = FLManager.FLManager(pytorch_model="model")
     mgr.manager = manager_obj
 
     participant = SimpleNamespace(address="0xabc")

@@ -9,7 +9,7 @@
 // represent Proof-of-Concepts and have not been developed to be used in productive
 // environments. Do not use them, except for testing purpose.
 
-pragma solidity =0.8.9;
+pragma solidity ^0.8.0;
 
 import "./Types.sol";
 import "./JobListing.sol";
@@ -26,7 +26,6 @@ contract OpenFLManager {
     }
 
     mapping(address => User) public users;
-    //mapping(address => uint256) public GlobalTaskRep;
 
     constructor() {}
 
@@ -38,7 +37,8 @@ contract OpenFLManager {
         uint8 _min_rounds,
         uint8 _punishfactor,
         uint8 _punishfactorContrib,
-        uint8 _freeriderPenalty
+        uint8 _freeriderPenalty,
+        TaskType _taskType
     ) public payable {
         require(msg.value >= _reward + _min_collateral, "NEV");
 
@@ -50,7 +50,9 @@ contract OpenFLManager {
             _min_rounds,
             _punishfactor,
             _punishfactorContrib,
-            _freeriderPenalty
+            _freeriderPenalty,
+            address(this),
+            _taskType
         );
 
         address listingAddr = address(listing);
@@ -59,29 +61,15 @@ contract OpenFLManager {
 
         emit JobCreated(listingAddr);
     }
-}
-/*function deployModel(
-        bytes32 _modelHash,
-        uint _min_collateral,
-        uint _max_collateral,
-        uint _reward,
-        uint8 _min_rounds,
-        uint8 _punishfactor,
-        uint8 _punishfactorContrib,
-        uint8 _freeriderPenalty
-    ) public payable {
-        ModelCountOf[msg.sender] += 1;
-        require(msg.value >= _reward + _min_collateral, "NEV");
-        OpenFLModel model = new OpenFLModel{value: _reward}(
-            _modelHash,
-            _min_collateral,
-            _max_collateral,
-            _reward,
-            _min_rounds,
-            _punishfactor,
-            _punishfactorContrib,
-            _freeriderPenalty
+
+    function getUserRep(
+        address addr,
+        TaskType taskType
+    ) public view returns (uint, uint, uint) {
+        return (
+            users[addr].GlobalTaskRep[taskType],
+            users[addr].GlobalIntegrityRep,
+            users[addr].NumberOfTasksJoined
         );
-        model.register{value: msg.value - _reward}(msg.sender);
-        ModelOf[msg.sender][ModelCountOf[msg.sender]] = address(model);
-    } */
+    }
+}

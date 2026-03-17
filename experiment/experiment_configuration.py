@@ -5,11 +5,11 @@ class ExperimentConfiguration:
                  number_of_freerider_contributors=1,
                  number_of_inactive_contributors=0,
                  reward=int(1e18),
-                 minimum_rounds=25,
+                 minimum_rounds=5,
                  min_buy_in=int(1e18),
                  max_buy_in=int(1e18),
                  standard_buy_in=int(1e18),
-                 epochs=25,
+                 epochs=1,
                  batch_size=128,
                  punish_factor=3,
                  punish_factor_contrib=3,
@@ -23,9 +23,7 @@ class ExperimentConfiguration:
                  malicious_noise_scale=1.0,
                  force_merge_all=False): # Sets all entries in fbb to zeroes
 
-        # Store the fork mode
         self.fork = fork
-
 
         # Apply scaling only if we’re on Sepolia (fork = False)
         if not fork:
