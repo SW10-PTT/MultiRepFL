@@ -13,8 +13,11 @@ pragma solidity ^0.8.0;
 
 import "./Types.sol";
 import "./JobListing.sol";
+import "./Clones.sol";
 
 contract OpenFLManager {
+    using Clones for address;
+
     event JobCreated(address job);
 
     struct User {
@@ -27,7 +30,10 @@ contract OpenFLManager {
 
     mapping(address => User) public users;
 
-    constructor() {}
+    address public implementation;
+    constructor() {
+        implementation = address(new JobListing());
+    }
 
     function CreateNewJob(
         bytes32 _modelHash,
@@ -42,7 +48,9 @@ contract OpenFLManager {
     ) public payable {
         require(msg.value >= _reward + _min_collateral, "NEV");
 
-        JobListing listing = new JobListing{value: _reward}(
+        address clone = implementation.clone();
+
+        JobListing(clone).initialize{value: _reward}(
             _modelHash,
             _min_collateral,
             _max_collateral,
@@ -55,11 +63,9 @@ contract OpenFLManager {
             _taskType
         );
 
-        address listingAddr = address(listing);
+        users[msg.sender].listings[clone] = JobListing(clone);
 
-        users[msg.sender].listings[listingAddr] = listing;
-
-        emit JobCreated(listingAddr);
+        emit JobCreated(clone);
     }
 
     function getUserRep(

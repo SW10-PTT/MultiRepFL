@@ -16,6 +16,7 @@ sources = {
     "OpenFLModel.sol":   {"content": (contracts_dir / "OpenFLModel.sol").read_text(encoding="utf-8")},
     "JobListing.sol":   {"content": (contracts_dir / "JobListing.sol").read_text(encoding="utf-8")},
     "Types.sol":   {"content": (contracts_dir / "Types.sol").read_text(encoding="utf-8")},
+    "Clones.sol":   {"content": (contracts_dir / "Clones.sol").read_text(encoding="utf-8")},
 }
 
 # 3) Compile
@@ -28,12 +29,18 @@ compiled = compile_standard({
     }
 })
 
-bytecode = compiled["contracts"]["OpenFLModel.sol"]["OpenFLModel"]["evm"]["bytecode"]["object"]
+contracts = [
+    ("Manager", compiled["contracts"]["OpenFLManager.sol"]["OpenFLManager"]),
+    ("JobListing", compiled["contracts"]["JobListing.sol"]["JobListing"]),
+    ("OpenFLModel", compiled["contracts"]["OpenFLModel.sol"]["OpenFLModel"]),
+]
 
-size_bytes = len(bytecode) // 2  # Each 2 hex chars = 1 byte
-size_kb = size_bytes / 1024
+for name, data in contracts:
+    bytecode = data["evm"]["bytecode"]["object"]
+    size_bytes = len(bytecode) // 2
+    size_kb = size_bytes / 1024
 
-print(f"Contract size: {size_bytes} bytes ({size_kb:.2f} KB)")
+    print(f"{name}: {size_bytes} bytes ({size_kb:.2f} KB)")
 
 # 4) Extract artifacts
 mgr = compiled["contracts"]["OpenFLManager.sol"]["OpenFLManager"]

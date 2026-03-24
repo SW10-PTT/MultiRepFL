@@ -33,6 +33,7 @@ contract JobListing {
     }
     mapping(address => User) public applicants;
 
+    bool initialized = false;
     uint public applicationWindowCloseTime;
     TaskType taskType;
     Manager manager;
@@ -41,7 +42,7 @@ contract JobListing {
     address managerAddress;
     TrainingSpecifications trainingSpecs;
 
-    constructor(
+    function initialize(
         bytes32 _modelHash,
         uint _min_collateral,
         uint _max_collateral,
@@ -52,7 +53,10 @@ contract JobListing {
         uint8 _freeriderPenalty,
         address _managerAddress,
         TaskType _taskType
-    ) payable {
+    ) external payable {
+        require(!initialized, "Already initialized");
+        initialized = true;
+
         managerAddress = _managerAddress;
         manager = Manager(_managerAddress);
         taskType = _taskType;
@@ -112,11 +116,11 @@ contract JobListing {
 
     function CreateNewTrainingContract() public payable {
         require(
-            msg.value >= trainingSpecs._reward + trainingSpecs._min_collateral,
+            msg.value >= trainingSpecs.reward + trainingSpecs.min_collateral,
             "NEV"
         );
 
-        OpenFLModel listing = new OpenFLModel{value: trainingSpecs._reward}(
+        OpenFLModel listing = new OpenFLModel{value: trainingSpecs.reward}(
             trainingSpecs
         );
 
