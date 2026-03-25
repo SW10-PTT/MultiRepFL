@@ -72,7 +72,6 @@ def run_experiment(dataset_name: str, experiment_config, writer: AsyncWriter=Non
                                               experiment_config.minimum_rounds,
                                               RPC_ENDPOINT,
                                               PRIVKEYS)
-  manager.build_contract()
 
   newJobListing, configs = manager.deploy_joblisting_contract(
                                           manager.pytorch_model.participants[0], # TODO: Fix

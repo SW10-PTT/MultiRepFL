@@ -458,27 +458,6 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                 raise
         return tx_hash
 
-    # Not used
-    # def call_close_feedback_round(self, force):
-    #     if self.fork:
-    #         tx = super().build_tx(globals.w3.eth.default_account, self.contractAddress, 0)
-    #         txHash = self.contract.functions.closeFeedBackRound(force).transact(tx)
-    #
-    #     else:
-    #         nonce = globals.w3.eth.get_transaction_count(self.pytorch_model.participants[0].address)
-    #         cl = super().build_non_fork_tx(self.pytorch_model.participants[0].address,
-    #                                     nonce,
-    #                                     self.contractAddress,
-    #                                     0)
-    #         cl =  self.contract.functions.closeFeedBackRound(force).buildTransaction(cl)
-    #         pk = self.pytorch_model.participants[0].privateKey
-    #         signed = globals.w3.eth.account.signTransaction(cl, private_key=pk)
-    #         txHash = globals.w3.eth.sendRawTransaction(signed.rawTransaction)
-    #
-    #     return globals.w3.eth.wait_for_transaction_receipt(txHash,
-    #                                                     timeout=600,
-    #                                                     poll_latency=1)
-
     def close_round(self):
         if "inactive" in [acc.attitude for acc in self.pytorch_model.participants]:
                 input("Inactive users found - such users do not provide feedback.. " \
@@ -496,7 +475,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
         else:
             print("Feedback round failed, forcing Contribution...")
 
-        print(b(f"\Contribution round: {self.pytorch_model.round}"))
+        print(b(f"Contribution round: {self.pytorch_model.round}"))
         contributionStart = datetime.datetime.now(datetime.timezone.utc).timestamp()
         while (datetime.datetime.now(datetime.timezone.utc).timestamp() < contributionStart + config.get_contracts_config().CONTRIBUTION_ROUND_TIMEOUT):
             if (self.contract.functions.isContributionRoundDone().call()):
@@ -508,7 +487,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
             print("Contribution round failed, forcing settlement...")
 
 
-        print(b(f"\Settling round: {self.pytorch_model.round}"))
+        print(b(f"Settling round: {self.pytorch_model.round}"))
         if globals.fork:
             tx = super().build_tx(globals.w3.eth.default_account, self.contractAddress, 0)
             txHash = self.contract.functions.settle().transact(tx)

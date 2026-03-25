@@ -1,6 +1,5 @@
 pragma solidity ^0.8.0;
 
-import "./OpenFLModel.sol";
 import "./Types.sol";
 
 interface Manager {
@@ -35,14 +34,13 @@ contract JobListing {
 
     bool initialized = false;
     uint public applicationWindowCloseTime;
-    TaskType taskType;
     Manager manager;
     address[] applicantAddresses;
     uint16 nrOfApplicants;
     address managerAddress;
     TrainingSpecifications trainingSpecs;
 
-    function initialize(
+    constructor(
         bytes32 _modelHash,
         uint _min_collateral,
         uint _max_collateral,
@@ -53,13 +51,9 @@ contract JobListing {
         uint8 _freeriderPenalty,
         address _managerAddress,
         TaskType _taskType
-    ) external payable {
-        require(!initialized, "Already initialized");
-        initialized = true;
-
+    ) payable {
         managerAddress = _managerAddress;
         manager = Manager(_managerAddress);
-        taskType = _taskType;
         applicationWindowCloseTime = block.timestamp + 1 seconds;
 
         trainingSpecs.freeriderPenalty = _freeriderPenalty;
@@ -74,11 +68,32 @@ contract JobListing {
         trainingSpecs.taskType = _taskType;
     }
 
+    function configHash() public view returns (bytes32) {
+        return
+            keccak256(
+                abi.encode(
+                    managerAddress,
+                    applicationWindowCloseTime,
+                    trainingSpecs.freeriderPenalty,
+                    trainingSpecs.managerAddress,
+                    trainingSpecs.max_collateral,
+                    trainingSpecs.min_collateral,
+                    trainingSpecs.min_rounds,
+                    trainingSpecs.modelHash,
+                    trainingSpecs.punishfactor,
+                    trainingSpecs.punishfactorContrib,
+                    trainingSpecs.reward,
+                    trainingSpecs.taskType
+                )
+            );
+    }
+
     function register() public payable onlyNotYetRegisteredUsers {
-        //require(
-        //    msg.value >= min_collateral && msg.value <= max_collateral,
-        //    "NWR"
-        //);
+        require(
+            msg.value >= trainingSpecs.min_collateral &&
+                msg.value <= trainingSpecs.max_collateral,
+            "NWR"
+        );
         registrationProcess(msg.sender);
     }
 
@@ -89,7 +104,7 @@ contract JobListing {
             uint taskRep,
             uint globalIntegrity,
             uint nrOfTasksParticipated
-        ) = manager.getUserRep(userAddr, taskType);
+        ) = manager.getUserRep(userAddr, trainingSpecs.taskType);
         user.globalTaskRep = taskRep;
         user.globalIntegrity = globalIntegrity;
         user.nrOfTasksParticipated = nrOfTasksParticipated;
@@ -112,21 +127,6 @@ contract JobListing {
         trainingSpecs.selectedParticipants = selected;
 
         emit SelectionComplete(selected);
-    }
-
-    function CreateNewTrainingContract() public payable {
-        require(
-            msg.value >= trainingSpecs.reward + trainingSpecs.min_collateral,
-            "NEV"
-        );
-
-        OpenFLModel listing = new OpenFLModel{value: trainingSpecs.reward}(
-            trainingSpecs
-        );
-
-        address listingAddr = address(listing);
-
-        emit ChallengeContractCreated(listingAddr);
     }
 
     function getTopN(uint N) public view returns (address[] memory) {

@@ -11,7 +11,7 @@ from web3 import Web3
 from web3.contract import Contract
 from termcolor import colored
 from subprocess import Popen, PIPE
-from openfl.ml.pytorch_model import gb, rb, b, green, red
+from openfl.ml.pytorch_model import Participant, gb, rb, b, green, red
 from openfl.utils import require_env_var
 from openfl.api import globals
 
@@ -131,10 +131,10 @@ class ConnectionHelper:
         print("-----------------------------------------------------------------------------------")
         return latestBlock
     
-    def initializeManager(self):
+    def initialize_manager(self):
         bytecode_path = Path(__file__).resolve().parents[3] / "artifacts" / "bytecode"
         with open(bytecode_path / "manager_abi.json") as abiFile:
-            abi = re.sub("\n|\t|\ ", "", abiFile.read())
+            abi = re.sub("\n|\t| ", "", abiFile.read())
         with open(bytecode_path /  "manager_bytecode.bin") as abiFile:
             bytecode = abiFile.read().strip()
         return globals.w3.eth.contract(bytecode=bytecode, abi=abi)
@@ -143,7 +143,7 @@ class ConnectionHelper:
     def initialize_model(self, address=None):
         bytecode_path = Path(__file__).resolve().parents[3] / "artifacts" / "bytecode"
         with open(bytecode_path / "model_abi.json") as abiFile:
-            abi = re.sub("\n|\t|\ ", "", abiFile.read())
+            abi = re.sub("\n|\t| ", "", abiFile.read())
         with open(bytecode_path / "model_bytecode.bin") as abiFile:
             bytecode = abiFile.read().strip()
         if address is not None:
@@ -154,7 +154,7 @@ class ConnectionHelper:
     def initialize_job(self, address=None) -> Contract:
         bytecode_path = Path(__file__).resolve().parents[3] / "artifacts" / "bytecode"
         with open(bytecode_path / "job_listing_abi.json") as abiFile:
-            abi = re.sub("\n|\t|\ ", "", abiFile.read())
+            abi = re.sub("\n|\t| ", "", abiFile.read())
         with open(bytecode_path / "job_listing_bytecode.bin") as abiFile:
             bytecode = abiFile.read().strip()
         if address is not None:
@@ -235,7 +235,7 @@ class ConnectionHelper:
             'value': value
         }
     
-    def transact(self, func_name: str, account, collateral: int,  event_names: list[str], *args):
+    def transact(self, func_name: str, account: Participant, collateral: int,  event_names: list[str], *args):
         """
         Returns (receipt, event returns as tuple)
         funcname: contract function name
@@ -289,6 +289,47 @@ class ConnectionHelper:
                     results[name].append(decoded)
 
         return results
+    
+    def deploy(self, factory, constructor_args, sender, value=0):
+        w3 = globals.w3
+
+        # --- FORK / LOCAL NODE (no private key needed) ---
+        if globals.fork:
+            tx_hash = factory.constructor(*constructor_args).transact({
+                "from": sender.address,
+                "value": value
+            })
+
+        # --- EXTERNAL SIGNING ---
+        else:
+            nonce = w3.eth.get_transaction_count(sender.address, "pending")
+
+            tx = factory.constructor(*constructor_args).build_transaction({
+                "from": sender.address,
+                "nonce": nonce,
+                "value": value,
+                "gas": 3000000,
+                "gasPrice": w3.eth.gas_price
+            })
+
+            signed = w3.eth.account.sign_transaction(
+                tx,
+                private_key=sender.privateKey
+            )
+
+            tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
+
+        # --- RECEIPT ---
+        receipt = w3.eth.wait_for_transaction_receipt(tx_hash)
+
+        if receipt.get("status", 0) != 1:
+            raise RuntimeError(f"Deployment failed: {tx_hash.hex()}")
+
+        address = Web3.to_checksum_address(receipt.contractAddress)
+
+        contract = w3.eth.contract(address=address, abi=factory.abi)
+
+        return contract, receipt
     
 class NotEnoughUnlockedAccounts(Exception):
     pass

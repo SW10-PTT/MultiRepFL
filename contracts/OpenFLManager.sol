@@ -12,30 +12,10 @@
 pragma solidity ^0.8.0;
 
 import "./Types.sol";
-import "./JobListing.sol";
 import "./Clones.sol";
 
-contract OpenFLManager {
-    using Clones for address;
-
-    event JobCreated(address job);
-
-    struct User {
-        mapping(address => JobListing) listings;
-        mapping(TaskType => uint256) GlobalTaskRep;
-        uint256 GlobalIntegrityRep;
-        uint128 TotalContribScore;
-        uint128 NumberOfTasksJoined;
-    }
-
-    mapping(address => User) public users;
-
-    address public implementation;
-    constructor() {
-        implementation = address(new JobListing());
-    }
-
-    function CreateNewJob(
+interface IJobListing {
+    function initialize(
         bytes32 _modelHash,
         uint _min_collateral,
         uint _max_collateral,
@@ -44,29 +24,27 @@ contract OpenFLManager {
         uint8 _punishfactor,
         uint8 _punishfactorContrib,
         uint8 _freeriderPenalty,
+        address _managerAddress,
         TaskType _taskType
-    ) public payable {
-        require(msg.value >= _reward + _min_collateral, "NEV");
+    ) external payable;
+}
 
-        address clone = implementation.clone();
+contract OpenFLManager {
+    event JobListingValid(bool isValid);
 
-        JobListing(clone).initialize{value: _reward}(
-            _modelHash,
-            _min_collateral,
-            _max_collateral,
-            _reward,
-            _min_rounds,
-            _punishfactor,
-            _punishfactorContrib,
-            _freeriderPenalty,
-            address(this),
-            _taskType
-        );
-
-        users[msg.sender].listings[clone] = JobListing(clone);
-
-        emit JobCreated(clone);
+    struct User {
+        mapping(TaskType => uint256) GlobalTaskRep;
+        uint256 GlobalIntegrityRep;
+        uint128 TotalContribScore;
+        uint128 NumberOfTasksJoined;
     }
+
+    mapping(address => User) public users;
+    mapping(address => bool) public validJobs;
+
+    address public implementation;
+    bytes32 public jobListingCodeHash;
+    constructor() {}
 
     function getUserRep(
         address addr,
@@ -77,5 +55,28 @@ contract OpenFLManager {
             users[addr].GlobalIntegrityRep,
             users[addr].NumberOfTasksJoined
         );
+    }
+
+    //This is a constant in a final version
+    function setJobListingCodeHash(bytes32 _hash) external {
+        jobListingCodeHash = _hash;
+    }
+
+    function validateJob(address job) public view returns (bool) {
+        bytes32 codeHash;
+
+        assembly {
+            codeHash := extcodehash(job)
+        }
+
+        return codeHash == jobListingCodeHash;
+    }
+
+    function registerJob(address job) external {
+        bool validJob = validateJob(job);
+
+        validJobs[job] = validJob;
+
+        emit JobListingValid(validJob);
     }
 }

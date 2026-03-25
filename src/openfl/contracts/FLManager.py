@@ -1,4 +1,5 @@
 from eth_typing import ChecksumAddress
+from hexbytes import HexBytes
 from web3 import Web3
 from web3.contract import Contract
 from openfl.contracts.JobListing import JobListing
@@ -6,7 +7,6 @@ from openfl.ml.pytorch_model import Participant, PytorchModel, b
 from openfl.api import ConnectionHelper, globals
 
 class FLManager(ConnectionHelper):
-    
     def __init__(self, pytorch_model: PytorchModel, manual_ganache_setup=False):
         self.latestBlock = None
         self.contract = None
@@ -18,8 +18,11 @@ class FLManager(ConnectionHelper):
 
         self.gas_deploy = []
         self.txHashes   = []
-        
-    
+
+        self.job_template_address = None
+        #self.job_template_hash = None
+        self.job_template_hash = Web3.to_bytes(hexstr="0xdb97405406fa6311775ff842c92fb4608768b2a54c37e98b4dad1adb090f27c2")
+
     def init(self, 
              NUMBER_OF_GOOD_CONTRIBUTORS, 
              NUMBER_OF_BAD_CONTRIBUTORS, 
@@ -35,67 +38,57 @@ class FLManager(ConnectionHelper):
                                                          MINIMUM_ROUNDS=MINIMUM_ROUNDS, pytorch_model=self.pytorch_model,
                                                          infura_url=infuraurl, manual_setup=self.manual_setup,
                                                          accounts=accounts)
-        self.contract = super().initializeManager()
+        self.build_contract()
+
+        #self.deploy_job_template(self.pytorch_model.participants[0])
+        
+        self.transact("setJobListingCodeHash", self.pytorch_model.participants[0], 0, [], self.job_template_hash)
         return self
     
     
     # Deploy contract and initiate proxy
     def build_contract(self):
-        manager_abi = self.contract.abi
+        factory = self.initialize_manager()
 
-        if globals.fork:
-            genesisHash = self.contract.constructor().transact()  # Build Contract
-        else:
-            nonce = globals.w3.eth.get_transaction_count(globals.w3.eth.default_account) 
-            depl = super().build_non_fork_tx(globals.w3.eth.default_account, nonce)   
-            depl = self.contract.constructor().build_transaction(depl)
-            signed = globals.w3.eth.account.sign_transaction(depl, private_key=self.pytorch_model.participants[0].privateKey)
+        contract, receipt = self.deploy(
+            factory,
+            [],  # no constructor args
+            self.pytorch_model.participants[0]
+        )
 
-            genesisHash = globals.w3.eth.send_raw_transaction(signed.raw_transaction)
-            
-        receipt = globals.w3.eth.wait_for_transaction_receipt(genesisHash,
-                                                           timeout=600,
-                                                           poll_latency=1)
-        if receipt.get("status", 0) != 1:
-            raise RuntimeError(
-                f"Manager deployment failed (tx={genesisHash.hex()}, status={receipt.get('status')}). "
-                "Check Sepolia gas settings and account balance."
-            )
+        self.contract = contract
 
         self.gas_deploy.append(receipt["gasUsed"])
         self.txHashes.append(("buildManager", receipt["transactionHash"].hex(), receipt["gasUsed"]))
 
-        deployed_address = globals.w3.to_checksum_address(receipt.contractAddress)
-        self.contract = globals.w3.eth.contract(address=deployed_address, abi=manager_abi)
-
-        print("\n{:<17} {} | {}\n".format("Manager deployed", 
-                                          "@ Address " + self.contract.address, 
-                                          genesisHash.hex()[0:6]+"..."))
+        print("\n{:<17} {} | {}\n".format(
+            "Manager deployed",
+            "@ Address " + self.contract.address,
+            receipt["transactionHash"].hex()[0:6] + "..."
+        ))
         print("-----------------------------------------------------------------------------------")
-        return 
 
 
     def get_model_of(self, participant, addr):
         return self.contract.functions.getModel(participant.address, addr).call({"to": self.contract.address,
                                                                   "from": participant.address})
     
-    def deploy_joblisting_contract(self, publisher: Participant, *args) -> tuple[Contract, ChecksumAddress, JobListing, ...]:
-        print(b("Creating Job Listing..."))
-        print(b("-----------------------------------------------------------------------------------"))
-        min_buyin, max_buyin, reward, min_rounds, punishment, punish_contrib, freerider_fee, taskType = args
-        p1_collateral = publisher.collateral
-        value = reward + p1_collateral
-        publisher
-        modelHash = self.pytorch_model.participants[0].modelHash
-        model_hash_bytes = Web3.to_bytes(hexstr=modelHash)
+    def deploy_joblisting_contract(self, publisher: Participant, min_buyin, max_buyin, reward, min_rounds, punishment, punish_contrib, freerider_fee, taskType) -> tuple[Contract, ChecksumAddress, JobListing, ...]:
+        newJobListing = JobListing(publisher, min_buyin, max_buyin, reward, min_rounds, punishment, punish_contrib, freerider_fee, self.contract.address, taskType)
+        
+        (receipt, events) = self.transact("registerJob", publisher, 0, ["JobListingValid"], newJobListing.contract.address)
+        
+        is_valid = events["JobListingValid"][0]["args"]["isValid"]
 
-        # Helpful debug info
-        balance_eth = globals.w3.from_wei(globals.w3.eth.get_balance(publisher.address), 'ether')
-        est_cost_eth = globals.w3.from_wei(value, 'ether')
-        print(f"Balance: {balance_eth:.4f} ETH | Estimated tx+value cost: {est_cost_eth:.4f} ETH")
-
-        (receipt, events) = self.transact("CreateNewJob", publisher, value, ["JobCreated"],
-                model_hash_bytes,
+        if not is_valid:
+            return
+        
+        self.job_listings.append(newJobListing)
+        return (
+            newJobListing,
+            (
+                newJobListing.contract,
+                newJobListing.contract.address,
                 min_buyin,
                 max_buyin,
                 reward,
@@ -103,27 +96,76 @@ class FLManager(ConnectionHelper):
                 punishment,
                 punish_contrib,
                 freerider_fee,
-                taskType)
-        
-        txHash = receipt["transactionHash"]
-        deployed_address = Web3.to_checksum_address(events["JobCreated"][0]["args"]["job"])
-        newJobListing = JobListing(deployed_address)
-        self.job_listings.append(newJobListing)
-        
-        self.gas_deploy.append(receipt["gasUsed"])
-        self.txHashes.append(("buildJobListing", receipt["transactionHash"].hex(), receipt["gasUsed"]))
-        
-        
-        print("\n{:<17} {} | {}\n".format("Listing deployed", 
-                                          "@ Address " + newJobListing.contract.address, 
-                                          txHash.hex()[0:6]+"..."))
-        print("-----------------------------------------------------------------------------------")
-        print("{:<17} {} | {} | {:>25,.0f} WEI".format(
-            "Account registered:",
-            self.pytorch_model.participants[0].address[0:16] + "...", # No longer necessarily correct
-            txHash.hex()[0:6] + "...",
-            p1_collateral
-        ))
+                taskType
+            )
+        )
+    
+    def deploy_job_template(self, deployer: Participant):
+        w3 = globals.w3
 
-        self.pytorch_model.participants[0].isRegistered = True # No longer necessarily correct
-        return (newJobListing, (newJobListing.contract, newJobListing.contract.address) + args)
+        factory = self.initialize_job()
+
+        model_hash_bytes = Web3.keccak(text="template")  # any valid bytes32
+
+        constructor_args = [
+            model_hash_bytes,
+            1,   # min_buyin
+            1,   # max_buyin
+            1,   # reward
+            1,   # min_rounds
+            1,   # punishment
+            1,   # punish_contrib
+            1,   # freerider_fee
+            self.contract.address if self.contract else deployer.address,  # manager addr
+            0    # taskType (enum as int)
+        ]
+
+        contract, receipt = self.deploy(
+            factory,
+            constructor_args,
+            deployer,
+            value=1
+        )
+
+        self.job_template_address = contract.address
+
+        code = w3.eth.get_code(contract.address)
+        self.job_template_hash = Web3.keccak(code)
+
+        print("Job Listing template deployed at:", contract.address)
+        print("Job Listing template hash:", self.job_template_hash.hex())
+
+    def deploy_challenge_template(self, deployer: Participant):
+        w3 = globals.w3
+
+        factory = self.initialize_job()
+
+        model_hash_bytes = Web3.keccak(text="template")  # any valid bytes32
+
+        constructor_args = [
+            model_hash_bytes,
+            1,   # min_buyin
+            1,   # max_buyin
+            1,   # reward
+            1,   # min_rounds
+            1,   # punishment
+            1,   # punish_contrib
+            1,   # freerider_fee
+            self.contract.address if self.contract else deployer.address,  # manager addr
+            0    # taskType (enum as int)
+        ]
+
+        contract, receipt = self.deploy(
+            factory,
+            constructor_args,
+            deployer,
+            value=1
+        )
+
+        self.job_template_address = contract.address
+
+        code = w3.eth.get_code(contract.address)
+        self.job_template_hash = Web3.keccak(code)
+
+        print("Job Listing template deployed at:", contract.address)
+        print("Job Listing template hash:", self.job_template_hash.hex())
