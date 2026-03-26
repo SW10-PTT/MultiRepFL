@@ -3,6 +3,7 @@ import copy
 import numpy as np
 from web3 import Web3
 #from openfl.contracts import FLManager
+from openfl.api.ConnectionHelper import ConnectionHelper
 from openfl.utils.types.Colors import RNG, get_color
 from openfl.utils.ChallengeTrainingSpecs import ChallengeTrainingSpecs
   
@@ -56,6 +57,7 @@ class Participant:
         self._loss = [] # User's loss on the global model. The actual loss evaluated on test set - is set in: finalize_user_evaluation().
         self._globalrep = [self.collateral]
         self._roundrep = []
+        self.txs = []
     
     def getStatus(self):
         user = f"$user${self.id}, {self.currentAcc}, {self.attitude}, {self.futureAttitude}, {self.attitudeSwitch}, {self.address}"
@@ -63,9 +65,25 @@ class Participant:
 
     def deploy_joblisting_contract(
         self,
-        trainingSpecs: ChallengeTrainingSpecs
+        trainingSpecs: ChallengeTrainingSpecs,
+        manager
         ):
         from openfl.contracts.JobListing import JobListing
-        newJobListing = JobListing(self, trainingSpecs)
-        return newJobListing
         
+        newJobListing = JobListing(self, trainingSpecs)
+        
+        if manager.register_joblisting_contract(newJobListing):
+            return newJobListing
+        return False
+    
+    def register_for_job(self, job: ConnectionHelper):
+        (receipt, _) = job.transact("register", self.address, self.collateral, [])
+        txHash = receipt["transactionHash"]
+        self.txs.append(txHash)
+        bal = globals.w3.eth.get_balance(globals.w3.eth.default_account)
+        print("{:<17} {} | {} | {:>25,.0f} WEI".format("Account registered:", 
+                self.address[0:16] + "...", 
+                txHash.hex()[0:6] + "...", 
+                self.collateral
+                ))
+        return self.txs

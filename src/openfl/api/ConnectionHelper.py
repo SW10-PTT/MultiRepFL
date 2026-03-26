@@ -245,6 +245,7 @@ class ConnectionHelper:
         event_names: names of the 
         *args: arguments forwarded to the contract function
         """
+        
         func = getattr(self.contract.functions, func_name)
 
         if globals.fork:

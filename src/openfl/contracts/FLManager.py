@@ -75,30 +75,31 @@ class FLManager(ConnectionHelper):
         return self.contract.functions.getModel(participant.address, addr).call({"to": self.contract.address,
                                                                   "from": participant.address})
     
-    def register_joblisting_contract(self, new_joblisting: JobListing) -> tuple[Contract, ChecksumAddress, JobListing, ...]:
-        (receipt, events) = self.transact("registerJob", new_joblisting.publisher.address, 0, ["JobListingValid"], new_joblisting.contract.address)
+    def register_joblisting_contract(self, new_joblisting: JobListing) -> bool:#-> tuple[Contract, ChecksumAddress, JobListing, ...]:
+        (receipt, events) = self.transact("registerJob", new_joblisting.publisher, 0, ["JobListingValid"], new_joblisting.contract.address)
         
         is_valid = events["JobListingValid"][0]["args"]["isValid"]
 
         if not is_valid:
-            return
+            return False
         
         self.job_listings.append(new_joblisting)
-        return (
-            new_joblisting,
-            (
-                new_joblisting.contract,
-                new_joblisting.contract.address,
-                min_buyin,
-                max_buyin,
-                reward,
-                min_rounds,
-                punishment,
-                punish_contrib,
-                freerider_fee,
-                taskType
-            )
-        )
+        return True
+        # return (
+        #     new_joblisting,
+        #     (
+        #         new_joblisting.contract,
+        #         new_joblisting.contract.address,
+        #         min_buyin,
+        #         max_buyin,
+        #         reward,
+        #         min_rounds,
+        #         punishment,
+        #         punish_contrib,
+        #         freerider_fee,
+        #         taskType
+        #     )
+        # )
     
     def deploy_job_template(self, deployer: Participant):
         w3 = globals.w3

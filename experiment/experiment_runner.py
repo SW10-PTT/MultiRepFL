@@ -80,7 +80,7 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
 
   trainingSpecs = experiment_config.get_training_specs(manager.contract.address, 0)
   
-  publisher.deploy_joblisting_contract(trainingSpecs, manager)
+  newJobListing = publisher.deploy_joblisting_contract(trainingSpecs, manager)
 
   # newJobListing, configs = manager.deploy_joblisting_contract(
   #                                         manager.pytorch_model.participants[0], # TODO: Fix
@@ -102,6 +102,9 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
           experiment_config.contribution_score_strategy
       ) # WTF is this????
 
+
+  for participant in pytorch_model.participants:
+     participant.register_for_job(newJobListing.contract.address)
 
   newJobListing.let_all_participants_register(pytorch_model.participants)
 

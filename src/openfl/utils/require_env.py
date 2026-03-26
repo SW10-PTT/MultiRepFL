@@ -14,7 +14,7 @@ def require_env_var(name: str) -> str:
         env_loaded = True
     value = os.environ.get(name)
     if not value:
-        print(f"❌ Error: Environment variable '{name}' is missing or empty.")
+        print(f"Error: Environment variable '{name}' is missing or empty.")
         sys.exit(1)
     return value
 
