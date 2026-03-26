@@ -13,7 +13,7 @@ pragma solidity ^0.8.0;
 
 import "./Types.sol";
 
-contract OpenFLModel {
+contract OpenFLChallenge {
     bytes32 public modelHash;
 
     uint8 public round = 0;
@@ -344,7 +344,7 @@ contract OpenFLModel {
         return true;
     }
 
-    function isContributionRoundDone() public returns (bool roundClosed) {
+    function isContributionRoundDone() public view returns (bool roundClosed) {
         uint mergedUsers = 0;
         for (uint i = 0; i < participants.length; i++) {
             if (

@@ -3,7 +3,9 @@ from hexbytes import HexBytes
 from web3 import Web3
 from web3.contract import Contract
 from openfl.contracts.JobListing import JobListing
-from openfl.ml.pytorch_model import Participant, PytorchModel, b
+from openfl.ml.pytorch_model import PytorchModel
+from openfl.utils.types.Colors import b
+from openfl.utils.types.Participant import Participant
 from openfl.api import ConnectionHelper, globals
 
 class FLManager(ConnectionHelper):
@@ -40,7 +42,7 @@ class FLManager(ConnectionHelper):
                                                          accounts=accounts)
         self.build_contract()
 
-        #self.deploy_job_template(self.pytorch_model.participants[0])
+        self.deploy_job_template(self.pytorch_model.participants[0])
         
         self.transact("setJobListingCodeHash", self.pytorch_model.participants[0], 0, [], self.job_template_hash)
         return self
@@ -50,7 +52,7 @@ class FLManager(ConnectionHelper):
     def build_contract(self):
         factory = self.initialize_manager()
 
-        contract, receipt = self.deploy(
+        contract, receipt = ConnectionHelper.deploy(
             factory,
             [],  # no constructor args
             self.pytorch_model.participants[0]
@@ -73,22 +75,20 @@ class FLManager(ConnectionHelper):
         return self.contract.functions.getModel(participant.address, addr).call({"to": self.contract.address,
                                                                   "from": participant.address})
     
-    def deploy_joblisting_contract(self, publisher: Participant, min_buyin, max_buyin, reward, min_rounds, punishment, punish_contrib, freerider_fee, taskType) -> tuple[Contract, ChecksumAddress, JobListing, ...]:
-        newJobListing = JobListing(publisher, min_buyin, max_buyin, reward, min_rounds, punishment, punish_contrib, freerider_fee, self.contract.address, taskType)
-        
-        (receipt, events) = self.transact("registerJob", publisher, 0, ["JobListingValid"], newJobListing.contract.address)
+    def register_joblisting_contract(self, new_joblisting: JobListing) -> tuple[Contract, ChecksumAddress, JobListing, ...]:
+        (receipt, events) = self.transact("registerJob", new_joblisting.publisher.address, 0, ["JobListingValid"], new_joblisting.contract.address)
         
         is_valid = events["JobListingValid"][0]["args"]["isValid"]
 
         if not is_valid:
             return
         
-        self.job_listings.append(newJobListing)
+        self.job_listings.append(new_joblisting)
         return (
-            newJobListing,
+            new_joblisting,
             (
-                newJobListing.contract,
-                newJobListing.contract.address,
+                new_joblisting.contract,
+                new_joblisting.contract.address,
                 min_buyin,
                 max_buyin,
                 reward,
@@ -120,7 +120,7 @@ class FLManager(ConnectionHelper):
             0    # taskType (enum as int)
         ]
 
-        contract, receipt = self.deploy(
+        contract, receipt = ConnectionHelper.deploy(
             factory,
             constructor_args,
             deployer,

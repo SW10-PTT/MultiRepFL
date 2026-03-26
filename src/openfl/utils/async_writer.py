@@ -9,7 +9,8 @@ from typing import List
 import platform
 import psutil
 
-from openfl.ml.pytorch_model import Participant
+from openfl.utils.types.Participant import Participant
+
 
 def _time_handler(item):
     return datetime.now().strftime("%H:%M:%S.%f")[:-3]

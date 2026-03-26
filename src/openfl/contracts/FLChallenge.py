@@ -15,7 +15,7 @@ from termcolor import colored
 import matplotlib.pyplot as plt
 from web3.exceptions import ContractLogicError
 from openfl.contracts import FLManager, JobListing
-from openfl.ml.pytorch_model import gb, rb, b, green, red, yellow
+from openfl.utils.types.Colors import gb, rb, b, green, red, yellow
 from openfl.utils import printer, config
 from openfl.api.ConnectionHelper import ConnectionHelper
 from openfl.api import globals
@@ -175,7 +175,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
         for i, txHash in enumerate(txs):
             printer.print_bar(i, l)
             receipt = globals.w3.eth.wait_for_transaction_receipt(txHash,
-                                                            timeout=600, 
+                                                            timeout=600, # WTF IS THIS wait properly please
                                                             poll_latency=1)
             
             self.gas_weights.append(receipt["gasUsed"])
@@ -474,7 +474,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                           + "\nGoing to forward time for 1 day\n")
                 globals.w3.provider.make_request("evm_increaseTime", [self.config.WAIT_DELAY])
         
-        print(b(f"\Feedback round: {self.pytorch_model.round}"))
+        print(b(f"Feedback round: {self.pytorch_model.round}"))
         settleStart = datetime.datetime.now(datetime.timezone.utc).timestamp()
         while (datetime.datetime.now(datetime.timezone.utc).timestamp() < settleStart + config.get_contracts_config().FEEDBACK_ROUND_TIMEOUT):
             if (self.contract.functions.isFeedBackRoundDone().call()):

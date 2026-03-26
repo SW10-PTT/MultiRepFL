@@ -1,3 +1,4 @@
+import json
 import os
 from pathlib import Path
 import re
@@ -11,7 +12,8 @@ from web3 import Web3
 from web3.contract import Contract
 from termcolor import colored
 from subprocess import Popen, PIPE
-from openfl.ml.pytorch_model import Participant, gb, rb, b, green, red
+from openfl.utils.types.Colors import gb, rb, b, green, red
+#from openfl.utils.types.Participant import Participant
 from openfl.utils import require_env_var
 from openfl.api import globals
 
@@ -134,9 +136,9 @@ class ConnectionHelper:
     def initialize_manager(self):
         bytecode_path = Path(__file__).resolve().parents[3] / "artifacts" / "bytecode"
         with open(bytecode_path / "manager_abi.json") as abiFile:
-            abi = re.sub("\n|\t| ", "", abiFile.read())
-        with open(bytecode_path /  "manager_bytecode.bin") as abiFile:
-            bytecode = abiFile.read().strip()
+            abi = json.load(abiFile)
+        with open(bytecode_path / "manager_bytecode.bin") as bytecodeFile:
+            bytecode = bytecodeFile.read().strip()
         return globals.w3.eth.contract(bytecode=bytecode, abi=abi)
     
     
@@ -290,7 +292,7 @@ class ConnectionHelper:
 
         return results
     
-    def deploy(self, factory, constructor_args, sender, value=0):
+    def deploy(factory, constructor_args, sender, value=0):
         w3 = globals.w3
 
         # --- FORK / LOCAL NODE (no private key needed) ---

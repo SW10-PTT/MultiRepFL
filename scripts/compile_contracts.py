@@ -13,7 +13,7 @@ root = Path(__file__).parents[1]
 contracts_dir = root / "contracts"
 sources = {
     "OpenFLManager.sol": {"content": (contracts_dir / "OpenFLManager.sol").read_text(encoding="utf-8")},
-    "OpenFLModel.sol":   {"content": (contracts_dir / "OpenFLModel.sol").read_text(encoding="utf-8")},
+    "OpenFLChallenge.sol":   {"content": (contracts_dir / "OpenFLChallenge.sol").read_text(encoding="utf-8")},
     "JobListing.sol":   {"content": (contracts_dir / "JobListing.sol").read_text(encoding="utf-8")},
     "Types.sol":   {"content": (contracts_dir / "Types.sol").read_text(encoding="utf-8")},
     "Clones.sol":   {"content": (contracts_dir / "Clones.sol").read_text(encoding="utf-8")},
@@ -32,7 +32,7 @@ compiled = compile_standard({
 contracts = [
     ("Manager", compiled["contracts"]["OpenFLManager.sol"]["OpenFLManager"]),
     ("JobListing", compiled["contracts"]["JobListing.sol"]["JobListing"]),
-    ("OpenFLModel", compiled["contracts"]["OpenFLModel.sol"]["OpenFLModel"]),
+    ("OpenFLChallenge", compiled["contracts"]["OpenFLChallenge.sol"]["OpenFLChallenge"]),
 ]
 
 for name, data in contracts:
@@ -44,7 +44,7 @@ for name, data in contracts:
 
 # 4) Extract artifacts
 mgr = compiled["contracts"]["OpenFLManager.sol"]["OpenFLManager"]
-mdl = compiled["contracts"]["OpenFLModel.sol"]["OpenFLModel"]
+mdl = compiled["contracts"]["OpenFLChallenge.sol"]["OpenFLChallenge"]
 jls = compiled["contracts"]["JobListing.sol"]["JobListing"]
 
 build = root / "artifacts" / "bytecode"
@@ -64,7 +64,7 @@ build.mkdir(parents=True, exist_ok=True)
 abi_py_file = build / "abi_model.py"
 
 with open(abi_py_file, "w", encoding="utf-8") as f:
-    f.write("# Auto-generated OpenFLModel ABI\n")
+    f.write("# Auto-generated OpenFLChallenge ABI\n")
     # Dump ABI as a JSON string (triple quotes)
     f.write("import json\n\n")
     f.write("OPEN_FL_MODEL_ABI = json.loads('''\n")

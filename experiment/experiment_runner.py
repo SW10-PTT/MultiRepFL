@@ -3,6 +3,7 @@ import platform
 import psutil
 import time
 from pathlib import Path
+from experiment_configuration import ExperimentConfiguration
 from openfl.ml import pytorch_model as PM
 from openfl.contracts import FLChallenge as Challenge, FLManager as Manager
 from openfl.utils import require_env_var
@@ -11,9 +12,10 @@ from web3 import Web3, Account
 from openfl.api import globals
 
 from openfl.utils.async_writer import AsyncWriter
+from openfl.utils.types import Participant
 
 
-def run_experiment(dataset_name: str, experiment_config, writer: AsyncWriter=None, logger=None):
+def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration, writer: AsyncWriter=None, logger=None):
 
   dataset_name = dataset_name.replace(".", "-")
   experiment_config.dataset = dataset_name
@@ -74,17 +76,23 @@ def run_experiment(dataset_name: str, experiment_config, writer: AsyncWriter=Non
                                               RPC_ENDPOINT,
                                               PRIVKEYS)
 
-  newJobListing, configs = manager.deploy_joblisting_contract(
-                                          manager.pytorch_model.participants[0], # TODO: Fix
-                                          experiment_config.min_buy_in,
-                                          experiment_config.max_buy_in,
-                                          experiment_config.reward, 
-                                          experiment_config.minimum_rounds,
-                                          experiment_config.punish_factor,
-                                          experiment_config.punish_factor_contrib,
-                                          experiment_config.first_round_fee,
-                                          0 ## TODO THIS IS TASKTYPE ENUM AS AN INT
-                                          )
+  publisher: Participant = pytorch_model.participants[0]
+
+  trainingSpecs = experiment_config.get_training_specs(manager.contract.address, 0)
+  
+  publisher.deploy_joblisting_contract(trainingSpecs, manager)
+
+  # newJobListing, configs = manager.deploy_joblisting_contract(
+  #                                         manager.pytorch_model.participants[0], # TODO: Fix
+  #                                         experiment_config.min_buy_in,
+  #                                         experiment_config.max_buy_in,
+  #                                         experiment_config.reward, 
+  #                                         experiment_config.minimum_rounds,
+  #                                         experiment_config.punish_factor,
+  #                                         experiment_config.punish_factor_contrib,
+  #                                         experiment_config.first_round_fee,
+  #                                         0 ## TODO THIS IS TASKTYPE ENUM AS AN INT
+  #                                         )
 
   writer.writeComment(f"$startingUserConfig${[p.getStatus() for p in pytorch_model.participants]}")
 

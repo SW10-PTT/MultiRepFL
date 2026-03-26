@@ -1,5 +1,9 @@
 from enum import IntEnum
 
+from openfl.api.ConnectionHelper import ConnectionHelper
+from openfl.contracts import JobListing
+from openfl.utils import ChallengeTrainingSpecs
+
 
 
 class Attitude(IntEnum):
@@ -49,13 +53,21 @@ class MetaAttitude(IntEnum):
         }[self]
 
 class Participant:
-  def __init__(self, _id, _currentAcc, _attitude, _futureAttitude, _attitudeSwitch, _address):
-    self.id = _id
-    self.attitude = _attitude
-    self.futureAttitude = _futureAttitude
-    self.attitudeSwitch = _attitudeSwitch
-    self.address = _address
-    self.states: list[ParticipantState] = []
+    def __init__(self, _id, _currentAcc, _attitude, _futureAttitude, _attitudeSwitch, _address):
+        self.id = _id
+        self.attitude = _attitude
+        self.futureAttitude = _futureAttitude
+        self.attitudeSwitch = _attitudeSwitch
+        self.address = _address
+        self.states: list[ParticipantState] = []
+    
+    def deploy_joblisting_contract(
+        self,
+        trainingSpecs: ChallengeTrainingSpecs
+        ):
+        newJobListing = JobListing(self, trainingSpecs)
+        return newJobListing
+        
     
 class ParticipantState:
   def __init__(self, _id, _currentAcc, _attitude, _futureAttitude, _attitudeSwitch, _address):

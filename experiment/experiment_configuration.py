@@ -1,3 +1,6 @@
+from openfl.utils.ChallengeTrainingSpecs import ChallengeTrainingSpecs
+
+
 class ExperimentConfiguration:
     def __init__(self,
                  number_of_good_contributors=4,
@@ -55,6 +58,9 @@ class ExperimentConfiguration:
         self.malicious_start_round = malicious_start_round
         self.malicious_noise_scale = malicious_noise_scale
         self.force_merge_all = force_merge_all
+
+    def get_training_specs(self, manager_address, taskType) -> ChallengeTrainingSpecs:
+        return ChallengeTrainingSpecs(None, self.min_buy_in, self.max_buy_in, manager_address, self.reward, self.minimum_rounds, self.punish_factor, self.punish_factor_contrib, self.first_round_fee, 0)
 
     @property
     def number_of_contributors(self):
