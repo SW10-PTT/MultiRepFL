@@ -6,6 +6,7 @@ from web3 import Web3
 from openfl.api.ConnectionHelper import ConnectionHelper
 from openfl.utils.types.Colors import RNG, get_color
 from openfl.utils.ChallengeTrainingSpecs import ChallengeTrainingSpecs
+from openfl.api import globals
   
 class Participant:
     def __init__(self, _id, _train, _val, _model, _optimizer, _criterion,
@@ -68,6 +69,19 @@ class Participant:
         trainingSpecs: ChallengeTrainingSpecs,
         manager
         ):
+        from openfl.contracts.FLChallenge import FLChallenge
+        
+        newJobListing = FLChallenge(self, manager, trainingSpecs)
+        
+        if manager.register_joblisting_contract(newJobListing):
+            return newJobListing
+        return False
+    
+    def deploy_challenge_contract(
+        self,
+        trainingSpecs: ChallengeTrainingSpecs,
+        manager
+        ):
         from openfl.contracts.JobListing import JobListing
         
         newJobListing = JobListing(self, trainingSpecs)
@@ -77,7 +91,7 @@ class Participant:
         return False
     
     def register_for_job(self, job: ConnectionHelper):
-        (receipt, _) = job.transact("register", self.address, self.collateral, [])
+        (receipt, _) = job.transact("register", self, self.collateral, [])
         txHash = receipt["transactionHash"]
         self.txs.append(txHash)
         bal = globals.w3.eth.get_balance(globals.w3.eth.default_account)

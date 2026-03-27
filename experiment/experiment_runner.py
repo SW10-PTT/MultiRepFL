@@ -82,18 +82,6 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
   
   newJobListing = publisher.deploy_joblisting_contract(trainingSpecs, manager)
 
-  # newJobListing, configs = manager.deploy_joblisting_contract(
-  #                                         manager.pytorch_model.participants[0], # TODO: Fix
-  #                                         experiment_config.min_buy_in,
-  #                                         experiment_config.max_buy_in,
-  #                                         experiment_config.reward, 
-  #                                         experiment_config.minimum_rounds,
-  #                                         experiment_config.punish_factor,
-  #                                         experiment_config.punish_factor_contrib,
-  #                                         experiment_config.first_round_fee,
-  #                                         0 ## TODO THIS IS TASKTYPE ENUM AS AN INT
-  #                                         )
-
   writer.writeComment(f"$startingUserConfig${[p.getStatus() for p in pytorch_model.participants]}")
 
   extra_configs = {}
@@ -104,15 +92,14 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
 
 
   for participant in pytorch_model.participants:
-     participant.register_for_job(newJobListing.contract.address)
+     participant.register_for_job(newJobListing)
 
-  newJobListing.let_all_participants_register(pytorch_model.participants)
-
-  
+  publisher.deploy_challenge_contract(trainingSpecs, manager, )
 
   # This happens after deciding on users
+ 
   model = Challenge(manager, 
-                      configs,
+                      experiment_config.configs,
                       pytorch_model,
                       experiment_config,
                       writer,
