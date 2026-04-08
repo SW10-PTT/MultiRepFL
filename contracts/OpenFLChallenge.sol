@@ -13,6 +13,10 @@ pragma solidity ^0.8.0;
 
 import "./Types.sol";
 
+interface IJobListing {
+    function getSelectedParticipants() external view returns (address[] memory);
+}
+
 contract OpenFLChallenge {
     bytes32 public modelHash;
 
@@ -51,6 +55,7 @@ contract OpenFLChallenge {
         uint8 nrOfVotesFromUser; // 1
         bool isPunished; // 1
         bool isRegistered; // 1
+        bool isSelected; // 1 //OOOPS CHANGED ORDER
         bool whitelistedForRewards; // 1
         bool isDisqualified; // 1
     }
@@ -128,18 +133,24 @@ contract OpenFLChallenge {
         _;
     }
 
+    modifier onlySelectedUsers(address userAddr) {
+        require(users[userAddr].isSelected, "SUO");
+        _;
+    }
+
     modifier hasNotYetProvidedWeights() {
         require(weightsOf[msg.sender][round] == bytes32(0), "SAP");
         _;
     }
 
-    event FederatedLerningModelDeployed(
+    event FederatedLearningModelDeployed(
         uint initTS,
         uint max_collateral,
         uint min_collateral,
         uint total_reward,
         uint8 min_rounds,
-        uint freerider_fee
+        uint freerider_fee,
+        bool isTemplate
     );
 
     event Registered(
@@ -197,7 +208,11 @@ contract OpenFLChallenge {
         bool is_reward
     );
 
-    constructor(TrainingSpecifications memory taskSpecs) payable {
+    event SelectedUsers(
+        address[] users
+    );
+
+    constructor(ChallengeSpecifications memory taskSpecs) payable {
         // Initialize Contract
         initTS = block.timestamp;
         roundStart = block.timestamp;
@@ -209,21 +224,32 @@ contract OpenFLChallenge {
         punishfactor = taskSpecs.punishfactor;
         punishfactorContrib = taskSpecs.punishfactorContrib;
         taskType = taskSpecs.taskType;
-        freeriderPenalty = (min_collateral * freeriderPenalty) / 100;
+        freeriderPenalty = (min_collateral * taskSpecs.freeriderPenalty) / 100;
         rewardPerRound = totalReward / min_rounds;
         rewardLeft = totalReward;
 
-        for (uint16 i = 0; i < taskSpecs.selectedParticipants.length; i++) {
-            registrationProcess(taskSpecs.selectedParticipants[i]);
+        bool isTemplate = taskSpecs.taskType == TaskType.template;
+
+        if (!isTemplate) {
+            require(taskSpecs.jobListingAddress != address(0), "NO_JOBADDR");
+
+            IJobListing job = IJobListing(taskSpecs.jobListingAddress);
+
+            address[] memory selectedUsers = job.getSelectedParticipants();
+            emit SelectedUsers(selectedUsers); //TODO: DEBUG
+            for(uint i = 0; i < selectedUsers.length; i++) {
+                users[selectedUsers[i]].isSelected = true;
+            }
         }
 
-        emit FederatedLerningModelDeployed(
+        emit FederatedLearningModelDeployed(
             initTS,
             min_collateral,
             max_collateral,
             totalReward,
             min_rounds,
-            freeriderPenalty
+            freeriderPenalty,
+            isTemplate
         );
     }
 
@@ -233,21 +259,20 @@ contract OpenFLChallenge {
 
     // Registration
     function registrationProcess(
-        address userAddr
-    ) internal onlyNotYetRegisteredUsers(userAddr) {
+    ) public payable onlyNotYetRegisteredUsers(msg.sender) onlySelectedUsers(msg.sender) {
         require(
             msg.value >= min_collateral && msg.value <= max_collateral,
             "NWR"
         );
 
-        User storage user = users[userAddr];
+        User storage user = users[msg.sender];
         user.isRegistered = true;
         user.globalReputationScore = msg.value;
         user.nrOfRoundsParticipated = 1;
-        user.addr = userAddr;
+        user.addr = msg.sender;
         nrOfActiveParticipants += 1;
-        participants.push(userAddr);
 
+        participants.push(msg.sender);
         // emit Registered(
         //     user.addr,
         //     msg.value,

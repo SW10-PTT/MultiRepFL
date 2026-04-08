@@ -5,22 +5,22 @@ import random
 import numpy as np
 import torch.nn as nn
 import torch.optim as optim
-import matplotlib.pyplot as plt
 import torch.nn.functional as F
 import torch.multiprocessing as mp
 import os
 import time
 import math
 from web3 import Web3
-from termcolor import colored
-from typing import Tuple, Dict
+from typing import Tuple
 from collections import OrderedDict
 from torchvision import transforms
 from torchvision.datasets import CIFAR10, MNIST
 from torch.utils.data import DataLoader, random_split
 
-from openfl.utils.types.Participant import Participant
-from openfl.utils.types.Colors import gb, rb
+from openfl.ml.Participant import Participant
+from openfl.utils.types.Attitude import Attitude
+from openfl.utils.types.Colors import gb, rb, red, yellow, green, b
+
 torch._dynamo.config.cache_size_limit = 512
 import logging
 debugging = sys.gettrace() is not None
@@ -153,32 +153,32 @@ class PytorchModel:
 
 
 
-        for i in range(_goodParticipants):
-            if self.DATASET == "mnist":
-                _model = Net_MNIST().to(DEVICE)
-            else:
-                _model = Net_CIFAR().to(DEVICE)
-            
-            optimizer = optim.SGD(_model.parameters(), lr=0.001, momentum=0.9)
-            criterion = nn.CrossEntropyLoss()
-            _attitude = "good"
-                
-            self.participants.append(Participant(i, 
-                                                 self.train[i], 
-                                                 self.val[i], 
-                                                 _model, 
-                                                 optimizer, 
-                                                 criterion,
-                                                 _attitude,
-                                                 self.default_collateral,
-                                                 self.max_collateral,
-                                                 None,
-                                                 len(self.participants)
-                                                ))
-            print("Participant added: {} {}".format(gb(_attitude.upper()[0]+_attitude[1:]), gb("User")))
+        # for i in range(_goodParticipants):
+        #     if self.DATASET == "mnist":
+        #         _model = Net_MNIST().to(DEVICE)
+        #     else:
+        #         _model = Net_CIFAR().to(DEVICE)
+        #
+        #     optimizer = optim.SGD(_model.parameters(), lr=0.001, momentum=0.9)
+        #     criterion = nn.CrossEntropyLoss()
+        #     _attitude = "good"
+        #
+        #     self.participants.append(Participant(i,
+        #                                   self.train[i],
+        #                                   self.val[i],
+        #                                   _model,
+        #                                   optimizer,
+        #                                   criterion,
+        #                                   _attitude,
+        #                                   self.default_collateral,
+        #                                   self.max_collateral,
+        #                                   None,
+        #                                   len(self.participants)
+        #                                   ))
+        #     print("Participant added: {} {}".format(gb(_attitude.upper()[0]+_attitude[1:]), gb("User")))
     
             
-    def add_participant(self, _attitude, _attitudeSwitch=1):
+    def add_participant(self, user):
         
         _train, _val, _test = self.load_data(self.NUMBER_OF_CONTRIBUTERS)
         
@@ -190,29 +190,25 @@ class PytorchModel:
         optimizer = optim.SGD(_model.parameters(), lr=0.001, momentum=0.9)
         criterion = nn.CrossEntropyLoss()
         
-        if _attitude == "bad":
+        if user.attitude == Attitude.Malicious:
             self.NUMBER_OF_BAD_CONTRIBUTORS +=1
             _attitudeSwitch = self.malicious_start_round
-        if _attitude == "freerider":
+        if user.attitude == Attitude.FreeRider:
             self.NUMBER_OF_FREERIDER_CONTRIBUTORS +=1
             _attitudeSwitch = self.freerider_start_round
-        if _attitude == "inactive":
+        if user.attitude == Attitude.Inactive:
             self.NUMBER_OF_INACTIVE_CONTRIBUTORS +=1
         l = len(self.participants)
-        self.participants.append(Participant(len(self.participants), 
-                                             _train[l], 
-                                             _val[l], 
-                                             _model, 
-                                             optimizer, 
-                                             criterion,
-                                             _attitude,
-                                             self.default_collateral,
-                                             self.max_collateral,
-                                             _attitudeSwitch,
-                                             len(self.participants)
-                                            ))
+        self.participants.append(Participant.from_user(
+            user,
+            _train[l],
+            _val[l],
+            _model,
+            optimizer,
+            criterion,
+        ))
         
-        print("Participant added: {:<9} {}".format(rb(_attitude.upper()[0]+_attitude[1:]), rb("User")))
+        print("Participant added: {:<9} {}".format(rb(user.attitude.name.upper()[0]+user.attitude.name[1:]), rb("User")))
         
 
     def load_data(self, NUM_CLIENTS, _print=False):
@@ -305,11 +301,11 @@ class PytorchModel:
         print(b("=================== PARALLEL TRAINING END ===================\n"))
         print(green(f"Total federated training time: {total_time:.2f} seconds\n"))
 
-    def finalize_user_evaluation(self, user): # Same as lines 294-296,306 in orgiginal code.
-        loss, acc = test(user.model, self.test, DEVICE) # TODO: Investigate if this should be user.val instead.
-        user._accuracy.append(acc) # Line 295 in original code # TODO: Investigate if this should be test and not validation accuracy.
-        user._loss.append(loss) # Line 296 in original code # TODO: Investigate if this should be test and not validation loss.
-        user.hashedModel = self.get_hash(user.model.state_dict())
+    def finalize_paricipant_evaluation(self, participant): # Same as lines 294-296,306 in orgiginal code.
+        loss, acc = test(participant.model, self.test, DEVICE) # TODO: Investigate if this should be user.val instead.
+        participant._accuracy.append(acc) # Line 295 in original code # TODO: Investigate if this should be test and not validation accuracy.
+        participant._loss.append(loss) # Line 296 in original code # TODO: Investigate if this should be test and not validation loss.
+        participant.hashedModel = self.get_hash(participant.model.state_dict())
 
 
     def apply_training_results(self, results):
@@ -320,7 +316,7 @@ class PytorchModel:
             user.model.load_state_dict(state_dict)
             user.currentAcc = val_acc # Line 287 in original code
             user.currentLoss = val_loss
-            self.finalize_user_evaluation(user)
+            self.finalize_paricipant_evaluation(user)
 
 
     def run_sequential(self):
@@ -348,16 +344,18 @@ class PytorchModel:
                 )
                 results.append(result)
             else:
-                self.finalize_user_evaluation(user)
+                self.finalize_paricipant_evaluation(user)
         return results
 
     def run_multi_processing(self):
         num_gpus = torch.cuda.device_count()
         ctx = mp.get_context("spawn")
 
-        num_processes = min(
-            len(self.participants),
-            num_gpus if num_gpus > 0 else os.cpu_count()
+        available_workers = num_gpus if num_gpus > 0 else (os.cpu_count() or 1)
+
+        num_processes = max(
+            1,
+            min(len(self.participants), available_workers)
         )
 
         print_training_mode(num_gpus, num_processes)
@@ -386,7 +384,7 @@ class PytorchModel:
                     ))
                 else: # If user's behaviour !good, skip Training.
                     # Skips apply_training_results() - goes directly to evaluation. Corresponds to lines 261-277 in original code.
-                    self.finalize_user_evaluation(user)
+                    self.finalize_paricipant_evaluation(user)
 
             results = [r.get() for r in async_results] # Gather results from Multi-Processing
         print(green(f"Parallel execution time: {time.perf_counter() - start_pool:.2f} seconds"))
@@ -564,6 +562,9 @@ class PytorchModel:
         blob = b"".join(parts)
         return Web3.keccak(blob)  #remove hex to match old, with improved algo.
 
+    def get_global_model_hash(self):
+        return self.get_hash(self.global_model.state_dict())
+
     def evaluation(self):
         print("Users evaluating models...")
 
@@ -676,7 +677,7 @@ def train(net, trainloader: torch.utils.data.DataLoader, epochs: int, device: to
     # Compile ONCE per process (not per batch)
     if device.type == "cuda":
         try:
-            net = torch.compile(net, mode="reduce-overhead")
+            net = torch.compile(net)#, mode="reduce-overhead")
         except Exception:
             pass
 
@@ -768,18 +769,6 @@ def add_noise(model, offset_from_end: int = 5) -> OrderedDict:
                 t.add_(eps)  # in-place scalar add on the same device (CPU/GPU)
             new_sd[k] = t
     return new_sd
-
-
-def get_color(i, a):
-    if a == "bad":
-        return bad_c
-    if a == "freerider":
-        return free_c
-    try:
-        return colors[i]
-    except:
-        return None
-
 
 def train_user_proc(user_id, model_state, train_ds, val_ds, epochs, device_id, dataset, batchsize, pin_memory, shuffle):
         # Multi-GPU Support

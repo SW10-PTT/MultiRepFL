@@ -127,7 +127,7 @@ def main(author):
             number_of_good_contributors=6,
             number_of_bad_contributors=1,
             number_of_freerider_contributors=1,
-            minimum_rounds=25
+            minimum_rounds=25,
         )
         
         path = getPath(config, startTime, dataset, RESULTDATAFOLDER) # Use existing save function as csv uses.

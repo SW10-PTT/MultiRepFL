@@ -1,6 +1,6 @@
 from typing import Callable
 import numpy as np
-from openfl.ml.pytorch_model import Participant
+from openfl.ml.pytorch_model import User
 from parser.helpers.mehods import Method
 from parser.types.participant import Attitude, MetaAttitude
 from parser.dataProcessors.plotter import line_graph
@@ -21,7 +21,7 @@ def get_target_user_ids(participants, target_attitude):
 
 def prepare_grs_by_round(
     rounds: list[Round], 
-    participants: dict[str, Participant], 
+    participants: dict[str, User],
     experiment_specs: ExperimentSpec, 
     gasStats: GasStats, 
     outDir: str, 

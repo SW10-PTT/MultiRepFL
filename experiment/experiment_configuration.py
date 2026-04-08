@@ -1,4 +1,4 @@
-from openfl.utils.ChallengeTrainingSpecs import ChallengeTrainingSpecs
+from openfl.utils.TrainingSpecsJobListing import TrainingSpecsJobListing, TrainingSpecsChallenge
 
 
 class ExperimentConfiguration:
@@ -59,8 +59,11 @@ class ExperimentConfiguration:
         self.malicious_noise_scale = malicious_noise_scale
         self.force_merge_all = force_merge_all
 
-    def get_training_specs(self, manager_address, taskType) -> ChallengeTrainingSpecs:
-        return ChallengeTrainingSpecs(None, self.min_buy_in, self.max_buy_in, manager_address, self.reward, self.minimum_rounds, self.punish_factor, self.punish_factor_contrib, self.first_round_fee, 0)
+        class userConfig:
+            number_of_good_contributors = "a"
+
+    def get_training_specs(self, manager_address, model_hash) -> TrainingSpecsJobListing:
+        return TrainingSpecsJobListing(model_hash, self.min_buy_in, self.max_buy_in, manager_address, self.reward, self.minimum_rounds, self.punish_factor, self.punish_factor_contrib, self.first_round_fee, 1) # Todo: Tasktype
 
     @property
     def number_of_contributors(self):

@@ -3,6 +3,7 @@ import datetime
 import os
 import time
 import warnings
+from typing import List
 
 import torch
 import numpy as np
@@ -15,6 +16,8 @@ from termcolor import colored
 import matplotlib.pyplot as plt
 from web3.exceptions import ContractLogicError
 from openfl.contracts import FLManager, JobListing
+from openfl.ml.Participant import Participant
+from openfl.utils.TrainingSpecsJobListing import TrainingSpecsJobListing, TrainingSpecsChallenge
 from openfl.utils.types.Colors import gb, rb, b, green, red, yellow
 from openfl.utils import printer, config
 from openfl.api.ConnectionHelper import ConnectionHelper
@@ -22,6 +25,8 @@ from openfl.api import globals
 from openfl.utils.async_writer import AsyncWriter, NullWriter
 import openfl.utils.config
 from openfl.utils.shapley import check_shapley_compliance
+from openfl.utils.types.User import User
+
 # Smart-contract–backed federated learning simulation.
 # Handles:
 #   - User registration / exit on-chain
@@ -31,16 +36,18 @@ from openfl.utils.shapley import check_shapley_compliance
 #   - Round settlement and visualization
 UINT256_MAX = 2**256 - 1
 
-class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManager to ConnectionHelper
-    def __init__(self, manager, configs, pyTorchModel, experiment_config, writer: AsyncWriter=None, logger=None):
-        self.manager = manager
 
-        self.contract, self.contractAddress = configs[:2]
+class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManager to ConnectionHelper
+    def __init__(self, publisher: User, pyTorchModel, training_specs: TrainingSpecsChallenge, jobListing, writer: AsyncWriter=None, logger=None):
+
         self.pytorch_model = pyTorchModel
-        self.MIN_BUY_IN, self.MAX_BUY_IN, self.REWARD, self.MIN_ROUNDS = configs[2:6]
-        self.PUNISHMENT_FACTOR = configs[6]
-        self.PUNISHMENT_FACTOR_CONTRIB = configs[7]
-        self.FREERIDER_FACTOR = configs[8]
+        self.MIN_BUY_IN = training_specs.min_collateral
+        self.MAX_BUY_IN = training_specs.max_collateral
+        self.REWARD = training_specs.reward
+        self.MIN_ROUNDS = training_specs.min_rounds
+        self.PUNISHMENT_FACTOR = training_specs.punishfactor,
+        self.PUNISHMENT_FACTOR_CONTRIB = training_specs.punishfactorContrib,
+        self.FREERIDER_FACTOR = training_specs.freeriderPenalty
         
         self.gas_feedback = [] 
         self.gas_register = [] 
@@ -59,7 +66,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
         self.writeTxProgress = 0
 
 
-        self._contribution_score_strategy = experiment_config.contribution_score_strategy
+        self._contribution_score_strategy = training_specs.contribution_score_strategy
         self._contribution_score_calculators = {
             "dotproduct": self._calculate_scores_dotproduct,
             "naive": self._calculate_scores_naive,
@@ -67,12 +74,35 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
             "accuracy_only": self._calculate_scores_accuracy_only,
             "loss_only": self._calculate_scores_loss_only,
         }
-        self.experiment_config = experiment_config
 
         self.disqualifiedUserEvents = []
 
+        factory = self.initialize_challenge()
+
+        p1_collateral = publisher.collateral
+        value = training_specs.reward + p1_collateral
+
+        # --- DEPLOY ---
+        contract, receipt = ConnectionHelper.deploy(
+            factory,
+            [
+                training_specs.to_solidity_challenge()
+            ],
+            publisher,
+            value=value
+        )
+
+
+        self.contract = contract
+        self.contractAddress = contract.address
         print("Contract address:", self.contract.address)
         print("Contract ABI functions:", [f["name"] for f in self.contract.abi if f["type"] == "function"])
+
+        if training_specs.taskType == 0:
+            print("Contract is template")
+            return
+        self.participant_addresses = jobListing.contract.functions.getSelectedParticipants.call()
+
 
     def _get_contribution_score_calculator(self):
         """
@@ -88,46 +118,6 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
             )
         print("strategy: ", strategy)
         return self._contribution_score_calculators[strategy]
-        
-    # def register_all_users(self):
-    #     """
-    #     Register all participants in the federated learning model
-    #     via the smart contract.
-    #     """
-    #     txs = []
-    #     for acc in self.pytorch_model.participants:
-    #         if acc.isRegistered:
-    #             continue
-    #         if self.fork:
-    #             # Simple tx builder for forked (dev) chain
-    #             tx = super().build_tx(acc.address, self.contractAddress, acc.collateral)
-    #             txHash = self.contract.functions.register().transact(tx)
-    #         else:
-    #             # Non-fork: build and sign a raw transaction manually
-    #             nonce = globals.w3.eth.get_transaction_count(acc.address) 
-    #             reg = super().build_non_fork_tx(acc.address, nonce, value=acc.collateral)
-    #             reg = self.contract.functions.register().build_transaction(reg)
-    #             signed = globals.w3.eth.account.sign_transaction(reg, private_key=acc.privateKey)
-    #             txHash = globals.w3.eth.send_raw_transaction(signed.raw_transaction)
-    #         txs.append(txHash)
-    #         bal = globals.w3.eth.get_balance(globals.w3.eth.default_account)
-    #         acc.isRegistered = True
-    #         print("{:<17} {} | {} | {:>25,.0f} WEI".format("Account registered:", 
-    #                                                        acc.address[0:16] + "...", 
-    #                                                        txHash.hex()[0:6] + "...", 
-    #                                                        acc.collateral
-    #                                                        ))
-        
-    #     l = len(txs)
-    #     for i, txHash in enumerate(txs):
-    #         printer.print_bar(i, l)
-    #         receipt = globals.w3.eth.wait_for_transaction_receipt(txHash,
-    #                                                         timeout=600, 
-    #                                                         poll_latency=1)
-            
-    #         self.gas_register.append(receipt["gasUsed"])
-    #         self.txHashes.append(("register",receipt["transactionHash"].hex(), receipt["gasUsed"]))
-    #     printer._print("-----------------------------------------------------------------------------------", "\n")
         
     
     def get_hashed_weights_of(self, user):
@@ -1245,7 +1235,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                 "feedbackMatrix": None,
                 "disqualifiedUsers": [],
                 "contributionScores": [],
-                "userStatuses": [user.getStatus() for user in self.pytorch_model.participants],
+                "userStatuses": [user.get_status() for user in self.pytorch_model.participants],
                 "GasTransactions": roundTx
             })
 
@@ -1318,7 +1308,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                 "feedbackMatrix": self.feedback_matrix.tolist(),
                 "disqualifiedUsers": round_kicked,
                 "contributionScores": self.scores,
-                "userStatuses": [user.getStatus() for user in self.pytorch_model.participants],
+                "userStatuses": [user.get_status() for user in self.pytorch_model.participants],
                 "GasTransactions": roundTx
                 })
 
@@ -1509,7 +1499,14 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
             self.gas_register.append(receipt["gasUsed"])
             self.txHashes.append(("register",receipt["transactionHash"].hex(), receipt["gasUsed"]))
         printer._print("-----------------------------------------------------------------------------------", "\n")
-        
+
+    def make_participants_from_users(self, users: List[User]):
+        users_by_address = {u.address: u for u in users}
+
+        for par_addr in self.participant_addresses:
+            user = users_by_address.get(par_addr)
+            if user is not None:
+                self.pytorch_model.add_participant(user)
 
 
 # def calc_contribution_score(local_model, global_model, num_mergers, eps=1e-12) -> int:

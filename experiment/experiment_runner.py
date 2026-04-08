@@ -3,16 +3,22 @@ import platform
 import psutil
 import time
 from pathlib import Path
+
+from web3.exceptions import ContractLogicError
+from typing import List
 from experiment_configuration import ExperimentConfiguration
+from openfl.contracts.JobListing import JobListing
 from openfl.ml import pytorch_model as PM
 from openfl.contracts import FLChallenge as Challenge, FLManager as Manager
 from openfl.utils import require_env_var
+from openfl.utils.W3Helper import get_PRIVKEYS, get_RPC_Endpoint, get_account_RPC
+from openfl.utils.types.Attitude import Attitude
 from types import SimpleNamespace
 from web3 import Web3, Account
 from openfl.api import globals
 
 from openfl.utils.async_writer import AsyncWriter
-from openfl.utils.types import Participant
+from openfl.utils.types.User import User
 
 
 def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration, writer: AsyncWriter=None, logger=None):
@@ -21,29 +27,11 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
   experiment_config.dataset = dataset_name
 
   experiment_start = time.perf_counter()
-  RPC_ENDPOINT = require_env_var("RPC_URL")
-    
-# Only for the real-net simulation
-# In order to use a non-locally forked blockchain, 
-# private keys are required to unlock accounts
-  if experiment_config.fork == False:
-    globals.w3 = Web3(Web3.HTTPProvider(RPC_ENDPOINT))
 
-    raw_keys = require_env_var("PRIVATE_KEYS")
-    privKeys = [k.strip() for k in raw_keys.splitlines() if k.strip()]
+  setup_connection(experiment_config)
 
-    # Convert to Web3 Account objects
-    loaded_accounts = [Account.from_key(k) for k in privKeys]
 
-    # Wrap for compatibility with older code expecting `.privateKey`
-    PRIVKEYS = [
-        SimpleNamespace(privateKey=acc._private_key, address=acc.address)
-        for acc in loaded_accounts
-    ]
-
-    print(f"Loaded {len(PRIVKEYS)} private keys.")
-  else:
-    PRIVKEYS = None
+  users: List[User] = []
 
   pytorch_model = PM.PytorchModel(dataset_name, 
                               experiment_config.number_of_good_contributors, 
@@ -58,17 +46,29 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
                               experiment_config.malicious_noise_scale,
                               experiment_config.force_merge_all)
 
-  for i in range(experiment_config.number_of_bad_contributors):
-      pytorch_model.add_participant("bad",experiment_config.malicious_start_round)
+  for attitude, count in [
+      (Attitude.Honest, experiment_config.number_of_good_contributors),
+      (Attitude.Malicious, experiment_config.number_of_bad_contributors),
+      (Attitude.FreeRider, experiment_config.number_of_freerider_contributors),
+  ]:
+      for _ in range(count):
+          addr, private_key = get_account_RPC(len(users), experiment_config.fork)
+          users.append(
+              User.from_experiment_config(
+                  attitude,
+                  experiment_config,
+                  addr,
+                  private_key
+              )
+          )
+      #pytorch_model.add_participant("freerider",experiment_config.freerider_start_round) //TODO FOR LATER
 
-  for i in range(experiment_config.number_of_freerider_contributors):
-      pytorch_model.add_participant("freerider",experiment_config.freerider_start_round)
-      
-  for i in range(experiment_config.number_of_inactive_contributors):
-      pytorch_model.add_participant("inactive",1)
+  publisher: User = users[0]
 
+  RPC_ENDPOINT = get_RPC_Endpoint()
+  PRIVKEYS = get_PRIVKEYS(experiment_config) # TODO : HUH, private keys?
 
-  manager = Manager(pytorch_model, True).init(experiment_config.number_of_good_contributors, 
+  manager = Manager(pytorch_model, publisher,True).init(experiment_config.number_of_good_contributors,
                                               experiment_config.number_of_bad_contributors,
                                               experiment_config.number_of_freerider_contributors,
                                               experiment_config.number_of_inactive_contributors,
@@ -76,13 +76,12 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
                                               RPC_ENDPOINT,
                                               PRIVKEYS)
 
-  publisher: Participant = pytorch_model.participants[0]
 
-  trainingSpecs = experiment_config.get_training_specs(manager.contract.address, 0)
+  trainingSpecs = experiment_config.get_training_specs(manager.contract.address, pytorch_model.get_global_model_hash())
   
-  newJobListing = publisher.deploy_joblisting_contract(trainingSpecs, manager)
+  newJobListing: JobListing = publisher.deploy_joblisting_contract(trainingSpecs, manager)
 
-  writer.writeComment(f"$startingUserConfig${[p.getStatus() for p in pytorch_model.participants]}")
+  writer.writeComment(f"$startingUserConfig${[p.get_status() for p in pytorch_model.participants]}")
 
   extra_configs = {}
   if experiment_config.contribution_score_strategy is not None:
@@ -91,22 +90,42 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
       ) # WTF is this????
 
 
-  for participant in pytorch_model.participants:
-     participant.register_for_job(newJobListing)
+  for participants in users:
+     participants.register_for_job(newJobListing)
 
-  publisher.deploy_challenge_contract(trainingSpecs, manager, )
+  while True:
+      try:
+          (receipt, events) = newJobListing.transact(
+              "decideOnParticpants",
+              publisher,
+              0,
+              ["SelectionComplete"],
+              2
+          )
+          break
+      except ContractLogicError as e:
+          if "AWO" in str(e):
+              globals.w3.provider.make_request("evm_increaseTime", [30])
+              globals.w3.provider.make_request("evm_mine", [])
+              print("Application window still open, trying again in 10 seconds")
+              time.sleep(10)
+          else:
+              raise
+
+  trainingSpecsChallenge = trainingSpecs.to_challenge(experiment_config.contribution_score_strategy, newJobListing.contract.address)
+
+  newChallenge: Challenge = publisher.deploy_challenge_contract(trainingSpecsChallenge, newJobListing, pytorch_model)
+
+  newChallenge.make_participants_from_users(users)
+  for participants in newChallenge.pytorch_model.participants:
+      try:
+        newChallenge.transact("registrationProcess", participants, trainingSpecsChallenge.min_collateral, [])
+      except ContractLogicError as e:
+          if "SUO" in str(e):
+              print("Participant tried joining but was not selected")
 
   # This happens after deciding on users
- 
-  model = Challenge(manager, 
-                      experiment_config.configs,
-                      pytorch_model,
-                      experiment_config,
-                      writer,
-                      logger)
-
-
-  model.simulate(rounds=experiment_config.minimum_rounds)
+  newChallenge.simulate(rounds=experiment_config.minimum_rounds)
   experiment_end = time.perf_counter()
   total_experiment_time = experiment_end - experiment_start
 
@@ -159,8 +178,33 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
 
       logger.log_setup(total_experiment_time, hardware, config)
 
-  return Experiment(model, manager)
+  return Experiment(newChallenge, manager)
 
+
+def setup_connection(experiment_config):
+    RPC_ENDPOINT = require_env_var("RPC_URL")
+
+    # Only for the real-net simulation
+    # In order to use a non-locally forked blockchain,
+    # private keys are required to unlock accounts
+    if experiment_config.fork == False:
+        globals.w3 = Web3(Web3.HTTPProvider(RPC_ENDPOINT))
+
+        raw_keys = require_env_var("PRIVATE_KEYS")
+        privKeys = [k.strip() for k in raw_keys.splitlines() if k.strip()]
+
+        # Convert to Web3 Account objects
+        loaded_accounts = [Account.from_key(k) for k in privKeys]
+
+        # Wrap for compatibility with older code expecting `.privateKey`
+        PRIVKEYS = [
+            SimpleNamespace(privateKey=acc._private_key, address=acc.address)
+            for acc in loaded_accounts
+        ]
+
+        print(f"Loaded {len(PRIVKEYS)} private keys.")
+    else:
+        PRIVKEYS = None
 
 def visualizeModel(model):
   model.visualize_simulation("figures")

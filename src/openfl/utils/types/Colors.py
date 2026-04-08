@@ -8,6 +8,8 @@ def get_color(i, a):
       return bad_c
   if a == "freerider":
       return free_c
+  if i is None:
+      return None
   try:
       return colors[i]
   except:

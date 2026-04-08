@@ -1,13 +1,7 @@
 pragma solidity ^0.8.0;
 
 import "./Types.sol";
-
-interface Manager {
-    function getUserRep(
-        address,
-        TaskType
-    ) external view returns (uint, uint, uint);
-}
+import "./OpenFLManager.sol";
 
 contract JobListing {
     modifier onlyNotYetRegisteredUsers() {
@@ -16,12 +10,12 @@ contract JobListing {
     }
 
     modifier applicationWindowClosed() {
-        require(block.timestamp >= applicationWindowCloseTime, "Too early");
+        require(block.timestamp >= applicationWindowCloseTime, "AWO");
         _;
     }
 
     event SelectionComplete(address[] participants);
-    event ChallengeContractCreated(address challengeContractAddress);
+    event ChallengeRegistered(address challengeAddress, bool success);
 
     struct User {
         uint globalTaskRep; // 32
@@ -32,16 +26,18 @@ contract JobListing {
     }
     mapping(address => User) public applicants;
 
-    bool initialized = false;
     uint public applicationWindowCloseTime;
-    Manager manager;
+    OpenFLManager manager;
     address[] applicantAddresses;
     uint16 nrOfApplicants;
     address managerAddress;
+    bytes32 challengeCodeHash;
+    address challengeAddress;
+
     TrainingSpecifications trainingSpecs;
+    address[] selectedParticipants;
 
     constructor(
-        bytes32 _modelHash,
         uint _min_collateral,
         uint _max_collateral,
         uint _reward,
@@ -53,19 +49,23 @@ contract JobListing {
         TaskType _taskType
     ) payable {
         managerAddress = _managerAddress;
-        manager = Manager(_managerAddress);
-        applicationWindowCloseTime = block.timestamp + 1 seconds;
+        manager = OpenFLManager(_managerAddress);
+        applicationWindowCloseTime = block.timestamp + 0 seconds;
 
         trainingSpecs.freeriderPenalty = _freeriderPenalty;
         trainingSpecs.managerAddress = _managerAddress;
         trainingSpecs.max_collateral = _max_collateral;
         trainingSpecs.min_collateral = _min_collateral;
         trainingSpecs.min_rounds = _min_rounds;
-        trainingSpecs.modelHash = _modelHash;
         trainingSpecs.punishfactor = _punishfactor;
         trainingSpecs.punishfactorContrib = _punishfactorContrib;
         trainingSpecs.reward = _reward;
         trainingSpecs.taskType = _taskType;
+
+        challengeCodeHash = manager.getChallengeCodeHash();
+    }
+    function debugTimes() external view returns (uint nowTs, uint closeTs) {
+        return (block.timestamp, applicationWindowCloseTime);
     }
 
     function configHash() public view returns (bytes32) {
@@ -79,13 +79,18 @@ contract JobListing {
                     trainingSpecs.max_collateral,
                     trainingSpecs.min_collateral,
                     trainingSpecs.min_rounds,
-                    trainingSpecs.modelHash,
+                    //trainingSpecs.modelHash,
                     trainingSpecs.punishfactor,
                     trainingSpecs.punishfactorContrib,
                     trainingSpecs.reward,
-                    trainingSpecs.taskType
+                    trainingSpecs.taskType,
+                    selectedParticipants
                 )
             );
+    }
+
+    function getSelectedParticipants() public returns (address[] memory) {
+        return selectedParticipants;
     }
 
     function register() public payable onlyNotYetRegisteredUsers {
@@ -115,6 +120,21 @@ contract JobListing {
         applicantAddresses.push(userAddr);
     }
 
+    function registerChallenge(address challengeContractAddr) public {
+        require(challengeAddress == address(0), "IAE");
+
+        bytes32 codeHash;
+
+        assembly {
+            codeHash := extcodehash(challengeContractAddr)
+        }
+        if (codeHash == challengeCodeHash) {
+            challengeAddress = challengeContractAddr;
+            emit ChallengeRegistered(challengeAddress, true);
+        }
+        emit ChallengeRegistered(challengeAddress, false);
+    }
+
     function decideOnParticpants(
         uint8 amount
     ) public payable applicationWindowClosed {
@@ -124,10 +144,11 @@ contract JobListing {
             applicants[selected[i]].isSelected = true;
         }
 
-        trainingSpecs.selectedParticipants = selected;
+        selectedParticipants = selected;
 
         emit SelectionComplete(selected);
     }
+
 
     function getTopN(uint N) public view returns (address[] memory) {
         address[] memory heapUsers = new address[](N);
