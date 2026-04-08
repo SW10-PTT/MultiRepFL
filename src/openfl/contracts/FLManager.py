@@ -133,7 +133,7 @@ class FLManager(ConnectionHelper):
         model_hash_bytes = Web3.keccak(text="template")  # any valid bytes32
 
         constructor_args = [
-            TrainingSpecsChallenge(model_hash_bytes, 1, 1, deployer.address, 1, 1, 1 ,1 , 1, 0, 0, "0x0000000000000000000000000000000000000000").to_solidity_challenge(),
+            TrainingSpecsChallenge(model_hash_bytes, 1, 1, deployer.address, 1, 1, 1 ,1 , 1, 0, 0,"0x0000000000000000000000000000000000000000", False).to_solidity_challenge(),
         ]
 
         contract, receipt = ConnectionHelper.deploy(
