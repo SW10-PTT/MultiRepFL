@@ -4,17 +4,19 @@ from web3 import Web3
 from web3.contract import Contract
 from openfl.contracts.JobListing import JobListing
 from openfl.ml.pytorch_model import PytorchModel
+from openfl.utils.TrainingSpecsJobListing import TrainingSpecsChallenge
 from openfl.utils.types.Colors import b
-from openfl.utils.types.Participant import Participant
+from openfl.utils.types.User import User
 from openfl.api import ConnectionHelper, globals
 
 class FLManager(ConnectionHelper):
-    def __init__(self, pytorch_model: PytorchModel, manual_ganache_setup=False):
+    def __init__(self, pytorch_model: PytorchModel, publisher, manual_ganache_setup=False):
         self.latestBlock = None
         self.contract = None
         self.challenge_contract = None
         self.pytorch_model: PytorchModel = pytorch_model
         self.modelOf = {}
+        self.publisher = publisher
         self.manual_setup = manual_ganache_setup
         self.job_listings = []
 
@@ -24,6 +26,7 @@ class FLManager(ConnectionHelper):
         self.job_template_address = None
         #self.job_template_hash = None
         self.job_template_hash = Web3.to_bytes(hexstr="0xdb97405406fa6311775ff842c92fb4608768b2a54c37e98b4dad1adb090f27c2")
+        self.challenge_templete_hash = Web3.to_bytes(hexstr="0xdb97405406fa6311775ff842c92fb4608768b2a54c37e98b4dad1adb090f27c2")
 
     def init(self, 
              NUMBER_OF_GOOD_CONTRIBUTORS, 
@@ -31,8 +34,7 @@ class FLManager(ConnectionHelper):
              NUMBER_OF_FREERIDER_CONTRIBUTORS, NUMBER_OF_INACTIVE_CONTRIBUTORS, 
              MINIMUM_ROUNDS, 
              infuraurl=None, 
-             accounts=None): 
-        global w3
+             accounts=None):
         self.latestBlock = super().initiate_rpc(NUMBER_OF_GOOD_CONTRIBUTORS=NUMBER_OF_GOOD_CONTRIBUTORS,
                                                          NUMBER_OF_BAD_CONTRIBUTORS=NUMBER_OF_BAD_CONTRIBUTORS,
                                                          NUMBER_OF_FREERIDER_CONTRIBUTORS=NUMBER_OF_FREERIDER_CONTRIBUTORS,
@@ -42,9 +44,11 @@ class FLManager(ConnectionHelper):
                                                          accounts=accounts)
         self.build_contract()
 
-        self.deploy_job_template(self.pytorch_model.participants[0])
-        
-        self.transact("setJobListingCodeHash", self.pytorch_model.participants[0], 0, [], self.job_template_hash)
+        self.deploy_job_template(self.publisher)
+        self.deploy_challenge_template(self.publisher)
+
+        self.transact("setJobListingCodeHash", self.publisher, 0, [], self.job_template_hash)
+        self.transact("setChallengeCodeHash", self.publisher, 0, [], self.challenge_templete_hash)
         return self
     
     
@@ -55,7 +59,7 @@ class FLManager(ConnectionHelper):
         contract, receipt = ConnectionHelper.deploy(
             factory,
             [],  # no constructor args
-            self.pytorch_model.participants[0]
+            self.publisher
         )
 
         self.contract = contract
@@ -77,31 +81,16 @@ class FLManager(ConnectionHelper):
     
     def register_joblisting_contract(self, new_joblisting: JobListing) -> bool:#-> tuple[Contract, ChecksumAddress, JobListing, ...]:
         (receipt, events) = self.transact("registerJob", new_joblisting.publisher, 0, ["JobListingValid"], new_joblisting.contract.address)
-        
-        is_valid = events["JobListingValid"][0]["args"]["isValid"]
+
+        is_valid = events["JobListingValid"][0]["isValid"]
 
         if not is_valid:
             return False
         
         self.job_listings.append(new_joblisting)
         return True
-        # return (
-        #     new_joblisting,
-        #     (
-        #         new_joblisting.contract,
-        #         new_joblisting.contract.address,
-        #         min_buyin,
-        #         max_buyin,
-        #         reward,
-        #         min_rounds,
-        #         punishment,
-        #         punish_contrib,
-        #         freerider_fee,
-        #         taskType
-        #     )
-        # )
     
-    def deploy_job_template(self, deployer: Participant):
+    def deploy_job_template(self, deployer: User):
         w3 = globals.w3
 
         factory = self.initialize_job()
@@ -109,7 +98,7 @@ class FLManager(ConnectionHelper):
         model_hash_bytes = Web3.keccak(text="template")  # any valid bytes32
 
         constructor_args = [
-            model_hash_bytes,
+            #model_hash_bytes,
             1,   # min_buyin
             1,   # max_buyin
             1,   # reward
@@ -136,37 +125,26 @@ class FLManager(ConnectionHelper):
         print("Job Listing template deployed at:", contract.address)
         print("Job Listing template hash:", self.job_template_hash.hex())
 
-    def deploy_challenge_template(self, deployer: Participant):
+    def deploy_challenge_template(self, deployer: User):
         w3 = globals.w3
 
-        factory = self.initialize_job()
+        factory = self.initialize_challenge()
 
         model_hash_bytes = Web3.keccak(text="template")  # any valid bytes32
 
         constructor_args = [
-            model_hash_bytes,
-            1,   # min_buyin
-            1,   # max_buyin
-            1,   # reward
-            1,   # min_rounds
-            1,   # punishment
-            1,   # punish_contrib
-            1,   # freerider_fee
-            self.contract.address if self.contract else deployer.address,  # manager addr
-            0    # taskType (enum as int)
+            TrainingSpecsChallenge(model_hash_bytes, 1, 1, deployer.address, 1, 1, 1 ,1 , 1, 0, 0, "0x0000000000000000000000000000000000000000").to_solidity_challenge(),
         ]
 
-        contract, receipt = self.deploy(
+        contract, receipt = ConnectionHelper.deploy(
             factory,
             constructor_args,
             deployer,
             value=1
         )
 
-        self.job_template_address = contract.address
-
         code = w3.eth.get_code(contract.address)
-        self.job_template_hash = Web3.keccak(code)
+        self.challenge_templete_hash = Web3.keccak(code)
 
-        print("Job Listing template deployed at:", contract.address)
-        print("Job Listing template hash:", self.job_template_hash.hex())
+        print("Challenge template deployed at:", contract.address)
+        print("Challenge template hash:", self.job_template_hash.hex())

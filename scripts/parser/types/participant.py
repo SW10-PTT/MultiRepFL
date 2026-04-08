@@ -2,7 +2,7 @@ from enum import IntEnum
 
 from openfl.api.ConnectionHelper import ConnectionHelper
 from openfl.contracts import JobListing
-from openfl.utils import ChallengeTrainingSpecs
+from openfl.utils import TrainingSpecsJobListing
 
 
 

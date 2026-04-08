@@ -12,6 +12,8 @@ from web3 import Web3
 from web3.contract import Contract
 from termcolor import colored
 from subprocess import Popen, PIPE
+
+from openfl.utils.types.Attitude import Attitude
 from openfl.utils.types.Colors import gb, rb, b, green, red
 #from openfl.utils.types.Participant import Participant
 from openfl.utils import require_env_var
@@ -38,41 +40,7 @@ class ConnectionHelper:
                                     + NUMBER_OF_BAD_CONTRIBUTORS \
                                     + NUMBER_OF_FREERIDER_CONTRIBUTORS \
                                     + NUMBER_OF_INACTIVE_CONTRIBUTORS
-        infura_url = require_env_var("RPC_URL")
 
-
-        if globals.fork:
-            if not manual_setup:
-                port = require_env_var("RPC_URL").split(':')[1]
-                process = Popen(["lsof", "-i", ":{0}".format(port)], stdout=PIPE, stderr=PIPE)
-                stdout, stderr = process.communicate()
-                for process in str(stdout.decode("utf-8")).split("\n")[1:]:       
-                    data = [x for x in process.split(" ") if x != '']
-                    if (len(data) <= 1):
-                        continue
-
-                    os.kill(int(data[1]), signal.SIGKILL)
-                command = "ganache --fork.url='{}' -a {} -b 10".format(infura_url, NUMBER_OF_CONTRIBUTORS)
-                os.system("gnome-terminal -e 'bash -c \"{}; bash\" '".format(command))
-        while latestBlock == 1000000:
-            time.sleep(1)
-            try:
-                if fork:
-                    globals.w3 = Web3(Web3.HTTPProvider(infura_url))
-                    print("Connected:", globals.w3.is_connected())
-                    print("Client:", globals.w3.client_version)
-                    print("Chain ID:", globals.w3.eth.chain_id)
-                    print("Latest block:", globals.w3.eth.block_number)
-                    print("Accounts:", globals.w3.eth.accounts[:3])
-                    print("Default account:", globals.w3.eth.default_account)
-                    globals.w3.eth.default_account = globals.w3.eth.accounts[0]
-                    print("New Default account:", globals.w3.eth.default_account)
-
-                else:
-                    globals.w3 = Web3(Web3.HTTPProvider(infura_url))
-                latestBlock = globals.w3.eth.block_number
-            except:
-                latestBlock = 1000000
         
         
         #print("\n==================================================================================\n")
@@ -88,9 +56,11 @@ class ConnectionHelper:
         print("Inactive Contributers:    {} ({:.0f}%)".format(NUMBER_OF_INACTIVE_CONTRIBUTORS,
                                                         NUMBER_OF_INACTIVE_CONTRIBUTORS/NUMBER_OF_CONTRIBUTORS*100 )) 
         print("Learning Rounds:          {}".format(MINIMUM_ROUNDS)) 
-        
+
         print("-----------------------------------------------------------------------------------")
-        
+
+        latestBlock = self.initiate_connection(NUMBER_OF_CONTRIBUTORS, latestBlock, manual_setup)
+
         if fork:
             while not globals.w3.eth.default_account:
                 time.sleep(0.2)
@@ -98,30 +68,30 @@ class ConnectionHelper:
                     globals.w3.eth.default_account = globals.w3.eth.accounts[0]
                 except:
                     globals.w3.eth.default_account = None
-            
+
             if len(globals.w3.eth.accounts) < len(self.pytorch_model.participants):
                 print(rb("Nr. of Ganache Addresses <> Nr. of Model Participants"))
                 print(rb(str(len(globals.w3.eth.accounts))  + "<>" +  str(len(self.pytorch_model.participants))))
                 print(rb("Increase number of unlocked accounts"))
                 raise NotEnoughUnlockedAccounts()
-                
+
         # Every user receives an address
         for ix in range(len(self.pytorch_model.participants)):
             if globals.fork:
                 self.pytorch_model.participants[ix].address = globals.w3.to_checksum_address(globals.w3.eth.accounts[ix])
             else:
                 if ix == 0:
-                    globals.w3.eth.default_account = accounts[ix].address 
+                    globals.w3.eth.default_account = accounts[ix].address
                 self.pytorch_model.participants[ix].address = globals.w3.to_checksum_address(accounts[ix].address)
-                self.pytorch_model.participants[ix].privateKey = accounts[ix].privateKey           
+                self.pytorch_model.participants[ix].privateKey = accounts[ix].privateKey
                 
             
         for i, acc in enumerate(self.pytorch_model.participants):
-            if acc.futureAttitude == "good":
+            if acc.futureAttitude == Attitude.Honest:
                 prefix = "FAIR"
-            elif acc.futureAttitude == "freerider":
+            elif acc.futureAttitude == Attitude.FreeRider:
                 prefix = "FREE"
-            elif acc.futureAttitude == "inactive":
+            elif acc.futureAttitude == Attitude.Inactive:
                 prefix = "AFK "
             else:
                 prefix = "MAL."
@@ -132,7 +102,48 @@ class ConnectionHelper:
                                                            prefix))
         print("-----------------------------------------------------------------------------------")
         return latestBlock
-    
+
+    @classmethod
+    def initiate_connection(cls, latestBlock=1000000, manual_setup=False, NUMBER_OF_CONTRIBUTORS = 10):
+        if globals.w3 is not None:
+            return globals.w3.eth.block_number
+
+        infura_url = require_env_var("RPC_URL")
+
+        if globals.fork:
+            if not manual_setup:
+                port = require_env_var("RPC_URL").split(':')[1]
+                process = Popen(["lsof", "-i", ":{0}".format(port)], stdout=PIPE, stderr=PIPE)
+                stdout, stderr = process.communicate()
+                for process in str(stdout.decode("utf-8")).split("\n")[1:]:
+                    data = [x for x in process.split(" ") if x != '']
+                    if len(data) <= 1:
+                        continue
+
+                    os.kill(int(data[1]), signal.SIGKILL)
+                command = "ganache --fork.url='{}' -a {} -b 10".format(infura_url, NUMBER_OF_CONTRIBUTORS)
+                os.system("gnome-terminal -e 'bash -c \"{}; bash\" '".format(command))
+        while latestBlock == 1000000:
+            time.sleep(1)
+            try:
+                if globals.fork:
+                    globals.w3 = Web3(Web3.HTTPProvider(infura_url))
+                    print("Connected:", globals.w3.is_connected())
+                    print("Client:", globals.w3.client_version)
+                    print("Chain ID:", globals.w3.eth.chain_id)
+                    print("Latest block:", globals.w3.eth.block_number)
+                    print("Accounts:", globals.w3.eth.accounts[:3])
+                    print("Default account:", globals.w3.eth.default_account)
+                    globals.w3.eth.default_account = globals.w3.eth.accounts[0]
+                    print("New Default account:", globals.w3.eth.default_account)
+                else:
+                    globals.w3 = Web3(Web3.HTTPProvider(infura_url))
+                latestBlock = globals.w3.eth.block_number
+            except:
+                latestBlock = 1000000
+
+        return latestBlock;
+
     def initialize_manager(self):
         bytecode_path = Path(__file__).resolve().parents[3] / "artifacts" / "bytecode"
         with open(bytecode_path / "manager_abi.json") as abiFile:
@@ -142,7 +153,7 @@ class ConnectionHelper:
         return globals.w3.eth.contract(bytecode=bytecode, abi=abi)
     
     
-    def initialize_model(self, address=None):
+    def initialize_challenge(self, address=None):
         bytecode_path = Path(__file__).resolve().parents[3] / "artifacts" / "bytecode"
         with open(bytecode_path / "model_abi.json") as abiFile:
             abi = re.sub("\n|\t| ", "", abiFile.read())
@@ -245,18 +256,28 @@ class ConnectionHelper:
         event_names: names of the 
         *args: arguments forwarded to the contract function
         """
-        
+        return self.transact_raw_addreses(func_name, account.address, account.privateKey, collateral, event_names, *args)
+
+    def transact_raw_addreses(self, func_name: str, account_addr: str, account_private_key: str, collateral: int, event_names: list[str], *args):
+        """
+        Returns (receipt, event returns as tuple)
+        funcname: contract function name
+        acc: account performing the transaction
+        event_names: names of the
+        *args: arguments forwarded to the contract function
+        """
+
         func = getattr(self.contract.functions, func_name)
 
         if globals.fork:
-            tx = self.build_tx(account.address, self.contract.address, collateral)
+            tx = self.build_tx(account_addr, self.contract.address, collateral)
             txHash = func(*args).transact(tx)
         else:
-            nonce = globals.w3.eth.get_transaction_count(account.address)
+            nonce = globals.w3.eth.get_transaction_count(account_addr)
             # When building the transaction via contract ABI we must not pre-set the `to` field.
-            depl = super().build_non_fork_tx(account.address, nonce, value=collateral)
+            depl = super().build_non_fork_tx(account_addr, nonce, value=collateral)
             depl = func(*args).build_transaction(depl)
-            signed = globals.w3.eth.account.sign_transaction(depl, private_key=account.privateKey)
+            signed = globals.w3.eth.account.sign_transaction(depl, private_key=account_private_key)
             txHash = globals.w3.eth.send_raw_transaction(signed.raw_transaction)
 
         receipt = globals.w3.eth.wait_for_transaction_receipt(txHash, timeout=600, poll_latency=1)
@@ -264,7 +285,7 @@ class ConnectionHelper:
             raise RuntimeError(
                 f"Transaction: \"{func_name}\" failed (tx={txHash.hex()}, status={receipt.get('status')}). "
             )
-        
+
         return (receipt, self.get_events(receipt, event_names))
 
         
@@ -289,7 +310,7 @@ class ConnectionHelper:
             for log in receipt.logs:
                 if log["topics"][0].hex() == event_signature:
                     decoded = getattr(self.contract.events, name)().process_log(log)
-                    results[name].append(decoded)
+                    results[name].append(decoded["args"])
 
         return results
     

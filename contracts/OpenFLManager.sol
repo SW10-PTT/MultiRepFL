@@ -44,7 +44,12 @@ contract OpenFLManager {
 
     address public implementation;
     bytes32 public jobListingCodeHash;
-    constructor() {}
+    bytes32 public challengeCodeHash;
+    address public publisher;
+
+    constructor() {
+        publisher = msg.sender;
+    }
 
     function getUserRep(
         address addr,
@@ -57,8 +62,27 @@ contract OpenFLManager {
         );
     }
 
-    //This is a constant in a final version
-    function setJobListingCodeHash(bytes32 _hash) external {
+    function setChallengeCodeHash(bytes32 _hash) external {
+        if (msg.sender != publisher) {
+            return;
+        }
+
+        if (challengeCodeHash != bytes32(0)) {
+            return;
+        }
+
+        challengeCodeHash = _hash;
+    }
+
+     function setJobListingCodeHash(bytes32 _hash) external {
+        if (msg.sender != publisher) {
+            return;
+        }
+
+        if (jobListingCodeHash != bytes32(0)) {
+            return;
+        }
+
         jobListingCodeHash = _hash;
     }
 
@@ -70,6 +94,10 @@ contract OpenFLManager {
         }
 
         return codeHash == jobListingCodeHash;
+    }
+
+    function getChallengeCodeHash() public view returns (bytes32) {
+        return challengeCodeHash;
     }
 
     function registerJob(address job) external {

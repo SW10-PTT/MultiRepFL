@@ -3,7 +3,7 @@ from enum import Enum
 from datetime import datetime, timedelta
 from typing import Any, Callable
 
-from openfl.ml.pytorch_model import Participant
+from openfl.ml.pytorch_model import User
 from .experiment_specs import ExperimentSpec
 from .gasCosts import GasStats
 from .types.round import Round
@@ -12,7 +12,7 @@ from .selector import choose_from_list
 
 chosenTests = []
 
-def runProcessor(RESULTDATAFOLDER: Path, useSameTests: bool, processor: Callable[[list[Round], dict[str, Participant], ExperimentSpec, GasStats, str], Any]):
+def runProcessor(RESULTDATAFOLDER: Path, useSameTests: bool, processor: Callable[[list[Round], dict[str, User], ExperimentSpec, GasStats, str], Any]):
     global chosenTests
     if not chosenTests or not useSameTests:
         dirs = sorted([d for d in RESULTDATAFOLDER.iterdir() if d.is_dir()])
@@ -46,7 +46,7 @@ def runProcessor(RESULTDATAFOLDER: Path, useSameTests: bool, processor: Callable
         processor(rounds, participants, experimentConfig, gasCosts, outdir)
 
 
-def _detect_disqualifications(rounds: list[Round], participants: dict[str, Participant]):
+def _detect_disqualifications(rounds: list[Round], participants: dict[str, User]):
     disqualified = []
 
     # total_rounds = len(rounds)
