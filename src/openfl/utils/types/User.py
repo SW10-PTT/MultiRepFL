@@ -3,7 +3,7 @@ import copy
 import numpy as np
 from web3 import Web3
 
-from experiment.experiment_configuration import ExperimentConfiguration
+from experiment_configuration import ExperimentConfiguration
 #from openfl.contracts import FLManager
 from openfl.api.ConnectionHelper import ConnectionHelper
 from openfl.utils.types.Attitude import Attitude
@@ -82,7 +82,7 @@ class User:
         self,
         training_specs: TrainingSpecsChallenge,
         joblisting: JobListing,
-        pyTorch_model
+        pyTorch_model,
         ):
         from openfl.contracts.FLChallenge import FLChallenge
 

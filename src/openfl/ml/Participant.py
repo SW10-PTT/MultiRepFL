@@ -3,13 +3,14 @@ import copy
 import numpy as np
 from web3 import Web3
 from openfl.api.ConnectionHelper import ConnectionHelper
+from openfl.utils.types.Attitude import Attitude
 from openfl.utils.types.Colors import RNG, get_color
 from openfl.utils.types.User import User
 
 
 class Participant(User):
     def __init__(self, number, _train, _val, _model, _optimizer, _criterion, _attitude, _default_collateral,
-                 _max_collateral, _attitude_switch=1, number_of_participants=None):
+                 _max_collateral, address, _attitude_switch=1, number_of_participants=None):
         super().__init__(_attitude, _default_collateral,
                          _max_collateral, _attitude_switch, number_of_participants)
         ConnectionHelper.initiate_connection(manual_setup=True)
@@ -27,9 +28,9 @@ class Participant(User):
         # Is set in: apply_training_results().
         self.currentLoss = 0
         # New variable introduced. Needs to be implemented in code. Alongside currentAcc.
-        self.attitude = "good"
+        self.attitude = Attitude.Honest
         self.hashedModel = None
-        self.address = None
+        self.address = address
         self.privateKey = None
         self.isRegistered = False
         # Old:  self.collateral = _default_collateral + np.random.randint(0,int(_max_collateral-_default_collateral))
@@ -63,4 +64,4 @@ class Participant(User):
         return user
 
     def from_user(user: User, train, val, model, optimizer, criterion):
-        return Participant(user.number, train, val, model, optimizer, criterion, user.attitude, user.min_collateral, user.max_collateral, user.attitudeSwitch)
+        return Participant(user.number, train, val, model, optimizer, criterion, user.attitude, user.min_collateral, user.max_collateral, user.address, user.attitudeSwitch)

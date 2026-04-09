@@ -112,7 +112,7 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
           else:
               raise
 
-  trainingSpecsChallenge = trainingSpecs.to_challenge(experiment_config.contribution_score_strategy, newJobListing.contract.address)
+  trainingSpecsChallenge = trainingSpecs.to_challenge(experiment_config.contribution_score_strategy, experiment_config.use_outlier_detection, newJobListing.contract.address)
 
   newChallenge: Challenge = publisher.deploy_challenge_contract(trainingSpecsChallenge, newJobListing, pytorch_model)
 
@@ -216,7 +216,7 @@ def print_transactions(experiment):
   print("{:<10} - {:^64} -    Gas Used - {}".format("Function", "Transaction Hash", "Success"))
   print("------------------------------------------------------------------------------------------")
   for f, txhash, gasUsed in model.txHashes:
-      r = model.w3.eth.wait_for_transaction_receipt(txhash)
+      r = globals.w3.eth.wait_for_transaction_receipt(txhash)
       if r["status"] == 1:
           success = "✅"
       else:

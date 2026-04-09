@@ -28,16 +28,13 @@ PRIVATE_KEYS="<Private keys from your accounts colon separated (for non-locally 
 
 ## 3. Requirements
 - Only tested with Python3.10
-- Run ``pip install -e ".[dev]"``
+- Nvidia or cpu:
+``pip install -e ".[dev]"``
+- AMD:
+``pip install -e ".[dev]" --extra-index-url https://download.pytorch.org/whl/rocm7.1``
 
-Build the abi and bytecode files from the smart contracts
+Build the abi and bytecode files from the smart contracts 
 ``python3 scripts/compile_contracts.py``
-
-Install ROCM(AMD) or CUDA(NVIDIA):
-ROCM:
-``pip3 install torch torchvision --index-url https://download.pytorch.org/whl/rocm7.1``
-CUDA:
-``pip3 install torch torchvision --index-url https://download.pytorch.org/whl/cu130``
 
 ## 4. Running an Experiment
 The Experiment folder contains files for running experiments on different datasets.
