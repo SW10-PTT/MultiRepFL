@@ -3,6 +3,7 @@ import datetime
 import os
 import time
 import warnings
+from logging import Logger
 from typing import List
 
 import torch
@@ -38,7 +39,7 @@ UINT256_MAX = 2**256 - 1
 
 
 class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManager to ConnectionHelper
-    def __init__(self, publisher: User, pyTorchModel, training_specs: TrainingSpecsChallenge, jobListing, writer: AsyncWriter=None, logger=None):
+    def __init__(self, publisher: User, pyTorchModel, training_specs: TrainingSpecsChallenge, jobListing, writer: AsyncWriter=None, logger: Logger=None):
 
         self.pytorch_model = pyTorchModel
         self.MIN_BUY_IN = training_specs.min_collateral

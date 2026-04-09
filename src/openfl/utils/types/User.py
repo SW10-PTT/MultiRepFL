@@ -1,11 +1,14 @@
 import copy
+import logging
 
 import numpy as np
 from web3 import Web3
 
 from experiment_configuration import ExperimentConfiguration
+
+from openfl.contracts import FLManager
 #from openfl.contracts import FLManager
-from openfl.api.ConnectionHelper import ConnectionHelper
+from openfl.utils.async_writer import AsyncWriter
 from openfl.utils.types.Attitude import Attitude
 from openfl.utils.types.Colors import RNG, get_color
 from openfl.utils.TrainingSpecsJobListing import TrainingSpecsJobListing, TrainingSpecsChallenge
@@ -62,13 +65,13 @@ class User:
                 address, private_key, experiment_config.freerider_start_round, number_of_participants)
 
     def get_status(self):
-        user = f"$user${self.id}, {self.currentAcc}, {self.attitude}, {self.futureAttitude}, {self.attitudeSwitch}, {self.address}"
+        user = f"$user${self.number}, {self.attitude}, {self.futureAttitude}, {self.attitudeSwitch}, {self.address}"
         return user
 
     def deploy_joblisting_contract(
         self,
         training_specs: TrainingSpecsJobListing,
-        manager: FLManager,
+        manager: "FLManager",
         ):
         from openfl.contracts.JobListing import JobListing
         
@@ -81,19 +84,21 @@ class User:
     def deploy_challenge_contract(
         self,
         training_specs: TrainingSpecsChallenge,
-        joblisting: JobListing,
+        joblisting: "JobListing",
         pyTorch_model,
+        writer: AsyncWriter = None,
+        logger: logging.Logger = None,
         ):
         from openfl.contracts.FLChallenge import FLChallenge
 
-        new_challenge = FLChallenge(self, pyTorch_model, training_specs, joblisting)
+        new_challenge = FLChallenge(self, pyTorch_model, training_specs, joblisting, )
         
         if joblisting.register_challenge_contract(joblisting.publisher, new_challenge.contract.address):
             return new_challenge
         return False
     
-    def register_for_job(self, job: ConnectionHelper):
-        (receipt, _) = job.transact("register", self, self.collateral, [])
+    def register_for_job(self, job: "ConnectionHelper"):
+        (receipt, _) = job.transact("register", self, self.collateral, [], "user.register_for_job")
         txHash = receipt["transactionHash"]
         self.txs.append(txHash)
         bal = globals.w3.eth.get_balance(globals.w3.eth.default_account)

@@ -100,6 +100,7 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
               publisher,
               0,
               ["SelectionComplete"],
+              "JobListing.decideOnParticpants",
               2
           )
           break
@@ -114,12 +115,12 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
 
   trainingSpecsChallenge = trainingSpecs.to_challenge(experiment_config.contribution_score_strategy, experiment_config.use_outlier_detection, newJobListing.contract.address)
 
-  newChallenge: Challenge = publisher.deploy_challenge_contract(trainingSpecsChallenge, newJobListing, pytorch_model)
+  newChallenge: Challenge = publisher.deploy_challenge_contract(trainingSpecsChallenge, newJobListing, pytorch_model, writer, logger)
 
   newChallenge.make_participants_from_users(users)
   for participants in newChallenge.pytorch_model.participants:
       try:
-        newChallenge.transact("registrationProcess", participants, trainingSpecsChallenge.min_collateral, [])
+        newChallenge.transact("registrationProcess", participants, trainingSpecsChallenge.min_collateral, [], "challenge.register")
       except ContractLogicError as e:
           if "SUO" in str(e):
               print("Participant tried joining but was not selected")
