@@ -51,7 +51,7 @@ class JobListing(ConnectionHelper):
         self.contract = contract
 
     def register_challenge_contract(self, publisher, challenge_addr):
-        (receipt, events) = self.transact("registerChallenge", publisher, 0, ["ChallengeRegistered"],
+        (receipt, events) = self.transact("registerChallenge", publisher, 0, ["ChallengeRegistered"], "JobListing.RegisterChallengeContract",
                                           challenge_addr)
 
         is_valid = events["ChallengeRegistered"][0]["success"]
