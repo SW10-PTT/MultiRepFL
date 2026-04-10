@@ -98,7 +98,7 @@ class User:
         return False
     
     def register_for_job(self, job: "ConnectionHelper"):
-        (receipt, _) = job.transact("register", self, self.collateral, [], "user.register_for_job")
+        (receipt, _) = job.transact("register", self, self.collateral, [], "User.register_for_job")
         txHash = receipt["transactionHash"]
         self.txs.append(txHash)
         bal = globals.w3.eth.get_balance(globals.w3.eth.default_account)
