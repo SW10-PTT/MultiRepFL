@@ -310,9 +310,9 @@ class PytorchModel:
 
     def apply_training_results(self, results):
         # Apply results back to participants
-        user_map = {u.id: u for u in self.participants}
-        for user_id, state_dict, val_loss, val_acc in results:
-            user = user_map[user_id]
+        user_map = {u.address: u for u in self.participants}
+        for user_address, state_dict, val_loss, val_acc in results:
+            user = user_map[user_address]
             user.model.load_state_dict(state_dict)
             user.currentAcc = val_acc # Line 287 in original code
             user.currentLoss = val_loss
@@ -329,9 +329,9 @@ class PytorchModel:
             device_id = idx % max(1, num_gpus)
             sd_cpu = {k: v.cpu() for k, v in user.model.state_dict().items()}
 
-            if user.attitude == "good":
+            if user.attitude == Attitude.Honest:
                 result = train_user_proc(
-                    user.id,
+                    user.address,
                     sd_cpu,
                     user.train.dataset,
                     user.val.dataset,
@@ -368,10 +368,10 @@ class PytorchModel:
                 device_id = idx % max(1, num_gpus)
                 sd_cpu = {k: v.cpu() for k, v in user.model.state_dict().items()}  # safe copy
 
-                if user.attitude=="good": # train
+                if user.attitude == Attitude.Honest: # train
                     async_results.append(pool.apply_async(
                         train_user_proc,
-                        (user.id,
+                        (user.address,
                         sd_cpu,
                         user.train.dataset,
                         user.val.dataset,
@@ -393,7 +393,7 @@ class PytorchModel:
 
     def let_malicious_users_do_their_work(self):
         for i in range(len(self.participants)):
-            if self.participants[i].attitude == "bad":                
+            if self.participants[i].attitude == Attitude.Malicious:                
                 print(red("Address {} going to provide random weights".format(self.participants[i].address[0:16]+"...")))
                 manipulated_state_dict = manipulate(self.participants[i].model,scale=self.malicious_noise_scale,)
                 self.participants[i].model.load_state_dict(manipulated_state_dict)
@@ -416,12 +416,12 @@ class PytorchModel:
 
     def let_freerider_users_do_their_work(self):
         for user in self.participants:
-            if user.attitude == "freerider":
+            if user.attitude == Attitude.FreeRider:
               
                 # # Freerider has no data and must therefore provide something random
                 # # After first round freerider can copy other participants
                 # if self.round == 1:
-                #     print(red("Account {} going to provide ".format(user.address[0:8]+"...") \
+                #     print(red("Account {} going to provide ".format(user_idx[0:8]+"...") \
                 #                   + "random weights; starts copycat-ing " \
                 #                   + "next round"))
                 #
@@ -433,7 +433,7 @@ class PytorchModel:
                 # user.model.load_state_dict(new_state_dict)
                 #
                 # if self.round > 1:
-                #     print(red("Address {} going to add random noise to weights".format(user.address[0:16]+"...")))
+                #     print(red("Address {} going to add random noise to weights".format(user_idx[0:16]+"...")))
                 #     user.model.load_state_dict(add_noise(copy.deepcopy(user.model)))
                 if self.round < self.freerider_start_round:
                     print(yellow(
@@ -485,7 +485,7 @@ class PytorchModel:
 
         ids, client_models = [], []
         for u in _users:
-            ids.append(u.id)
+            ids.append(u.address)
             client_models.append(u.model)
             print("Account {} participating in merge".format(u.address[0:16]+"..."))
             #print(test(c[1],self.test,DEVICE))
@@ -535,8 +535,8 @@ class PytorchModel:
         for _user in self.participants:
             _user.cheater = []
             for user in _user.userToEvaluate:  
-                if not self.get_hash(user.model.state_dict()) == on_chain_hashes[user.id]:
-                    print(red(f"Account {_user.id}: Account {user.address[0:16]}... could not provide the registered model"))
+                if not self.get_hash(user.model.state_dict()) == on_chain_hashes[user.address]:
+                    print(red(f"Account {_user.number}: Account {user.address[0:16]}... could not provide the registered model"))
                     _user.cheater.append(user)
                     
         print("-----------------------------------------------------------------------------------")
@@ -570,10 +570,14 @@ class PytorchModel:
 
         scalar = 100 # Adds more decimals for precision (Adding 0 gives another decimal, vice versa)
         MAX_UINT16_SIZE = 65535
-        count_dq = len(self.disqualified)
+        count_dq = len(self.disqualified)\
+        
+        addresses = [u.address for u in self.participants] + [u.address for u in self.disqualified]
+        addr_to_idx = {addr: i for i, addr in enumerate(addresses)}
 
-        feedback_matrix = np.zeros((1, len(self.participants) + count_dq, len(self.participants) + count_dq))[0]
         n = len(self.participants) + count_dq
+
+        feedback_matrix = np.zeros((n, n), dtype=np.int8)
         accuracy_matrix = [[0 for _ in range(n)] for _ in range(n)]
         loss_matrix = [[0 for _ in range(n)] for _ in range(n)]
         prev_accs = [0 for _ in range(n)]
@@ -581,14 +585,16 @@ class PytorchModel:
 
         for feedbackGiver in self.participants:
             valloader = feedbackGiver.val
-            bad_att = feedbackGiver.attitude == "bad"
-            free_att = feedbackGiver.attitude == "freerider"
+            bad_att = feedbackGiver.attitude == Attitude.Malicious
+            free_att = feedbackGiver.attitude == Attitude.FreeRider
             accuracy_last_round = -1
 
             # Depending on the attitude of the feedback giver, the evaluation is done differently:
 
             # For each user, traverse its list of usersToEvaluate and fill the feedback, accuracy and loss matrices
             for ix, user in enumerate(feedbackGiver.userToEvaluate):
+                giver_idx = addr_to_idx[feedbackGiver.address]
+                user_idx = addr_to_idx[user.address]
                 if not bad_att and not free_att:
                     loss, accuracy = test(user.model, valloader, DEVICE)
                     prev_loss, prev_acc = test(self.global_model, valloader, DEVICE)
@@ -596,54 +602,54 @@ class PytorchModel:
                     prev_loss = safe_scale(prev_loss, scalar, MAX_UINT16_SIZE)
 
                 if bad_att:
-                    feedback_matrix[feedbackGiver.id][user.id] = -1
-                    accuracy_matrix[feedbackGiver.id][user.id] = 0
-                    loss_matrix[feedbackGiver.id][user.id] = 65535
+                    feedback_matrix[giver_idx][user_idx] = -1
+                    accuracy_matrix[giver_idx][user_idx] = 0
+                    loss_matrix[giver_idx][user_idx] = 65535
                     prev_loss, prev_acc = test(self.global_model, valloader, DEVICE)
-                    prev_accs[feedbackGiver.id] = round(prev_acc * 100 * scalar)
-                    prev_losses[feedbackGiver.id] = safe_scale(prev_loss, scalar, MAX_UINT16_SIZE)
+                    prev_accs[giver_idx] = round(prev_acc * 100 * scalar)
+                    prev_losses[giver_idx] = safe_scale(prev_loss, scalar, MAX_UINT16_SIZE)
 
                 elif free_att:
-                    feedback_matrix[feedbackGiver.id][user.id] = 0
+                    feedback_matrix[giver_idx][user_idx] = 0
                     if accuracy_last_round == -1:
                         loss_last_round, accuracy_last_round = test(self.global_model, valloader, DEVICE)
                         accuracy_last_round = round(accuracy_last_round * 100 * scalar)
                         loss_last_round = safe_scale(loss_last_round, scalar, MAX_UINT16_SIZE)
-                    accuracy_matrix[feedbackGiver.id][user.id] = accuracy_last_round
-                    loss_matrix[feedbackGiver.id][user.id] = min(loss_last_round, MAX_UINT16_SIZE)
-                    prev_accs[feedbackGiver.id] = accuracy_last_round
-                    prev_losses[feedbackGiver.id] = loss_last_round
+                    accuracy_matrix[giver_idx][user_idx] = accuracy_last_round
+                    loss_matrix[giver_idx][user_idx] = min(loss_last_round, MAX_UINT16_SIZE)
+                    prev_accs[giver_idx] = accuracy_last_round
+                    prev_losses[giver_idx] = loss_last_round
 
                 elif len(feedbackGiver.cheater) > 0 and user in feedbackGiver.cheater:
-                    feedback_matrix[feedbackGiver.id][user.id] = -1
-                    accuracy_matrix[feedbackGiver.id][user.id] = round(accuracy * 100 * scalar)
-                    loss_matrix[feedbackGiver.id][user.id] = safe_scale(loss, scalar, MAX_UINT16_SIZE)
-                    prev_accs[feedbackGiver.id] = prev_acc
-                    prev_losses[feedbackGiver.id] = prev_loss
+                    feedback_matrix[giver_idx][user_idx] = -1
+                    accuracy_matrix[giver_idx][user_idx] = round(accuracy * 100 * scalar)
+                    loss_matrix[giver_idx][user_idx] = safe_scale(loss, scalar, MAX_UINT16_SIZE)
+                    prev_accs[giver_idx] = prev_acc
+                    prev_losses[giver_idx] = prev_loss
 
                 elif accuracy > feedbackGiver.currentAcc - 0.07 : # 7% Worse
-                    feedback_matrix[feedbackGiver.id][user.id] = 1
-                    accuracy_matrix[feedbackGiver.id][user.id] = round(accuracy * 100 * scalar)
-                    loss_matrix[feedbackGiver.id][user.id] = safe_scale(loss, scalar, MAX_UINT16_SIZE)
-                    prev_accs[feedbackGiver.id] = prev_acc
-                    prev_losses[feedbackGiver.id] = prev_loss
+                    feedback_matrix[giver_idx][user_idx] = 1
+                    accuracy_matrix[giver_idx][user_idx] = round(accuracy * 100 * scalar)
+                    loss_matrix[giver_idx][user_idx] = safe_scale(loss, scalar, MAX_UINT16_SIZE)
+                    prev_accs[giver_idx] = prev_acc
+                    prev_losses[giver_idx] = prev_loss
 
                 elif accuracy > feedbackGiver.currentAcc - 0.14: # 14% Worse
-                    feedback_matrix[feedbackGiver.id][user.id] = 0
-                    accuracy_matrix[feedbackGiver.id][user.id] = round(accuracy * 100 * scalar)
-                    loss_matrix[feedbackGiver.id][user.id] = safe_scale(loss, scalar, MAX_UINT16_SIZE)
-                    prev_accs[feedbackGiver.id] = prev_acc
-                    prev_losses[feedbackGiver.id] = prev_loss
+                    feedback_matrix[giver_idx][user_idx] = 0
+                    accuracy_matrix[giver_idx][user_idx] = round(accuracy * 100 * scalar)
+                    loss_matrix[giver_idx][user_idx] = safe_scale(loss, scalar, MAX_UINT16_SIZE)
+                    prev_accs[giver_idx] = prev_acc
+                    prev_losses[giver_idx] = prev_loss
 
                 else:
-                    feedback_matrix[feedbackGiver.id][user.id] = -1
-                    accuracy_matrix[feedbackGiver.id][user.id] = round(accuracy * 100 * scalar)
-                    loss_matrix[feedbackGiver.id][user.id] = safe_scale(loss, scalar, MAX_UINT16_SIZE)
-                    prev_accs[feedbackGiver.id] = prev_acc
-                    prev_losses[feedbackGiver.id] = prev_loss
+                    feedback_matrix[giver_idx][user_idx] = -1
+                    accuracy_matrix[giver_idx][user_idx] = round(accuracy * 100 * scalar)
+                    loss_matrix[giver_idx][user_idx] = safe_scale(loss, scalar, MAX_UINT16_SIZE)
+                    prev_accs[giver_idx] = prev_acc
+                    prev_losses[giver_idx] = prev_loss
 
                 if self.force_merge_all:
-                    feedback_matrix[feedbackGiver.id][user.id] = 0
+                    feedback_matrix[giver_idx][user_idx] = 0
 
             # Reset
             feedbackGiver.userToEvaluate = []
@@ -668,7 +674,7 @@ class PytorchModel:
         print(prev_losses)
         print("-----------------------------------------------------------------------------------")
 
-        return feedback_matrix, accuracy_matrix, loss_matrix, prev_accs, prev_losses
+        return feedback_matrix, accuracy_matrix, loss_matrix, prev_accs, prev_losses, addresses
 
     
 # PYTORCH FUNCTIONS
@@ -770,7 +776,7 @@ def add_noise(model, offset_from_end: int = 5) -> OrderedDict:
             new_sd[k] = t
     return new_sd
 
-def train_user_proc(user_id, model_state, train_ds, val_ds, epochs, device_id, dataset, batchsize, pin_memory, shuffle):
+def train_user_proc(user_addr, model_state, train_ds, val_ds, epochs, device_id, dataset, batchsize, pin_memory, shuffle):
         # Multi-GPU Support
         # Select device
         use_cuda = torch.cuda.is_available()
@@ -796,12 +802,12 @@ def train_user_proc(user_id, model_state, train_ds, val_ds, epochs, device_id, d
         del train_loader
         del val_loader
 
-        print(f"[{device_label(device, device_id)}] User {user_id} done | Acc: {val_acc:.3f}, Loss: {val_loss:.3f}")
+        print(f"[{device_label(device, device_id)}] User {user_addr} done | Acc: {val_acc:.3f}, Loss: {val_loss:.3f}")
         
         # Ensure all GPU work is complete before worker exits
         if device.type == "cuda":
             torch.cuda.synchronize(device)
-        return user_id, model.state_dict(), val_loss, val_acc
+        return user_addr, model.state_dict(), val_loss, val_acc
 
 
 def print_training_mode(num_gpus: int, num_processes: int):

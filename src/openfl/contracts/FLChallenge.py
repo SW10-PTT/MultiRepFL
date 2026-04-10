@@ -3,6 +3,7 @@ import datetime
 import os
 import time
 import warnings
+from logging import Logger
 from typing import List
 
 import torch
@@ -38,17 +39,19 @@ UINT256_MAX = 2**256 - 1
 
 
 class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManager to ConnectionHelper
-    def __init__(self, publisher: User, pyTorchModel, training_specs: TrainingSpecsChallenge, jobListing, writer: AsyncWriter=None, logger=None):
+    def __init__(self, publisher: User, pyTorchModel, training_specs: TrainingSpecsChallenge, jobListing, writer: AsyncWriter=None, logger: Logger=None):
 
         self.pytorch_model = pyTorchModel
         self.MIN_BUY_IN = training_specs.min_collateral
         self.MAX_BUY_IN = training_specs.max_collateral
         self.REWARD = training_specs.reward
         self.MIN_ROUNDS = training_specs.min_rounds
-        self.PUNISHMENT_FACTOR = training_specs.punishfactor,
-        self.PUNISHMENT_FACTOR_CONTRIB = training_specs.punishfactorContrib,
+        self.PUNISHMENT_FACTOR = training_specs.punishfactor
+        self.PUNISHMENT_FACTOR_CONTRIB = training_specs.punishfactorContrib
         self.FREERIDER_FACTOR = training_specs.freeriderPenalty
         
+        self.contribution_score_strategy = training_specs.contribution_score_strategy
+        self.use_outlier_detection = training_specs.outlier_detection
         self.gas_feedback = [] 
         self.gas_register = [] 
         self.gas_slot     = [] 
@@ -135,7 +138,6 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
         return self.contract.functions.rewardLeft().call({"to": self.contractAddress})
 
     def users_provide_hashed_weights(self):
-        global fork
         txs = []
         for acc in self.pytorch_model.participants:
             if acc.attitude == "inactive":
@@ -145,7 +147,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                                                                          self.get_global_reputation_of_user(acc.address)
                                                                          ))
                 continue
-            if fork:
+            if globals.fork:
                 tx = super().build_tx(acc.address, self.contractAddress, 0)
                 txHash = self.contract.functions.provideHashedWeights(acc.hashedModel, acc.secret).transact(tx)
 
@@ -295,43 +297,68 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
 
         return fbb
 
-                
-    
-    def quick_feedback_round(self, fbm, am = None, lm = None, prev_accs = None, prev_losses = None):
+    def quick_feedback_round(self, addresses, fbm, am=None, lm=None, prev_accs=None, prev_losses=None):
         print("Users exchanging feedback...")
         txs = []
-        for idx, user in enumerate(self.pytorch_model.participants):
+
+        addr_to_idx = {addr: i for i, addr in enumerate(addresses)}
+
+        idx_to_user = {
+            addr_to_idx[u.address]: u
+            for u in self.pytorch_model.participants
+        }
+
+        disqualified_idxs = {
+            addr_to_idx[u.address]
+            for u in self.pytorch_model.disqualified
+            if u.address in addr_to_idx
+        }
+
+        for user in self.pytorch_model.participants:
+            user_idx = addr_to_idx[user.address]
+
             if user.disqualified:
-                break
+                continue
+
             addrs = []
             votes = []
-            user_votes = fbm[user.id]
             filtered_accs = []
             filtered_losses = []
 
-            # Add null.check
-            accs = am[idx]
-            losses = lm[idx]
+            user_votes = fbm[user_idx]
+
+            accs = am[user_idx] if am is not None else None
+            losses = lm[user_idx] if lm is not None else None
 
             for ix, vote in enumerate(user_votes):
-                if user.id == ix:
+                if ix == user_idx:
                     continue
+
+                if ix in disqualified_idxs:
+                    continue
+
                 if user.attitude == "inactive":
                     continue
-                if ix in [i.id for i in self.pytorch_model.disqualified]:
-                    continue
-                votee = [_u for _u in self.pytorch_model.participants if _u.id == ix][0]
+
+                votee = idx_to_user[ix]
+
                 addrs.append(votee.address)
                 votes.append(int(vote))
-                votee.roundRep = votee.roundRep + self.get_global_reputation_of_user(user.address) * int(vote) # TODO: fix?
-                votee._roundrep.append(self.get_global_reputation_of_user(user.address) * int(vote))
-                filtered_accs.append(accs[ix])
-                filtered_losses.append(min(UINT256_MAX, losses[ix]))
 
-            fbb = self.build_feedback_bytes(addrs, votes) # hex-encoded
+                rep_delta = self.get_global_reputation_of_user(user.address) * int(vote)
+                votee.roundRep += rep_delta
+                votee._roundrep.append(rep_delta)
+
+                if accs is not None:
+                    filtered_accs.append(accs[ix])
+
+                if losses is not None:
+                    filtered_losses.append(min(UINT256_MAX, losses[ix]))
+
+            fbb = self.build_feedback_bytes(addrs, votes)
             rb_fbb = Web3.to_bytes(hexstr="0x" + fbb)
 
-            if self.experiment_config.contribution_score_strategy in [ "naive", "dotproduct" ]:
+            if self.contribution_score_strategy in ["naive", "dotproduct"]:
                 if globals.fork:
                     tx = super().build_tx(user.address, self.contractAddress)
                     tx_hash = self.contract.functions.submitFeedbackBytes(
@@ -344,64 +371,169 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                     )
                 txs.append(tx_hash)
 
-            elif self.experiment_config.contribution_score_strategy == "accuracy_loss":
-                prev_acc = prev_accs[idx]
-                prev_loss = prev_losses[idx]
+            elif self.contribution_score_strategy == "accuracy_loss":
+                prev_acc = prev_accs[user_idx]
+                prev_loss = prev_losses[user_idx]
+
                 if globals.fork:
                     tx = super().build_tx(user.address, self.contractAddress)
-                    tx_hash = self.contract.functions.submitFeedbackBytesAndAccuraciesLosses(rb_fbb, filtered_accs, filtered_losses, prev_acc, prev_loss).transact(tx)
+                    tx_hash = self.contract.functions.submitFeedbackBytesAndAccuraciesLosses(
+                        rb_fbb, filtered_accs, filtered_losses, prev_acc, prev_loss
+                    ).transact(tx)
                 else:
                     tx_hash = self.sign_and_send_tx(
                         user,
-                        self.contract.functions.submitFeedbackBytesAndAccuraciesLosses(rb_fbb, filtered_accs, filtered_losses, prev_acc, prev_loss)
+                        self.contract.functions.submitFeedbackBytesAndAccuraciesLosses(
+                            rb_fbb, filtered_accs, filtered_losses, prev_acc, prev_loss
+                        )
                     )
                 txs.append(tx_hash)
 
-            elif self.experiment_config.contribution_score_strategy == "accuracy_only":
-                prev_acc = prev_accs[idx]
+            elif self.contribution_score_strategy == "accuracy_only":
+                prev_acc = prev_accs[user_idx]
+
                 if globals.fork:
                     tx = super().build_tx(user.address, self.contractAddress)
-                    tx_hash = self.contract.functions.submitFeedbackBytesAndAccuracies(rb_fbb, filtered_accs, prev_acc).transact(tx)
-
+                    tx_hash = self.contract.functions.submitFeedbackBytesAndAccuracies(
+                        rb_fbb, filtered_accs, prev_acc
+                    ).transact(tx)
                 else:
                     tx_hash = self.sign_and_send_tx(
                         user,
-                        self.contract.functions.submitFeedbackBytesAndAccuracies(rb_fbb, filtered_accs, prev_acc)
+                        self.contract.functions.submitFeedbackBytesAndAccuracies(
+                            rb_fbb, filtered_accs, prev_acc
+                        )
                     )
                 txs.append(tx_hash)
 
-            elif self.experiment_config.contribution_score_strategy == "loss_only":
-                prev_loss = prev_losses[idx]
+            elif self.contribution_score_strategy == "loss_only":
+                prev_loss = prev_losses[user_idx]
+
                 if globals.fork:
                     tx = super().build_tx(user.address, self.contractAddress)
-                    tx_hash = self.contract.functions.submitFeedbackBytesAndLosses(rb_fbb, filtered_losses, prev_loss).transact(tx)
-
+                    tx_hash = self.contract.functions.submitFeedbackBytesAndLosses(
+                        rb_fbb, filtered_losses, prev_loss
+                    ).transact(tx)
                 else:
                     tx_hash = self.sign_and_send_tx(
                         user,
-                        self.contract.functions.submitFeedbackBytesAndLosses(rb_fbb, filtered_losses, prev_loss)
+                        self.contract.functions.submitFeedbackBytesAndLosses(
+                            rb_fbb, filtered_losses, prev_loss
+                        )
                     )
                 txs.append(tx_hash)
 
             else:
                 warnings.warn("INVALID FEEDBACK TYPE")
+    
+    # def quick_feedback_round(self, addresses, fbm, am = None, lm = None, prev_accs = None, prev_losses = None):
+    #     print("Users exchanging feedback...")
+    #     txs = []
+    #     addr_to_idx = {addr: i for i, addr in enumerate(addresses)}
+    #     for idx, user in enumerate(self.pytorch_model.participants):
+    #         user_idx = addr_to_idx[user.address]
+    #         if user.disqualified:
+    #             break
+    #         addrs = []
+    #         votes = []
+    #         user_votes = fbm[user_idx]
+    #         filtered_accs = []
+    #         filtered_losses = []
 
-        for i, txHash in enumerate(txs):
-            self.track_transaction(i, txHash, len(txs), "feedback")
+    #         # Add null.check
+    #         accs = am[user_idx]
+    #         losses = lm[user_idx]
 
-        for user in self.pytorch_model.participants:
-            if len(user._roundrep) == 0:
-                print(f"model participant: {user.address} had no roundrep")
-            else:
-                print(f"model participant: {user.address} had {user._roundrep[-1]} round reputation")
-            user._roundrep.append(self.get_round_reputation_of_user(user.address))
-            print(f"model participant: {user.address} now gets {user._roundrep[-1]} round reputation")
+    #         for ix, vote in enumerate(user_votes):
+    #             vote_idx = addresses[ix]
+    #             if user.id == ix:
+    #                 continue
+    #             if user.attitude == "inactive":
+    #                 continue
+    #             if ix in [i.id for i in self.pytorch_model.disqualified]:
+    #                 continue
+    #             votee = [_u for _u in self.pytorch_model.participants if _u.id == ix][0]
+    #             addrs.append(votee.address)
+    #             votes.append(int(vote))
+    #             votee.roundRep = votee.roundRep + self.get_global_reputation_of_user(user.address) * int(vote) # TODO: fix?
+    #             votee._roundrep.append(self.get_global_reputation_of_user(user.address) * int(vote))
+    #             filtered_accs.append(accs[ix])
+    #             filtered_losses.append(min(UINT256_MAX, losses[ix]))
 
-        for user in self.pytorch_model.disqualified:
-            print(f"disqualified model participant: {user.address} has no roundrep. he is disqualified, you dummy")
+    #         fbb = self.build_feedback_bytes(addrs, votes) # hex-encoded
+    #         rb_fbb = Web3.to_bytes(hexstr="0x" + fbb)
 
-        printer._print("                                                   ")
-        print("\n-----------------------------------------------------------------------------------")
+    #         if self.experiment_config.contribution_score_strategy in [ "naive", "dotproduct" ]:
+    #             if globals.fork:
+    #                 tx = super().build_tx(user.address, self.contractAddress)
+    #                 tx_hash = self.contract.functions.submitFeedbackBytes(
+    #                     rb_fbb
+    #                 ).transact(tx)
+    #             else:
+    #                 tx_hash = self.sign_and_send_tx(
+    #                     user,
+    #                     self.contract.functions.submitFeedbackBytes(rb_fbb)
+    #                 )
+    #             txs.append(tx_hash)
+
+    #         elif self.experiment_config.contribution_score_strategy == "accuracy_loss":
+    #             prev_acc = prev_accs[idx]
+    #             prev_loss = prev_losses[idx]
+    #             if globals.fork:
+    #                 tx = super().build_tx(user.address, self.contractAddress)
+    #                 tx_hash = self.contract.functions.submitFeedbackBytesAndAccuraciesLosses(rb_fbb, filtered_accs, filtered_losses, prev_acc, prev_loss).transact(tx)
+    #             else:
+    #                 tx_hash = self.sign_and_send_tx(
+    #                     user,
+    #                     self.contract.functions.submitFeedbackBytesAndAccuraciesLosses(rb_fbb, filtered_accs, filtered_losses, prev_acc, prev_loss)
+    #                 )
+    #             txs.append(tx_hash)
+
+    #         elif self.experiment_config.contribution_score_strategy == "accuracy_only":
+    #             prev_acc = prev_accs[idx]
+    #             if globals.fork:
+    #                 tx = super().build_tx(user.address, self.contractAddress)
+    #                 tx_hash = self.contract.functions.submitFeedbackBytesAndAccuracies(rb_fbb, filtered_accs, prev_acc).transact(tx)
+
+    #             else:
+    #                 tx_hash = self.sign_and_send_tx(
+    #                     user,
+    #                     self.contract.functions.submitFeedbackBytesAndAccuracies(rb_fbb, filtered_accs, prev_acc)
+    #                 )
+    #             txs.append(tx_hash)
+
+    #         elif self.experiment_config.contribution_score_strategy == "loss_only":
+    #             prev_loss = prev_losses[idx]
+    #             if globals.fork:
+    #                 tx = super().build_tx(user.address, self.contractAddress)
+    #                 tx_hash = self.contract.functions.submitFeedbackBytesAndLosses(rb_fbb, filtered_losses, prev_loss).transact(tx)
+
+    #             else:
+    #                 tx_hash = self.sign_and_send_tx(
+    #                     user,
+    #                     self.contract.functions.submitFeedbackBytesAndLosses(rb_fbb, filtered_losses, prev_loss)
+    #                 )
+    #             txs.append(tx_hash)
+
+    #         else:
+    #             warnings.warn("INVALID FEEDBACK TYPE")
+
+    #     for i, txHash in enumerate(txs):
+    #         self.track_transaction(i, txHash, len(txs), "feedback")
+
+    #     for user in self.pytorch_model.participants:
+    #         if len(user._roundrep) == 0:
+    #             print(f"model participant: {user.address} had no roundrep")
+    #         else:
+    #             print(f"model participant: {user.address} had {user._roundrep[-1]} round reputation")
+    #         user._roundrep.append(self.get_round_reputation_of_user(user.address))
+    #         print(f"model participant: {user.address} now gets {user._roundrep[-1]} round reputation")
+
+    #     for user in self.pytorch_model.disqualified:
+    #         print(f"disqualified model participant: {user.address} has no roundrep. he is disqualified, you dummy")
+
+    #     printer._print("                                                   ")
+    #     print("\n-----------------------------------------------------------------------------------")
 
 
     def sign_and_send_tx(self, user, contract_fn_call):
@@ -598,8 +730,6 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
     def print_round_summary(self, receipt):
 
         events = self.get_events(
-            w3=globals.w3,
-            contract=self.contract,
             receipt=receipt,
             event_names=["EndRound", "Reward", "Punishment", "Disqualification"]
         )
@@ -612,26 +742,24 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
         # End of round summary
         if end_events:
             for ev in end_events:
-                args = ev["args"]
-                print(b(f"\nEND OF ROUND {args['round'] + 1}"))
-                print(b(f"VALID VOTES:      {args['validVotes']}"))
-                print(b(f"SUM OF WEIGHTS:  {args['sumOfWeightedContribScore']:,}"))
-                print(b(f"TOTAL PUNISHMENT: {args['totalPunishment']:,}\n"))
+                print(b(f"\nEND OF ROUND {ev['round'] + 1}"))
+                print(b(f"VALID VOTES:      {ev['validVotes']}"))
+                print(b(f"SUM OF WEIGHTS:  {ev['sumOfWeightedContribScore']:,}"))
+                print(b(f"TOTAL PUNISHMENT: {ev['totalPunishment']:,}\n"))
             print("-----------------------------------------------------------------------------------\n")
 
         # Rewarded users
         if reward_events:
             print(b("REWARDED USERS"))
             for ev in reward_events:
-                args = ev["args"]
-                if args["roundScore"] > 0:
-                        print(green(f"USER @ {args['user']}"))
-                        print(green(f"ROUND SCORE:      {args['roundScore']:,}"))
-                        total_reward = args['win']
-                        if not args.get('is_reward', True):  # default True if key missing
+                if ev["roundScore"] > 0:
+                        print(green(f"USER @ {ev['user']}"))
+                        print(green(f"ROUND SCORE:      {ev['roundScore']:,}"))
+                        total_reward = ev['win']
+                        if not ev.get('is_reward', True):  # default True if key missing
                             total_reward = -total_reward
-                        print(green(f"TOTAL REWARD:     {args['win']:,}"))
-                        print(green(f"NEW REPUTATION:   {args['newReputation']:,}\n"))
+                        print(green(f"TOTAL REWARD:     {ev['win']:,}"))
+                        print(green(f"NEW REPUTATION:   {ev['newReputation']:,}\n"))
             print("-----------------------------------------------------------------------------------\n")
 
         # Punished users
@@ -639,16 +767,15 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
             print(b("PUNISHED USERS"))
             for ev in punish_events:
                 print("Punishing a user")
-                args = ev["args"]
                 self._punishments.append((
                     self.pytorch_model.round - 1, 
-                    args["loss"],
-                    next((i + 1 for i, x in enumerate(self.pytorch_model.participants) if x.address == args["victim"]), 0),
+                    ev["loss"],
+                    next((i + 1 for i, x in enumerate(self.pytorch_model.participants) if x.address == ev["victim"]), 0),
                     ))
-                print(red(f"USER @ {args['victim']}"))
-                print(red(f"ROUND SCORE:      {args['roundScore']:,}"))
-                print(red(f"TOTAL LOSS:       {args['loss']:,}"))
-                print(red(f"NEW REPUTATION:   {args['newReputation']:,}\n"))
+                print(red(f"USER @ {ev['victim']}"))
+                print(red(f"ROUND SCORE:      {ev['roundScore']:,}"))
+                print(red(f"TOTAL LOSS:       {ev['loss']:,}"))
+                print(red(f"NEW REPUTATION:   {ev['newReputation']:,}\n"))
             print("-----------------------------------------------------------------------------------\n")
 
         # Disqualified users
@@ -656,24 +783,23 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
             print(b("DISQUALIFIED USERS"))
             for ev in disqualify_events:
                 print("Disqualifying a user")
-                args = ev["args"]
                 self._punishments.append((
                     self.pytorch_model.round - 1,
-                    args["loss"],
-                    next((i + 1 for i, x in enumerate(self.pytorch_model.participants) if x.address == args["victim"]), 0)),
+                    ev["loss"],
+                    next((i + 1 for i, x in enumerate(self.pytorch_model.participants) if x.address == ev["victim"]), 0)),
                     )
 
                 # Mark and remove disqualified users
                 for user in list(self.pytorch_model.participants):  # safe remove
-                    if args["victim"] == user.address:
+                    if ev["victim"] == user.address:
                         user.disqualified = True
                         self.pytorch_model.disqualified.append(user)
                         self.pytorch_model.participants.remove(user)
 
-                print(red(f"USER @ {args['victim']}"))
-                print(red(f"ROUND SCORE:      {args['roundScore']:,}"))
-                print(red(f"TOTAL LOSS:       {args['loss']:,}"))
-                print(red(f"NEW REPUTATION:   {args['newReputation']:,}\n"))
+                print(red(f"USER @ {ev['victim']}"))
+                print(red(f"ROUND SCORE:      {ev['roundScore']:,}"))
+                print(red(f"TOTAL LOSS:       {ev['loss']:,}"))
+                print(red(f"NEW REPUTATION:   {ev['newReputation']:,}\n"))
             print("-----------------------------------------------------------------------------------\n")
 
         print()
@@ -725,7 +851,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                 tx_hash = globals.w3.eth.send_raw_transaction(signed.raw_transaction)
             txs.append(tx_hash)
 
-            print(green(f"\nUSER @ {u.id}"))
+            print(green(f"\nUSER @ {u.number}"))
             if u. is_contrib_score_negative:
                 print(green(f"{'NEGATIVE CONTRIBUTION SCORE:':25}{u.contribution_score}"))
             else:
@@ -748,9 +874,8 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
         ]
         local_updates = torch.stack(local_updates)
 
-        use_outlier_detection = self.experiment_config.use_outlier_detection
 
-        if use_outlier_detection:
+        if self.use_outlier_detection:
             print("using mad")
             filtered_global_update, per_user_outlier_info = self.trim_global_update_using_mad(local_updates, global_update)
             scores = calc_contribution_scores_dotproduct(local_updates, filtered_global_update)
@@ -783,7 +908,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
         """
         Accuracy-Loss-based scoring: use accuracy and loss directly as contribution score.
         """
-        if self.experiment_config.use_outlier_detection:
+        if self.use_outlier_detection:
             msg = "accuracy_loss strategy does not support MAD outlier detection — outlier_info will not be logged."
             print(yellow(f"WARNING: {msg}"))
             self._log_warning(msg)
@@ -1032,8 +1157,6 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
 
     def get_round_rewards(self, receipt):
         events = self.get_events(
-            w3=globals.w3,
-            contract=self.contract,
             receipt=receipt,
             event_names=["Reward"]
         )
@@ -1041,15 +1164,14 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
         
         result = []
         for ev in reward_events:
-            args = ev["args"]
-            if args["roundScore"] > 0:
+            if ev["roundScore"] > 0:
                 result.append(
                     (
-                        args["user"],
-                        args["roundScore"],
-                        args["win"], # Reward/Punishment
-                        args["newReputation"], # New global reputation after reward/punishment
-                        args["is_reward"] # Boolean
+                        ev["user"],
+                        ev["roundScore"],
+                        ev["win"], # Reward/Punishment
+                        ev["newReputation"], # New global reputation after reward/punishment
+                        ev["is_reward"] # Boolean
                     )
                 )
         return result
@@ -1257,11 +1379,11 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
 
             self.pytorch_model.exchange_models()
             
-            self.pytorch_model.verify_models({u.id: self.get_hashed_weights_of(u) for u in self.pytorch_model.participants})
+            self.pytorch_model.verify_models({u.address: self.get_hashed_weights_of(u) for u in self.pytorch_model.participants})
 
-            self.feedback_matrix, accuracy_matrix, loss_matrix, prev_accs, prev_losses = self.pytorch_model.evaluation()
+            self.feedback_matrix, accuracy_matrix, loss_matrix, prev_accs, prev_losses, addresses = self.pytorch_model.evaluation()
 
-            self.quick_feedback_round(fbm = self.feedback_matrix, am=accuracy_matrix, lm=loss_matrix, prev_accs=prev_accs, prev_losses=prev_losses)
+            self.quick_feedback_round(addresses, self.feedback_matrix, am=accuracy_matrix, lm=loss_matrix, prev_accs=prev_accs, prev_losses=prev_losses)
 
             # A roundRep of 0, does not nec. mean mal.
             contributors = [user for user in self.pytorch_model.participants if user._roundrep[-1] >= 0] # Keeps track of who will be merged in the_merge()

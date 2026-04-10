@@ -47,8 +47,8 @@ class FLManager(ConnectionHelper):
         self.deploy_job_template(self.publisher)
         self.deploy_challenge_template(self.publisher)
 
-        self.transact("setJobListingCodeHash", self.publisher, 0, [], self.job_template_hash)
-        self.transact("setChallengeCodeHash", self.publisher, 0, [], self.challenge_templete_hash)
+        self.transact("setJobListingCodeHash", self.publisher, 0, [], "Manager.Template.JobListing.SetHash", self.job_template_hash)
+        self.transact("setChallengeCodeHash", self.publisher, 0, [], "JobListing.Template.Challenge.SetHash",self.challenge_templete_hash)
         return self
     
     
@@ -80,7 +80,7 @@ class FLManager(ConnectionHelper):
                                                                   "from": participant.address})
     
     def register_joblisting_contract(self, new_joblisting: JobListing) -> bool:#-> tuple[Contract, ChecksumAddress, JobListing, ...]:
-        (receipt, events) = self.transact("registerJob", new_joblisting.publisher, 0, ["JobListingValid"], new_joblisting.contract.address)
+        (receipt, events) = self.transact("registerJob", new_joblisting.publisher, 0, ["JobListingValid"], "Manager.registerJob", new_joblisting.contract.address)
 
         is_valid = events["JobListingValid"][0]["isValid"]
 
@@ -133,7 +133,7 @@ class FLManager(ConnectionHelper):
         model_hash_bytes = Web3.keccak(text="template")  # any valid bytes32
 
         constructor_args = [
-            TrainingSpecsChallenge(model_hash_bytes, 1, 1, deployer.address, 1, 1, 1 ,1 , 1, 0, 0, "0x0000000000000000000000000000000000000000").to_solidity_challenge(),
+            TrainingSpecsChallenge(model_hash_bytes, 1, 1, deployer.address, 1, 1, 1 ,1 , 1, 0, 0,"0x0000000000000000000000000000000000000000", False).to_solidity_challenge(),
         ]
 
         contract, receipt = ConnectionHelper.deploy(

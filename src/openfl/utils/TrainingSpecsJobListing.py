@@ -27,7 +27,7 @@ class TrainingSpecsJobListing:
             self.taskType,
         )
 
-    def to_challenge(self, contribution_score_strategy, joblisting_address):
+    def to_challenge(self, contribution_score_strategy, outlier_detection, joblisting_address):
         return TrainingSpecsChallenge(
             self.modelHash,
             self.min_collateral,
@@ -41,12 +41,14 @@ class TrainingSpecsJobListing:
             self.taskType,
             contribution_score_strategy,
             joblisting_address,
+            outlier_detection,
         )
 
 @dataclass
 class TrainingSpecsChallenge(TrainingSpecsJobListing):
     contribution_score_strategy: str
     joblisting_address: str
+    outlier_detection: bool
 
     def to_solidity_challenge(self):
         return (
