@@ -186,26 +186,49 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
 
 def _print_configured_data_split(users: List[User]):
     print("Configured data split per user:")
-    print("{:<5} {:<11} {:>10}   {:<18}".format("Idx", "Role", "Data %", "Address"))
-    print("-" * 56)
+    print(
+        "{:<5} {:<11} {:>10}   {:<18}   {}".format(
+            "Idx",
+            "Role",
+            "Data %",
+            "Address",
+            "Label Method",
+        )
+    )
+    print("-" * 105)
 
     total_percent = 0.0
     for idx, user in enumerate(users):
         role = user.futureAttitude.name
         percent = float(user.data_percent)
+        label_method = _get_label_method(user)
         total_percent += percent
         print(
-            "{:<5} {:<11} {:>9.2f}%   {:<18}".format(
+            "{:<5} {:<11} {:>9.2f}%   {:<18}   {}".format(
                 idx,
                 role,
                 percent,
                 user.address[0:16] + "...",
+                label_method,
             )
         )
 
-    print("-" * 56)
+    print("-" * 105)
     print(f"Configured total data percentage: {total_percent:.2f}%")
-    print("-" * 56)
+    print("-" * 105)
+
+
+def _get_label_method(user: User):
+    only_labels = getattr(user, "only_labels", None)
+    flip_map = getattr(user, "flip_map", {})
+
+    if only_labels is not None and flip_map:
+        return f"only_labels={only_labels}, flip_map={flip_map}"
+    if only_labels is not None:
+        return f"only_labels={only_labels}"
+    if flip_map:
+        return f"flip_map={flip_map}"
+    return "none"
 
 
 def _apply_user_data_and_label_config(user: User, user_index: int, experiment_config: ExperimentConfiguration):
