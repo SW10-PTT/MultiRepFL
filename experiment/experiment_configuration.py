@@ -1,3 +1,5 @@
+import math
+
 from openfl.utils.TrainingSpecsJobListing import TrainingSpecsJobListing, TrainingSpecsChallenge
 
 
@@ -24,7 +26,8 @@ class ExperimentConfiguration:
                  freerider_start_round=3,
                  malicious_noise_scale=1.0,
                  malicious_start_round=3,
-                 force_merge_all=False): # Sets all entries in fbb to zeroes
+                 force_merge_all=False,
+                 data_percentages=None): # Sets all entries in fbb to zeroes
 
         self.fork = fork
 
@@ -58,6 +61,7 @@ class ExperimentConfiguration:
         self.malicious_start_round = malicious_start_round
         self.malicious_noise_scale = malicious_noise_scale
         self.force_merge_all = force_merge_all
+        self.data_percentages = self._resolve_data_percentages(data_percentages)
 
         class userConfig:
             number_of_good_contributors = "a"
@@ -71,3 +75,23 @@ class ExperimentConfiguration:
                 self.number_of_bad_contributors +
                 self.number_of_freerider_contributors +
                 self.number_of_inactive_contributors)
+
+    @property
+    def number_of_data_users(self):
+        return (self.number_of_good_contributors +
+                self.number_of_bad_contributors +
+                self.number_of_freerider_contributors)
+
+    def _resolve_data_percentages(self, data_percentages):
+        # make equal split 
+        if data_percentages is None:
+            equal_percent = 100.0 / self.number_of_data_users
+            return [equal_percent] * self.number_of_data_users
+
+        data_percentages = [float(percent) for percent in data_percentages]
+        if len(data_percentages) != self.number_of_data_users:
+            raise ValueError("data_percentages must match the number of configured users")
+        if not math.isclose(sum(data_percentages), 100.0, abs_tol=1e-9):
+            raise ValueError("data_percentages must sum to 100")
+
+        return data_percentages
