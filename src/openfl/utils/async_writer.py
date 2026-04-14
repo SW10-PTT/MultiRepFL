@@ -9,9 +9,6 @@ from typing import List
 import platform
 import psutil
 
-from openfl.utils.types.User import User
-
-
 def _time_handler(item):
     return datetime.now().strftime("%H:%M:%S.%f")[:-3]
 

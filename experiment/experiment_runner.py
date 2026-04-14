@@ -52,17 +52,19 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
       (Attitude.FreeRider, experiment_config.number_of_freerider_contributors),
   ]:
       for _ in range(count):
-          addr, private_key = get_account_RPC(len(users), experiment_config.fork)
-          users.append(
-              User.from_experiment_config(
-                  attitude,
-                  experiment_config,
-                  addr,
-                  private_key
-              )
+          user_index = len(users)
+          addr, private_key = get_account_RPC(user_index, experiment_config.fork)
+          user = User.from_experiment_config(
+              attitude,
+              experiment_config,
+              addr,
+              private_key
           )
+          user.data_percent = float(experiment_config.data_percentages[user_index])
+          users.append(user)
       #pytorch_model.add_participant("freerider",experiment_config.freerider_start_round) //TODO FOR LATER
 
+  _print_configured_data_split(users)
   publisher: User = users[0]
 
   RPC_ENDPOINT = get_RPC_Endpoint()
@@ -100,7 +102,8 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
               publisher,
               0,
               ["SelectionComplete"],
-              2
+              "JobListing.decideOnParticpants",
+              len(users)
           )
           break
       except ContractLogicError as e:
@@ -114,12 +117,12 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
 
   trainingSpecsChallenge = trainingSpecs.to_challenge(experiment_config.contribution_score_strategy, experiment_config.use_outlier_detection, newJobListing.contract.address)
 
-  newChallenge: Challenge = publisher.deploy_challenge_contract(trainingSpecsChallenge, newJobListing, pytorch_model)
+  newChallenge: Challenge = publisher.deploy_challenge_contract(trainingSpecsChallenge, newJobListing, pytorch_model, writer, logger)
 
   newChallenge.make_participants_from_users(users)
   for participants in newChallenge.pytorch_model.participants:
       try:
-        newChallenge.transact("registrationProcess", participants, trainingSpecsChallenge.min_collateral, [])
+        newChallenge.transact("registrationProcess", participants, trainingSpecsChallenge.min_collateral, [], "challenge.register")
       except ContractLogicError as e:
           if "SUO" in str(e):
               print("Participant tried joining but was not selected")
@@ -179,6 +182,30 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
       logger.log_setup(total_experiment_time, hardware, config)
 
   return Experiment(newChallenge, manager)
+
+
+def _print_configured_data_split(users: List[User]):
+    print("Configured data split per user:")
+    print("{:<5} {:<11} {:>10}   {:<18}".format("Idx", "Role", "Data %", "Address"))
+    print("-" * 56)
+
+    total_percent = 0.0
+    for idx, user in enumerate(users):
+        role = user.futureAttitude.name
+        percent = float(user.data_percent)
+        total_percent += percent
+        print(
+            "{:<5} {:<11} {:>9.2f}%   {:<18}".format(
+                idx,
+                role,
+                percent,
+                user.address[0:16] + "...",
+            )
+        )
+
+    print("-" * 56)
+    print(f"Configured total data percentage: {total_percent:.2f}%")
+    print("-" * 56)
 
 
 def setup_connection(experiment_config):

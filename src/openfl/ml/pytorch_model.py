@@ -10,12 +10,17 @@ import torch.multiprocessing as mp
 import os
 import time
 import math
+from pathlib import Path
 from web3 import Web3
 from typing import Tuple
 from collections import OrderedDict
 from torchvision import transforms
 from torchvision.datasets import CIFAR10, MNIST
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import DataLoader, Subset, random_split
+
+data_partition_path = str(Path(__file__).resolve().parents[3] / "data-partition")
+sys.path.insert(0, data_partition_path)
+from data_partition import DataPartition
 
 from openfl.ml.Participant import Participant
 from openfl.utils.types.Attitude import Attitude
@@ -113,6 +118,8 @@ class PytorchModel:
         self.NUMBER_OF_FREERIDER_CONTRIBUTORS = 0
         self.NUMBER_OF_INACTIVE_CONTRIBUTORS = 0
         self.DATA = None
+        self.train_by_user_id = {}
+        self.val_by_user_id = {}
         self.participants = []
         self.disqualified = []
         self.EPOCHS = epochs
@@ -179,8 +186,7 @@ class PytorchModel:
     
             
     def add_participant(self, user):
-        
-        _train, _val, _test = self.load_data(self.NUMBER_OF_CONTRIBUTERS)
+        train_loader, val_loader = self._get_user_dataloaders(user)
         
         if self.DATASET == "mnist":
             _model = Net_MNIST().to(DEVICE)
@@ -198,18 +204,71 @@ class PytorchModel:
             _attitudeSwitch = self.freerider_start_round
         if user.attitude == Attitude.Inactive:
             self.NUMBER_OF_INACTIVE_CONTRIBUTORS +=1
-        l = len(self.participants)
         self.participants.append(Participant.from_user(
             user,
-            _train[l],
-            _val[l],
+            train_loader,
+            val_loader,
             _model,
             optimizer,
             criterion,
         ))
         
         print("Participant added: {:<9} {}".format(rb(user.attitude.name.upper()[0]+user.attitude.name[1:]), rb("User")))
-        
+
+    def prepare_mnist_data_for_users(self, users):
+        if self.DATASET != "mnist":
+            return
+
+        users = list(users)
+        if not users:
+            return
+
+        trainset = MNIST("./data", train=True, download=True, transform=transforms.ToTensor())
+        testset = MNIST("./data", train=False, download=True, transform=transforms.ToTensor())
+        partitioner = DataPartition(validation_split=0.1, seed=42)
+        user_splits = partitioner.split_mnist_same_share_per_label(users, trainset.targets)
+
+        trainloaders = []
+        valloaders = []
+        self.train_by_user_id = {}
+        self.val_by_user_id = {}
+
+        for user in users:
+            user_id = self._get_user_id(user)
+            user_split = user_splits[user_id]
+            train_loader = cuda_safe_dataloader(
+                Subset(trainset, user_split["train_ids"]),
+                self.BATCHSIZE,
+                shuffle=True,
+            )
+            val_loader = cuda_safe_dataloader(
+                Subset(trainset, user_split["val_ids"]),
+                self.BATCHSIZE,
+                shuffle=False,
+            )
+            trainloaders.append(train_loader)
+            valloaders.append(val_loader)
+            self.train_by_user_id[user_id] = train_loader
+            self.val_by_user_id[user_id] = val_loader
+
+        testloader = cuda_safe_dataloader(testset, self.BATCHSIZE, shuffle=False)
+        self.DATA = (trainloaders, valloaders, testloader)
+        self.train, self.val, self.test = self.DATA
+
+    def _get_user_dataloaders(self, user):
+        if self.DATASET == "mnist" and self.train_by_user_id:
+            user_id = self._get_user_id(user)
+            return self.train_by_user_id[user_id], self.val_by_user_id[user_id]
+
+        trainloaders, valloaders, _test = self.load_data(self.NUMBER_OF_CONTRIBUTERS)
+        index = len(self.participants)
+        return trainloaders[index], valloaders[index]
+
+    def _get_user_id(self, user):
+        if hasattr(user, "id"):
+            return user.id
+        return user.number
+
 
     def load_data(self, NUM_CLIENTS, _print=False):
         if self.DATA:

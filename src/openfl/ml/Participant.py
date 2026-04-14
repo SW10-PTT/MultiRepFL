@@ -2,7 +2,7 @@ import copy
 
 import numpy as np
 from web3 import Web3
-from openfl.api.ConnectionHelper import ConnectionHelper
+
 from openfl.utils.types.Attitude import Attitude
 from openfl.utils.types.Colors import RNG, get_color
 from openfl.utils.types.User import User
@@ -13,6 +13,7 @@ class Participant(User):
                  _max_collateral, address, _attitude_switch=1, number_of_participants=None):
         super().__init__(_attitude, _default_collateral,
                          _max_collateral, _attitude_switch, number_of_participants)
+        from openfl.api.ConnectionHelper import ConnectionHelper
         ConnectionHelper.initiate_connection(manual_setup=True)
         self.number = number
         self.train = _train

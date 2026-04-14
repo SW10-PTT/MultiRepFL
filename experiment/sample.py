@@ -24,6 +24,7 @@ config = ExperimentConfiguration(
     punish_factor_contrib=3,
     freerider_start_round=1,
     malicious_start_round=1,
+    data_percentages=[30, 1, 15, 15, 10, 29],
 )
 
 # OVERSKRIV variabler her for testing. eksempel: config = ExperimentConfiguration(minimum_rounds=1), hvis du kun vil køre een round#DATASET = "cifar-10"

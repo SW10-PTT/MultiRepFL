@@ -47,8 +47,8 @@ class FLManager(ConnectionHelper):
         self.deploy_job_template(self.publisher)
         self.deploy_challenge_template(self.publisher)
 
-        self.transact("setJobListingCodeHash", self.publisher, 0, [], self.job_template_hash)
-        self.transact("setChallengeCodeHash", self.publisher, 0, [], self.challenge_templete_hash)
+        self.transact("setJobListingCodeHash", self.publisher, 0, [], "Manager.Template.JobListing.SetHash", self.job_template_hash)
+        self.transact("setChallengeCodeHash", self.publisher, 0, [], "JobListing.Template.Challenge.SetHash",self.challenge_templete_hash)
         return self
     
     
@@ -80,7 +80,7 @@ class FLManager(ConnectionHelper):
                                                                   "from": participant.address})
     
     def register_joblisting_contract(self, new_joblisting: JobListing) -> bool:#-> tuple[Contract, ChecksumAddress, JobListing, ...]:
-        (receipt, events) = self.transact("registerJob", new_joblisting.publisher, 0, ["JobListingValid"], new_joblisting.contract.address)
+        (receipt, events) = self.transact("registerJob", new_joblisting.publisher, 0, ["JobListingValid"], "Manager.registerJob", new_joblisting.contract.address)
 
         is_valid = events["JobListingValid"][0]["isValid"]
 
