@@ -24,12 +24,13 @@ class DataPartition:
 
         assigned_ids_by_user = {self._get_user_id(user): [] for user in users}
 
-        for sample_ids in ids_by_label.values():
+        for label, sample_ids in ids_by_label.items():
             rng.shuffle(sample_ids)
-            counts = self._get_counts_by_percent(users, len(sample_ids))
+            eligible_users = self._get_users_for_label(users, label)
+            counts = self._get_counts_by_percent(eligible_users, len(sample_ids))
             start = 0
 
-            for user, count in zip(users, counts):
+            for user, count in zip(eligible_users, counts):
                 user_id = self._get_user_id(user)
                 assigned_ids_by_user[user_id].extend(sample_ids[start:start + count])
                 start += count
@@ -66,8 +67,12 @@ class DataPartition:
         return user_splits
 
     def _get_counts_by_percent(self, users, dataset_size):
+        if dataset_size == 0:
+            return []
+
+        total_percent = sum(self._get_percent(user) for user in users)
         raw_counts = [
-            dataset_size * self._get_percent(user) / 100.0
+            dataset_size * self._get_percent(user) / total_percent
             for user in users
         ]
         sample_counts = [math.floor(count) for count in raw_counts]
@@ -94,6 +99,23 @@ class DataPartition:
         val_ids = list(assigned_ids[:val_size])
         train_ids = list(assigned_ids[val_size:])
         return train_ids, val_ids
+
+    def _get_users_for_label(self, users, label):
+        # If a user has only_labels, they only receive those labels.
+        # If nobody asked for this label, we keep default behavior and share it to all users.
+        allowed_users = [
+            user for user in users
+            if self._user_accepts_label(user, label)
+        ]
+        if allowed_users:
+            return allowed_users
+        return users
+
+    def _user_accepts_label(self, user, label):
+        only_labels = getattr(user, "only_labels", None)
+        if only_labels is None:
+            return True
+        return label in only_labels
 
     def _validate_percentages(self, users):
         percents = [self._get_percent(user) for user in users]

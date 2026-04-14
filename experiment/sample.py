@@ -25,6 +25,11 @@ config = ExperimentConfiguration(
     freerider_start_round=1,
     malicious_start_round=1,
     data_percentages=[30, 1, 15, 15, 10, 29],
+    # Example:
+    # label_rules={
+    #     2: {"only_labels": [4, 9], "flip_map": {4: 9, 9: 4}},
+    #     3: {"flip_map": {2: 5}},
+    # },
 )
 
 # OVERSKRIV variabler her for testing. eksempel: config = ExperimentConfiguration(minimum_rounds=1), hvis du kun vil køre een round#DATASET = "cifar-10"

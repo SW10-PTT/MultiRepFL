@@ -16,7 +16,7 @@ from typing import Tuple
 from collections import OrderedDict
 from torchvision import transforms
 from torchvision.datasets import CIFAR10, MNIST
-from torch.utils.data import DataLoader, Subset, random_split
+from torch.utils.data import DataLoader, Dataset, Subset, random_split
 
 data_partition_path = str(Path(__file__).resolve().parents[3] / "data-partition")
 sys.path.insert(0, data_partition_path)
@@ -59,6 +59,23 @@ def cuda_safe_dataloader(ds, batch_size, shuffle=False):
         num_workers=NUM_WORKERS,
         persistent_workers=PERSISTENT_WORKERS,
     )
+
+
+class LabelMappedDataset(Dataset):
+    # Example flip_map:
+    # {4: 9}  -> change every label 4 to 9
+    # {4: 9, 9: 4} -> swap 4 and 9
+    def __init__(self, dataset, flip_map):
+        self.dataset = dataset
+        self.flip_map = flip_map
+
+    def __len__(self):
+        return len(self.dataset)
+
+    def __getitem__(self, index):
+        image, label = self.dataset[index]
+        mapped_label = self.flip_map.get(int(label), int(label))
+        return image, mapped_label
 
 
 class Net_CIFAR(nn.Module):
@@ -236,13 +253,21 @@ class PytorchModel:
         for user in users:
             user_id = self._get_user_id(user)
             user_split = user_splits[user_id]
-            train_loader = cuda_safe_dataloader(
+            train_dataset = self._apply_label_flip_map(
                 Subset(trainset, user_split["train_ids"]),
+                user,
+            )
+            val_dataset = self._apply_label_flip_map(
+                Subset(trainset, user_split["val_ids"]),
+                user,
+            )
+            train_loader = cuda_safe_dataloader(
+                train_dataset,
                 self.BATCHSIZE,
                 shuffle=True,
             )
             val_loader = cuda_safe_dataloader(
-                Subset(trainset, user_split["val_ids"]),
+                val_dataset,
                 self.BATCHSIZE,
                 shuffle=False,
             )
@@ -268,6 +293,13 @@ class PytorchModel:
         if hasattr(user, "id"):
             return user.id
         return user.number
+
+    def _apply_label_flip_map(self, dataset, user):
+        # If user has no flip rule, keep labels as-is.
+        flip_map = getattr(user, "flip_map", {})
+        if not flip_map:
+            return dataset
+        return LabelMappedDataset(dataset, flip_map)
 
 
     def load_data(self, NUM_CLIENTS, _print=False):

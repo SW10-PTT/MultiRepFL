@@ -27,7 +27,8 @@ class ExperimentConfiguration:
                  malicious_noise_scale=1.0,
                  malicious_start_round=3,
                  force_merge_all=False,
-                 data_percentages=None): # Sets all entries in fbb to zeroes
+                 data_percentages=None,
+                 label_rules=None): # Sets all entries in fbb to zeroes
 
         self.fork = fork
 
@@ -62,6 +63,7 @@ class ExperimentConfiguration:
         self.malicious_noise_scale = malicious_noise_scale
         self.force_merge_all = force_merge_all
         self.data_percentages = self._resolve_data_percentages(data_percentages)
+        self.label_rules = self._resolve_label_rules(label_rules)
 
         class userConfig:
             number_of_good_contributors = "a"
@@ -95,3 +97,25 @@ class ExperimentConfiguration:
             raise ValueError("data_percentages must sum to 100")
 
         return data_percentages
+
+    def _resolve_label_rules(self, label_rules):
+        # Example:
+        # {
+        #   2: {"only_labels": [4, 9], "flip_map": {4: 9, 9: 4}},
+        #   3: {"flip_map": {2: 5}}
+        # }
+        if label_rules is None:
+            return {}
+
+        resolved_rules = {}
+        for user_index, rule in label_rules.items():
+            only_labels = rule.get("only_labels")
+            flip_map = rule.get("flip_map", {})
+
+            normalized_rule = {
+                "only_labels": [int(label) for label in only_labels] if only_labels is not None else None,
+                "flip_map": {int(src): int(dst) for src, dst in flip_map.items()},
+            }
+            resolved_rules[int(user_index)] = normalized_rule
+
+        return resolved_rules

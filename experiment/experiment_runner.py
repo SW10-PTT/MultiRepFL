@@ -60,7 +60,7 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
               addr,
               private_key
           )
-          user.data_percent = float(experiment_config.data_percentages[user_index])
+          _apply_user_data_and_label_config(user, user_index, experiment_config)
           users.append(user)
       #pytorch_model.add_participant("freerider",experiment_config.freerider_start_round) //TODO FOR LATER
 
@@ -206,6 +206,18 @@ def _print_configured_data_split(users: List[User]):
     print("-" * 56)
     print(f"Configured total data percentage: {total_percent:.2f}%")
     print("-" * 56)
+
+
+def _apply_user_data_and_label_config(user: User, user_index: int, experiment_config: ExperimentConfiguration):
+    # Same index is used for both percentage and rule.
+    # Example:
+    # data_percentages = [15, 20, 30, 15, 10, 10]
+    # label_rules = {2: {"flip_map": {4: 9}}}
+    user.data_percent = float(experiment_config.data_percentages[user_index])
+
+    user_rule = experiment_config.label_rules.get(user_index, {})
+    user.only_labels = user_rule.get("only_labels")
+    user.flip_map = user_rule.get("flip_map", {})
 
 
 def setup_connection(experiment_config):
