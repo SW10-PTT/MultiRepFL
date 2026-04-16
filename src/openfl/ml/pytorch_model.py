@@ -238,7 +238,7 @@ class PytorchModel:
 
         users = list(users)
 
-        requested_user_ids = tuple(sorted(self._get_user_id(user) for user in users))
+        requested_user_ids = tuple(sorted(self.get_user_id(user) for user in users))
         if self.train_by_user_id and requested_user_ids == self.mnist_prepared_user_ids:
             return
 
@@ -255,7 +255,7 @@ class PytorchModel:
         self.val_by_user_id = {}
 
         for user in users:
-            user_id = self._get_user_id(user)
+            user_id = self.get_user_id(user)
             user_split = user_splits[user_id]
             train_dataset = self.apply_label_flip_map(
                 Subset(trainset, user_split["train_ids"]),
@@ -312,7 +312,7 @@ class PytorchModel:
         self.val_by_user_id = {}
 
         for user in users:
-            user_id = self._get_user_id(user)
+            user_id = self.get_user_id(user)
             user_split = user_splits[user_id]
             train_dataset = self.apply_label_flip_map(
                 Subset(trainset, user_split["train_ids"]),
@@ -343,7 +343,7 @@ class PytorchModel:
 
     def get_user_dataloaders(self, user):
         if self.train_by_user_id:
-            user_id = self._get_user_id(user)
+            user_id = self.get_user_id(user)
             return self.train_by_user_id[user_id], self.val_by_user_id[user_id]
 
         trainloaders, valloaders, _test = self.load_data(self.NUMBER_OF_CONTRIBUTERS)
