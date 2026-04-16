@@ -61,7 +61,6 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
                   private_key
               )
           )
-      #pytorch_model.add_participant("freerider",experiment_config.freerider_start_round) //TODO FOR LATER
 
   publisher: User = users[0]
 

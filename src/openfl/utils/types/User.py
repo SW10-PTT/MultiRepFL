@@ -91,7 +91,7 @@ class User:
         ):
         from openfl.contracts.FLChallenge import FLChallenge
 
-        new_challenge = FLChallenge(self, pyTorch_model, training_specs, joblisting, )
+        new_challenge = FLChallenge(self, pyTorch_model, training_specs, joblisting, writer, logger)
         
         if joblisting.register_challenge_contract(joblisting.publisher, new_challenge.contract.address):
             return new_challenge

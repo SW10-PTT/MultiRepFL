@@ -18,6 +18,7 @@ from torchvision.datasets import CIFAR10, MNIST
 from torch.utils.data import DataLoader, random_split
 
 from openfl.ml.Participant import Participant
+from openfl.utils.types.EvaluationData import EvaluationData
 from openfl.utils.types.Attitude import Attitude
 from openfl.utils.types.Colors import gb, rb, red, yellow, green, b
 
@@ -107,7 +108,8 @@ class PytorchModel:
             self.global_model = Net_MNIST().to(DEVICE)
         else:
             self.global_model = Net_CIFAR().to(DEVICE)
-        
+
+
         self.NUMBER_OF_CONTRIBUTERS = _totalParticipants
         self.NUMBER_OF_BAD_CONTRIBUTORS = 0
         self.NUMBER_OF_FREERIDER_CONTRIBUTORS = 0
@@ -571,17 +573,16 @@ class PytorchModel:
         scalar = 100 # Adds more decimals for precision (Adding 0 gives another decimal, vice versa)
         MAX_UINT16_SIZE = 65535
         count_dq = len(self.disqualified)\
-        
-        addresses = [u.address for u in self.participants] + [u.address for u in self.disqualified]
-        addr_to_idx = {addr: i for i, addr in enumerate(addresses)}
 
-        n = len(self.participants) + count_dq
+        matrices = EvaluationData.new(self.participants + self.disqualified)
 
-        feedback_matrix = np.zeros((n, n), dtype=np.int8)
-        accuracy_matrix = [[0 for _ in range(n)] for _ in range(n)]
-        loss_matrix = [[0 for _ in range(n)] for _ in range(n)]
-        prev_accs = [0 for _ in range(n)]
-        prev_losses = [0 for _ in range(n)]
+        # n = len(self.participants) + count_dq
+
+        # feedback_matrix = np.zeros((n, n), dtype=np.int8)
+        # accuracy_matrix = [[0 for _ in range(n)] for _ in range(n)]
+        # loss_matrix = [[0 for _ in range(n)] for _ in range(n)]
+        # prev_accs = [0 for _ in range(n)]
+        # prev_losses = [0 for _ in range(n)]
 
         for feedbackGiver in self.participants:
             valloader = feedbackGiver.val
@@ -593,8 +594,8 @@ class PytorchModel:
 
             # For each user, traverse its list of usersToEvaluate and fill the feedback, accuracy and loss matrices
             for ix, user in enumerate(feedbackGiver.userToEvaluate):
-                giver_idx = addr_to_idx[feedbackGiver.address]
-                user_idx = addr_to_idx[user.address]
+                giver_idx = feedbackGiver.address
+                user_idx = user.address
                 if not bad_att and not free_att:
                     loss, accuracy = test(user.model, valloader, DEVICE)
                     prev_loss, prev_acc = test(self.global_model, valloader, DEVICE)
@@ -602,80 +603,80 @@ class PytorchModel:
                     prev_loss = safe_scale(prev_loss, scalar, MAX_UINT16_SIZE)
 
                 if bad_att:
-                    feedback_matrix[giver_idx][user_idx] = -1
-                    accuracy_matrix[giver_idx][user_idx] = 0
-                    loss_matrix[giver_idx][user_idx] = 65535
+                    matrices.feedback_matrix[giver_idx, user_idx] = -1
+                    matrices.accuracy_matrix[giver_idx, user_idx] = 0
+                    matrices.loss_matrix(giver_idx, user_idx, 65535)
                     prev_loss, prev_acc = test(self.global_model, valloader, DEVICE)
-                    prev_accs[giver_idx] = round(prev_acc * 100 * scalar)
-                    prev_losses[giver_idx] = safe_scale(prev_loss, scalar, MAX_UINT16_SIZE)
+                    matrices.prev_accuracies[giver_idx] = round(prev_acc * 100 * scalar)
+                    matrices.prev_losses[giver_idx] = safe_scale(prev_loss, scalar, MAX_UINT16_SIZE)
+
 
                 elif free_att:
-                    feedback_matrix[giver_idx][user_idx] = 0
+                    matrices.feedback_matrix[giver_idx, user_idx] = 0
                     if accuracy_last_round == -1:
                         loss_last_round, accuracy_last_round = test(self.global_model, valloader, DEVICE)
                         accuracy_last_round = round(accuracy_last_round * 100 * scalar)
                         loss_last_round = safe_scale(loss_last_round, scalar, MAX_UINT16_SIZE)
-                    accuracy_matrix[giver_idx][user_idx] = accuracy_last_round
-                    loss_matrix[giver_idx][user_idx] = min(loss_last_round, MAX_UINT16_SIZE)
-                    prev_accs[giver_idx] = accuracy_last_round
-                    prev_losses[giver_idx] = loss_last_round
+                    matrices.accuracy_matrix[giver_idx, user_idx] = accuracy_last_round
+                    matrices.loss_matrix[giver_idx, user_idx] = min(loss_last_round , MAX_UINT16_SIZE)
+                    matrices.prev_accuracies[giver_idx] = accuracy_last_round
+                    matrices.prev_losses[giver_idx] = loss_last_round
 
                 elif len(feedbackGiver.cheater) > 0 and user in feedbackGiver.cheater:
-                    feedback_matrix[giver_idx][user_idx] = -1
-                    accuracy_matrix[giver_idx][user_idx] = round(accuracy * 100 * scalar)
-                    loss_matrix[giver_idx][user_idx] = safe_scale(loss, scalar, MAX_UINT16_SIZE)
-                    prev_accs[giver_idx] = prev_acc
-                    prev_losses[giver_idx] = prev_loss
+                    matrices.feedback_matrix[giver_idx, user_idx] = -1
+                    matrices.accuracy_matrix[giver_idx, user_idx] = round(accuracy * 100 * scalar)
+                    matrices.loss_matrix[giver_idx, user_idx] = safe_scale(loss, scalar, MAX_UINT16_SIZE)
+                    matrices.prev_accuracies[giver_idx] = prev_acc
+                    matrices.prev_losses[giver_idx] = prev_loss
 
-                elif accuracy > feedbackGiver.currentAcc - 0.07 : # 7% Worse
-                    feedback_matrix[giver_idx][user_idx] = 1
-                    accuracy_matrix[giver_idx][user_idx] = round(accuracy * 100 * scalar)
-                    loss_matrix[giver_idx][user_idx] = safe_scale(loss, scalar, MAX_UINT16_SIZE)
-                    prev_accs[giver_idx] = prev_acc
-                    prev_losses[giver_idx] = prev_loss
+                elif accuracy > feedbackGiver.currentAcc - 0.07:  # 7% Worse
+                    matrices.feedback_matrix[giver_idx, user_idx] = 1
+                    matrices.accuracy_matrix[giver_idx, user_idx] = round(accuracy * 100 * scalar)
+                    matrices.loss_matrix[giver_idx, user_idx] = safe_scale(loss, scalar, MAX_UINT16_SIZE)
+                    matrices.prev_accuracies[giver_idx] = prev_acc
+                    matrices.prev_losses[giver_idx] = prev_loss
 
-                elif accuracy > feedbackGiver.currentAcc - 0.14: # 14% Worse
-                    feedback_matrix[giver_idx][user_idx] = 0
-                    accuracy_matrix[giver_idx][user_idx] = round(accuracy * 100 * scalar)
-                    loss_matrix[giver_idx][user_idx] = safe_scale(loss, scalar, MAX_UINT16_SIZE)
-                    prev_accs[giver_idx] = prev_acc
-                    prev_losses[giver_idx] = prev_loss
+                elif accuracy > feedbackGiver.currentAcc - 0.14:  # 14% Worse
+                    matrices.feedback_matrix[giver_idx, user_idx] = 0
+                    matrices.accuracy_matrix[giver_idx, user_idx] = round(accuracy * 100 * scalar)
+                    matrices.loss_matrix[giver_idx, user_idx] = safe_scale(loss, scalar, MAX_UINT16_SIZE)
+                    matrices.prev_accuracies[giver_idx] = prev_acc
+                    matrices.prev_losses[giver_idx] = prev_loss
 
                 else:
-                    feedback_matrix[giver_idx][user_idx] = -1
-                    accuracy_matrix[giver_idx][user_idx] = round(accuracy * 100 * scalar)
-                    loss_matrix[giver_idx][user_idx] = safe_scale(loss, scalar, MAX_UINT16_SIZE)
-                    prev_accs[giver_idx] = prev_acc
-                    prev_losses[giver_idx] = prev_loss
+                    matrices.feedback_matrix[giver_idx, user_idx] = -1
+                    matrices.accuracy_matrix[giver_idx, user_idx] = round(accuracy * 100 * scalar)
+                    matrices.loss_matrix[giver_idx, user_idx] = safe_scale(loss, scalar, MAX_UINT16_SIZE)
+                    matrices.prev_accuracies[giver_idx] = prev_acc
+                    matrices.prev_losses[giver_idx] = prev_loss
 
                 if self.force_merge_all:
-                    feedback_matrix[giver_idx][user_idx] = 0
+                    matrices.feedback_matrix[giver_idx, user_idx] = 0
 
-            # Reset
-            feedbackGiver.userToEvaluate = []
-        # acc_mat = [[x / 10 for x in sublist] for sublist in accuracy_matrix]
-        # loss_mat = [[x / 10 for x in sublist] for sublist in loss_matrix]
-        # prev_accs_divided = [x / 10 for x in prev_accs]
-        # prev_losses_divided = [x / 10 for x in prev_losses]
+                # Reset
+                feedbackGiver.userToEvaluate = []
+                print("FEEDBACK MATRIX:")
+                print(matrices.feedback_matrix)
+                print("-----------------------------------------------------------------------------------")
+                print("ACCURACY MATRIX:")
+                print(matrices.accuracy_matrix)
+                print("-----------------------------------------------------------------------------------")
+                print("LOSS MATRIX:")
+                print(matrices.loss_matrix)
+                print("-----------------------------------------------------------------------------------")
+                print("PREVIOUS ACCURACIES:")
+                print(matrices.prev_accuracies)
+                print("-----------------------------------------------------------------------------------")
+                print("PREVIOUS LOSSES:")
+                print(matrices.prev_losses)
+                print("-----------------------------------------------------------------------------------")
 
-        print("FEEDBACK MATRIX:")
-        print(feedback_matrix)
-        print("-----------------------------------------------------------------------------------")
-        print("ACCURACY MATRIX:")
-        print(accuracy_matrix)
-        print("-----------------------------------------------------------------------------------")
-        print("LOSS MATRIX:")
-        print(loss_matrix)
-        print("-----------------------------------------------------------------------------------")
-        print("PREVIOUS ACCURACIES:")
-        print(prev_accs)
-        print("-----------------------------------------------------------------------------------")
-        print("PREVIOUS LOSSES:")
-        print(prev_losses)
-        print("-----------------------------------------------------------------------------------")
+        return matrices
 
         return feedback_matrix, accuracy_matrix, loss_matrix, prev_accs, prev_losses, addresses
 
+    def get_participant(self, address):
+        return next((x for x in self.participants if x.address == address), None)
     
 # PYTORCH FUNCTIONS
 def train(net, trainloader: torch.utils.data.DataLoader, epochs: int, device: torch.device) -> None:
@@ -830,6 +831,7 @@ def print_training_mode(num_gpus: int, num_processes: int):
             ))
         else:
             print(red("Detected 0 GPU(s) → Sequential CPU mode"))
+
 
 
 def device_label(device: torch.device, device_id: int = 0) -> str:
