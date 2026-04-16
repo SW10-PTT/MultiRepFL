@@ -52,6 +52,11 @@ class User:
 
         self.color = get_color(number_of_participants, self.attitude)
 
+        # Data split fields — set by _apply_user_data_and_label_config in experiment_runner
+        self.data_percent: float = 0.0
+        self.only_labels: list[int] | None = None
+        self.flip_map: dict[int, int] = {}
+
     @classmethod
     def from_experiment_config(cls,
                                _attitude,

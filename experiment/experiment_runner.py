@@ -60,11 +60,14 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
               addr,
               private_key
           )
-          _apply_user_data_and_label_config(user, user_index, experiment_config)
+          apply_user_data_and_label_config(user, user_index, experiment_config)
           users.append(user)
       #pytorch_model.add_participant("freerider",experiment_config.freerider_start_round) //TODO FOR LATER
 
-  _print_configured_data_split(users)
+  if dataset_name == "mnist":
+      pytorch_model.prepare_mnist_data_for_users(users)
+  elif dataset_name == "cifar-10":
+      pytorch_model.prepare_cifar_data_for_users(users)
   publisher: User = users[0]
 
   RPC_ENDPOINT = get_RPC_Endpoint()
@@ -184,7 +187,7 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
   return Experiment(newChallenge, manager)
 
 
-def _print_configured_data_split(users: List[User]):
+def print_configured_data_split(users: List[User]):
     print("Configured data split per user:")
     print(
         "{:<5} {:<11} {:>10}   {:<18}   {}".format(
@@ -201,7 +204,7 @@ def _print_configured_data_split(users: List[User]):
     for idx, user in enumerate(users):
         role = user.futureAttitude.name
         percent = float(user.data_percent)
-        label_method = _get_label_method(user)
+        label_method = get_label_method(user)
         total_percent += percent
         print(
             "{:<5} {:<11} {:>9.2f}%   {:<18}   {}".format(
@@ -218,20 +221,17 @@ def _print_configured_data_split(users: List[User]):
     print("-" * 105)
 
 
-def _get_label_method(user: User):
-    only_labels = getattr(user, "only_labels", None)
-    flip_map = getattr(user, "flip_map", {})
-
-    if only_labels is not None and flip_map:
-        return f"only_labels={only_labels}, flip_map={flip_map}"
-    if only_labels is not None:
-        return f"only_labels={only_labels}"
-    if flip_map:
-        return f"flip_map={flip_map}"
+def get_label_method(user: User):
+    if user.only_labels is not None and user.flip_map:
+        return f"only_labels={user.only_labels}, flip_map={user.flip_map}"
+    if user.only_labels is not None:
+        return f"only_labels={user.only_labels}"
+    if user.flip_map:
+        return f"flip_map={user.flip_map}"
     return "none"
 
 
-def _apply_user_data_and_label_config(user: User, user_index: int, experiment_config: ExperimentConfiguration):
+def apply_user_data_and_label_config(user: User, user_index: int, experiment_config: ExperimentConfiguration):
     # Same index is used for both percentage and rule.
     # Example:
     # data_percentages = [15, 20, 30, 15, 10, 10]

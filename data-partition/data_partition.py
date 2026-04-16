@@ -12,51 +12,51 @@ class DataPartition:
     def get_num_participants(self, users):
         return len(list(users))
 
-    def split_mnist_same_share_per_label(self, users, labels):
+    def split_by_label(self, users, labels):
         users = list(users)
-        labels = self._normalize_labels(labels)
-        self._validate_percentages(users)
+        labels = self.normalize_labels(labels)
+        self.validate_percentages(users)
 
         rng = random.Random(self.seed)
         ids_by_label = {}
         for sample_id, label in enumerate(labels):
             ids_by_label.setdefault(label, []).append(sample_id)
 
-        assigned_ids_by_user = {self._get_user_id(user): [] for user in users}
+        assigned_ids_by_user = {self.get_user_id(user): [] for user in users}
 
         for label, sample_ids in ids_by_label.items():
             rng.shuffle(sample_ids)
-            eligible_users = self._get_users_for_label(users, label)
-            counts = self._get_counts_by_percent(eligible_users, len(sample_ids))
+            eligible_users = self.get_users_for_label(users, label)
+            counts = self.get_counts_by_percent(eligible_users, len(sample_ids))
             start = 0
 
             for user, count in zip(eligible_users, counts):
-                user_id = self._get_user_id(user)
+                user_id = self.get_user_id(user)
                 assigned_ids_by_user[user_id].extend(sample_ids[start:start + count])
                 start += count
 
         for sample_ids in assigned_ids_by_user.values():
             rng.shuffle(sample_ids)
 
-        return self._build_user_splits(users, assigned_ids_by_user)
+        return self.build_user_splits(users, assigned_ids_by_user)
 
     def assign_to_users(self, users, user_splits):
         for user in users:
-            user_id = self._get_user_id(user)
+            user_id = self.get_user_id(user)
             user_split = user_splits[user_id]
             user.train_ids = list(user_split["train_ids"])
             user.val_ids = list(user_split["val_ids"])
             user.num_samples = int(user_split["num_samples"])
 
-    def _build_user_splits(self, users, assigned_ids_by_user):
+    def build_user_splits(self, users, assigned_ids_by_user):
         user_splits = {}
 
         for user in users:
-            user_id = self._get_user_id(user)
+            user_id = self.get_user_id(user)
             assigned_ids = list(assigned_ids_by_user[user_id])
-            train_ids, val_ids = self._split_train_val(assigned_ids)
+            train_ids, val_ids = self.split_train_val(assigned_ids)
             user_splits[user_id] = {
-                "data_percent": self._get_percent(user),
+                "data_percent": self.get_percent(user),
                 "num_samples": len(assigned_ids),
                 "train_ids": train_ids,
                 "val_ids": val_ids,
@@ -66,13 +66,13 @@ class DataPartition:
 
         return user_splits
 
-    def _get_counts_by_percent(self, users, dataset_size):
+    def get_counts_by_percent(self, users, dataset_size):
         if dataset_size == 0:
             return []
 
-        total_percent = sum(self._get_percent(user) for user in users)
+        total_percent = sum(self.get_percent(user) for user in users)
         raw_counts = [
-            dataset_size * self._get_percent(user) / total_percent
+            dataset_size * self.get_percent(user) / total_percent
             for user in users
         ]
         sample_counts = [math.floor(count) for count in raw_counts]
@@ -86,7 +86,7 @@ class DataPartition:
 
         return sample_counts
 
-    def _split_train_val(self, assigned_ids):
+    def split_train_val(self, assigned_ids):
         if not assigned_ids:
             return [], []
 
@@ -100,45 +100,42 @@ class DataPartition:
         train_ids = list(assigned_ids[val_size:])
         return train_ids, val_ids
 
-    def _get_users_for_label(self, users, label):
+    def get_users_for_label(self, users, label):
         # If a user has only_labels, they only receive those labels.
-        # If nobody asked for this label, we keep default behavior and share it to all users.
-        allowed_users = [
-            user for user in users
-            if self._user_accepts_label(user, label)
-        ]
+        allowed_users = [user for user in users if self.user_accepts_label(user, label)]
         if allowed_users:
             return allowed_users
-        return users
+        # No one requested this label — only unconstrained users receive it.
+        # If everyone is constrained and nobody claimed it, the label is dropped.
+        return [user for user in users if user.only_labels is None]
 
-    def _user_accepts_label(self, user, label):
-        only_labels = getattr(user, "only_labels", None)
-        if only_labels is None:
+    def user_accepts_label(self, user, label):
+        if user.only_labels is None:
             return True
-        return label in only_labels
+        return label in user.only_labels
 
-    def _validate_percentages(self, users):
-        percents = [self._get_percent(user) for user in users]
+    def validate_percentages(self, users):
+        percents = [self.get_percent(user) for user in users]
         if not math.isclose(sum(percents), 100.0, abs_tol=1e-9):
             raise ValueError("Total data_percent/dataSplit must equal 100")
 
-    def _get_user_id(self, user):
+    def get_user_id(self, user):
         if hasattr(user, "id"):
             return user.id
         if hasattr(user, "number"):
             return user.number
         raise ValueError("User is missing id/number attribute")
 
-    def _get_percent(self, user):
+    def get_percent(self, user):
         if hasattr(user, "data_percent"):
             return float(user.data_percent)
         if hasattr(user, "dataSplit"):
             return float(user.dataSplit)
         raise ValueError(
-            f"User {self._get_user_id(user)} is missing data_percent/dataSplit"
+            f"User {self.get_user_id(user)} is missing data_percent/dataSplit"
         )
 
-    def _normalize_labels(self, labels):
+    def normalize_labels(self, labels):
         if labels is None:
             raise ValueError("labels must be provided for mnist")
 
