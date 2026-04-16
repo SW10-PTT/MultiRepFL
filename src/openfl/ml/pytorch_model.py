@@ -350,7 +350,7 @@ class PytorchModel:
         index = len(self.participants)
         return trainloaders[index], valloaders[index]
 
-    def _get_user_id(self, user):
+    def get_user_id(self, user):
         if hasattr(user, "id"):
             return user.id
         return user.number
