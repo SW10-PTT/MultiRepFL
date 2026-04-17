@@ -3,7 +3,7 @@ from enum import Enum
 from datetime import datetime, timedelta
 from typing import Any, Callable
 
-from openfl.ml.pytorch_model import User
+from openfl.utils.types.User import User
 from .experiment_specs import ExperimentSpec
 from .gasCosts import GasStats
 from .types.round import Round

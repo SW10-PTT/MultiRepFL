@@ -1,7 +1,7 @@
 import numpy as np
 
 class AddressIndexList:
-    def __init__(self, participants = None, external_address_list = None):
+    def __init__(self, np_int_type = np.uint16, participants = None, external_address_list = None):
         if external_address_list is None and participants is None:
             raise TypeError('both participants and externalAddressList cannot be None')
         if external_address_list is not None and participants is not None:
@@ -18,8 +18,9 @@ class AddressIndexList:
             self._address_to_idx = external_address_list
             n = len(external_address_list)
 
+        self.np_int_type = np_int_type
         self._idx_to_address = {i: p for i, p in enumerate(self._address_to_idx)}
-        self._list = np.zeros(n, dtype=np.uint16)
+        self._list = np.zeros(n, dtype=np_int_type)
 
 
     def __getitem__(self, address_or_index):
@@ -32,7 +33,16 @@ class AddressIndexList:
         if isinstance(giver_address_or_index, int):
             self._list[giver_address_or_index] = value
 
-        self._list[self._address_to_idx[giver_address_or_index]] = min(value, np.iinfo(np.uint16).max)
+        self._list[self._address_to_idx[giver_address_or_index]] = min(value, np.iinfo(self.np_int_type).max)
+
+    def __str__(self):
+        return  str(self._list.tolist())
+
+    def get_as_normal_int(self, key=None):
+        if key is None:
+            return self._list.tolist()
+
+        return self[key].item()
 
     def get_user_address(self, index: int):
         return self._list[index]

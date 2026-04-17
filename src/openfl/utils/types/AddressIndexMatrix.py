@@ -45,5 +45,14 @@ class AddressIndexMatrix:
             self._matrix[giver_address_or_index][receiver_address_or_index] = value
         self._matrix[self._address_to_idx[giver_address_or_index]][self._address_to_idx[receiver_address_or_index]] = min(value, np.iinfo(self.np_int_type).max)
 
+    def __str__(self):
+        return str(self._matrix.tolist())
+
+    def get_as_normal_int(self, key=None):
+        if key is None:
+            return self._matrix.astype(int)
+
+        return self[key].astype(int)
+
     def get_user_address(self, index: int):
         return self._idx_to_address[index]

@@ -76,7 +76,7 @@ class AsyncWriter:
         except Full:
             raise RuntimeError("writer queue overflow")
 
-    def writeComment(self, comment: str):
+    def write_comment(self, comment: str):
         self.queue.put((comment, True), block=False)
 
     def finish(self):

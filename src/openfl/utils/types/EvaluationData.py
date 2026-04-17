@@ -31,7 +31,7 @@ class EvaluationData:
             for i, p in enumerate(participants)
         }
 
-        feedback_matrix = AddressIndexMatrix(external_address_list=address_to_idx)
+        feedback_matrix = AddressIndexMatrix(external_address_list=address_to_idx, np_int_type=np.int8)
         accuracy_matrix = AddressIndexMatrix(external_address_list=address_to_idx)
         loss_matrix = AddressIndexMatrix(external_address_list=address_to_idx)
         prev_accs = AddressIndexList(external_address_list=address_to_idx)
@@ -46,16 +46,16 @@ class EvaluationData:
             prev_losses=prev_losses,
         )
 
-
     @dataclass
     class UserVotes:
         feedback: Dict[str, int]
         accuracy: Optional[Dict[str, int]]
         loss: Optional[Dict[str, int]]
+        prev_accuracy: Optional[int]
+        prev_loss: Optional[int]
 
     def get(self, address: str) -> "EvaluationData.UserVotes":
         idx = self.address_to_idx[address]
-
 
         return self.UserVotes(
             feedback={
@@ -70,6 +70,8 @@ class EvaluationData:
                 self.idx_to_address[i]: int(self.loss_matrix[idx][i])
                 for i in range(len(self.idx_to_address))
             } if self.loss_matrix is not None else None,
+            prev_accuracy=int(self.prev_accuracies[idx]),
+            prev_loss=int(self.prev_losses[idx]),
         )
 
     def get_user_address(self, index: int):

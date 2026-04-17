@@ -3,24 +3,19 @@ import os
 import time
 import warnings
 from logging import Logger
-from typing import List, Dict
 
 import torch
-import numpy as np
-from types import SimpleNamespace
 from decimal import Decimal
-from collections.abc import Mapping
 
 from eth_abi import encode
-from sympy.assumptions.handlers import matrices
 from web3 import Web3
 from termcolor import colored
 import matplotlib.pyplot as plt
 from web3.exceptions import ContractLogicError
-from openfl.contracts import FLManager, JobListing
-from openfl.utils.TrainingSpecsJobListing import TrainingSpecsJobListing, TrainingSpecsChallenge
+from openfl.contracts import JobListing
+from openfl.utils.types.TrainingSpecsJobListing import TrainingSpecsChallenge
 from openfl.utils.types.EvaluationData import EvaluationData
-from openfl.utils.types.Colors import gb, rb, b, green, red, yellow
+from openfl.utils.types.Colors import rb, b, green, red, yellow
 from openfl.utils import printer, config
 from openfl.api.ConnectionHelper import ConnectionHelper
 from openfl.api import globals
@@ -37,8 +32,7 @@ from openfl.utils.types.User import User
 #   - Round settlement and visualization
 UINT256_MAX = 2**256 - 1
 
-from dataclasses import dataclass
-from typing import Dict, List, Optional
+from typing import List
 import numpy as np
 
 
@@ -349,10 +343,10 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                 votee._roundrep.append(rep_delta)
 
                 if accs is not None:
-                    filtered_accs.append(matrices.accuracy_matrix[user_addr, matrices.get_user_address(idx)])
+                    filtered_accs.append(matrices.accuracy_matrix[user_addr, matrices.get_user_address(idx)].item())
 
                 if losses is not None:
-                    filtered_losses.append(min(UINT256_MAX, matrices.loss_matrix[user_addr, matrices.get_user_address(idx)]))
+                    filtered_losses.append(min(UINT256_MAX, matrices.loss_matrix[user_addr, matrices.get_user_address(idx)].item()))
 
             fbb = self.build_feedback_bytes(addrs, votes)
             rb_fbb = Web3.to_bytes(hexstr="0x" + fbb)
@@ -374,13 +368,13 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                 if globals.fork:
                     tx = super().build_tx(user.address, self.contractAddress)
                     tx_hash = self.contract.functions.submitFeedbackBytesAndAccuraciesLosses(
-                        rb_fbb, filtered_accs, filtered_losses, matrices.prev_accuracies[user_addr], matrices.prev_losses[user_addr]
+                        rb_fbb, filtered_accs, filtered_losses, matrices.prev_accuracies[user_addr].tolist(), matrices.prev_losses[user_addr].tolist()
                     ).transact(tx)
                 else:
                     tx_hash = self.sign_and_send_tx(
                         user,
                         self.contract.functions.submitFeedbackBytesAndAccuraciesLosses(
-                            rb_fbb, filtered_accs, filtered_losses, matrices.prev_accuracies[user_addr], matrices.prev_losses[user_addr]
+                            rb_fbb, filtered_accs, filtered_losses, matrices.prev_accuracies[user_addr].tolist(), matrices.prev_losses[user_addr].tolist()
                         )
                     )
                 txs.append(tx_hash)
@@ -1248,21 +1242,23 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
         )
 
     def _log_round(self, current_round, round_time,
-                   accuracy_matrix, loss_matrix, prev_accs, prev_losses,
+                   evaluationData: EvaluationData,
                    contributors, receipt):
         if self._logger is None:
             return
 
+
         # ---- votes ----
-        fbm = self.feedback_matrix
-        for _idx, _giver in enumerate(self.pytorch_model.participants):
-            _user_acc  = prev_accs[_idx]  if prev_accs  and _idx < len(prev_accs)  else None
-            _user_loss = prev_losses[_idx] if prev_losses and _idx < len(prev_losses) else None
+        for _giver in self.pytorch_model.participants:
+            userData = evaluationData.get(_giver.address)
+            _idx = _giver.address
+            _user_acc  = userData.prev_accuracy if userData.prev_accuracy else None
+            _user_loss = userData.prev_loss  if userData.prev_loss  else None
             for _receiver in self.pytorch_model.participants:
                 if _giver.address == _receiver.address:
                     continue
                 try:
-                    _feedback_vote = int(fbm[_giver.address][_receiver.address])
+                    _feedback_vote = userData.feedback[_receiver.address]
                 except (IndexError, TypeError):
                     continue
                 self._logger.log_vote(
@@ -1272,8 +1268,8 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                     vote_feedback_score=_feedback_vote,
                     vote_prev_accuracy=_user_acc,
                     vote_prev_loss=_user_loss,
-                    vote_accuracy=accuracy_matrix[_giver.address][_receiver.address] if accuracy_matrix is not None else None,
-                    vote_loss=loss_matrix[_giver.address][_receiver.address]         if loss_matrix     is not None else None,
+                    vote_accuracy=userData.accuracy[_receiver.address] if userData.accuracy is not None else None,
+                    vote_loss=userData.loss[_receiver.address]         if userData.loss     is not None else None,
                 )
 
         # ---- per-user round ----
@@ -1283,7 +1279,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
 
         for _user in self.pytorch_model.participants:
             self._logger.log_user_round(
-                round=current_round, user_id=_user.id, state="active",
+                round=current_round, user_number=_user.number, state="active",
                 behavior=_user.attitude, role=_user.futureAttitude,
                 grs=_user._globalrep[-1],
                 sub_personal_acc=_user.currentAcc,
@@ -1293,11 +1289,11 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                 round_reputation_assigned=_user._roundrep[-1] if _user._roundrep else None,
                 reward_delta=_addr_to_reward.get(_user.address, None),
                 is_reward=_addr_to_ir.get(_user.address, None),
-                merged=any(u.id == _user.id for u in contributors),
+                merged=any(u.address == _user.address for u in contributors),
             )
         for _user in self.pytorch_model.disqualified:
             self._logger.log_user_round(
-                round=current_round, user_id=_user.id, state="disqualified",
+                round=current_round, user_number=_user.number, state="disqualified",
                 behavior=_user.attitude, role=_user.futureAttitude,
                 grs=_user._globalrep[-1],
                 sub_personal_acc=_user.currentAcc,
@@ -1376,7 +1372,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
             
             self.pytorch_model.verify_models({u.address: self.get_hashed_weights_of(u) for u in self.pytorch_model.participants})
 
-            self.evaluation = self.pytorch_model.evaluation()
+            self.evaluation: EvaluationData = self.pytorch_model.evaluation()
 
             self.quick_feedback_round(self.evaluation)
 
@@ -1403,7 +1399,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
 
             self._log_round(
                 _current_round, _round_time,
-                accuracy_matrix, loss_matrix, prev_accs, prev_losses,
+                self.evaluation,
                 contributors, receipt,
             )
 
@@ -1420,9 +1416,9 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                 "conctractBalanceRewards": self._reward_balance[-1],
                 "punishments": round_punishment,
                 "rewards": self.get_round_rewards(receipt),
-                "accAvgPerUser": prev_accs, # Check - Should come from am
-                "lossAvgPerUser": prev_losses, # Check - Should come from lm
-                "feedbackMatrix": self.feedback_matrix.tolist(),
+                "accAvgPerUser": self.evaluation.prev_accuracies, # Check - Should come from am
+                "lossAvgPerUser": self.evaluation.prev_losses, # Check - Should come from lm
+                "feedbackMatrix": self.evaluation.feedback_matrix,
                 "disqualifiedUsers": round_kicked,
                 "contributionScores": self.scores,
                 "userStatuses": [user.get_status() for user in self.pytorch_model.participants],
@@ -1437,7 +1433,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                 print(colored(warn, 'yellow'))
             print(red("!" * 78))
 
-        self.writer.writeComment(f"$gasCosts${self.gas_feedback},{self.gas_register},{self.gas_slot},{self.gas_weights},{self.gas_close},{self.gas_deploy},{self.gas_exit}")
+        self.writer.write_comment(f"$gasCosts${self.gas_feedback},{self.gas_register},{self.gas_slot},{self.gas_weights},{self.gas_close},{self.gas_deploy},{self.gas_exit}")
         self.exit_system()
             
             
