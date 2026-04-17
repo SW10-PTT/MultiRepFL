@@ -19,7 +19,6 @@ from openfl.api import globals
 
 from openfl.utils.async_writer import AsyncWriter
 from openfl.utils.types.User import User
-from parser.types import participant
 
 
 def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration, writer: AsyncWriter=None, logger=None):
