@@ -1,5 +1,6 @@
 fork = True
 w3 = None
+reuse_runs = False
 gas_used = {}
 
 def add_gas_usage(gas_type: str, amount: int, user_addr) -> None:

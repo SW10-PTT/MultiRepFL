@@ -82,11 +82,11 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
                                               PRIVKEYS)
 
 
-  trainingSpecs = experiment_config.get_training_specs(manager.contract.address, pytorch_model.get_global_model_hash())
+  training_specs = experiment_config.get_training_specs(manager.contract.address, pytorch_model.get_global_model_hash())
   
-  newJobListing: JobListing = publisher.deploy_joblisting_contract(trainingSpecs, manager)
+  new_job_listing: JobListing = publisher.deploy_joblisting_contract(training_specs, manager)
 
-  writer.writeComment(f"$startingUserConfig${[p.get_status() for p in pytorch_model.participants]}")
+  writer.write_comment(f"$startingUserConfig${[p.get_status() for p in pytorch_model.participants]}")
 
   extra_configs = {}
   if experiment_config.contribution_score_strategy is not None:
@@ -95,12 +95,12 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
       ) # WTF is this????
 
 
-  for participants in users:
-     participants.register_for_job(newJobListing)
+  for user in users:
+     user.register_for_job(new_job_listing)
 
   while True:
       try:
-          (receipt, events) = newJobListing.transact(
+          (receipt, events) = new_job_listing.transact(
               "decideOnParticpants",
               publisher,
               0,
@@ -108,6 +108,7 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
               "JobListing.decideOnParticpants",
               len(users)
           )
+          participants_addresses = events["SelectionComplete"][0]["participants"]
           break
       except ContractLogicError as e:
           if "AWO" in str(e):
@@ -118,14 +119,16 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
           else:
               raise
 
-  trainingSpecsChallenge = trainingSpecs.to_challenge(experiment_config.contribution_score_strategy, experiment_config.use_outlier_detection, newJobListing.contract.address)
+  trainingSpecsChallenge = training_specs.to_challenge(experiment_config.contribution_score_strategy, experiment_config.use_outlier_detection, new_job_listing.contract.address)
 
-  newChallenge: Challenge = publisher.deploy_challenge_contract(trainingSpecsChallenge, newJobListing, pytorch_model, writer, logger)
+  newChallenge: Challenge = publisher.deploy_challenge_contract(trainingSpecsChallenge, new_job_listing, pytorch_model, writer, logger)
 
-  newChallenge.make_participants_from_users(users)
-  for participants in newChallenge.pytorch_model.participants:
+  participating_users = get_users_from_addresses(users, participants_addresses)
+
+  newChallenge.make_participants_from_users(participating_users)
+  for user in newChallenge.pytorch_model.participants:
       try:
-        newChallenge.transact("registrationProcess", participants, trainingSpecsChallenge.min_collateral, [], "challenge.register")
+        newChallenge.transact("registrationProcess", user, trainingSpecsChallenge.min_collateral, [], "challenge.register")
       except ContractLogicError as e:
           if "SUO" in str(e):
               print("Participant tried joining but was not selected")
@@ -137,7 +140,7 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
 
   print("\n" + "="*75)
   print(f"TOTAL EXPERIMENT TIME: {total_experiment_time:.2f} seconds")
-  writer.writeComment(f"TOTAL EXPERIMENT TIME: {total_experiment_time:.2f} seconds")
+  writer.write_comment(f"TOTAL EXPERIMENT TIME: {total_experiment_time:.2f} seconds")
   print("="*75 + "\n")
 
   if logger is not None:
@@ -271,7 +274,13 @@ def setup_connection(experiment_config):
 def visualizeModel(model):
   model.visualize_simulation("figures")
 
-
+def get_users_from_addresses(users, addresses):
+    found_users = []
+    for user in users:
+        for address in addresses:
+            if user.address == address:
+                found_users.append(user)
+    return found_users
 
 def print_transactions(experiment):
   model = experiment.model
@@ -333,7 +342,6 @@ def table_with_gas_and_transactions_latex(experiment):
   print("\\hline\n\\hline")
   print("complete round & {:,.0f} & {:.5f} \\ ".format(tot, tot * 20e9 / 1e18))
   print("\\hline\n\\end{tabular}")
-    
 
 class Experiment:
   def __init__(self, model, manager):

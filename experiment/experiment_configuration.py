@@ -1,6 +1,6 @@
 import math
 
-from openfl.utils.TrainingSpecsJobListing import TrainingSpecsJobListing, TrainingSpecsChallenge
+from openfl.utils.types.TrainingSpecsJobListing import TrainingSpecsJobListing
 
 
 class ExperimentConfiguration:

@@ -1,11 +1,7 @@
-from eth_typing import ChecksumAddress
-from hexbytes import HexBytes
 from web3 import Web3
-from web3.contract import Contract
 from openfl.contracts.JobListing import JobListing
 from openfl.ml.pytorch_model import PytorchModel
-from openfl.utils.TrainingSpecsJobListing import TrainingSpecsChallenge
-from openfl.utils.types.Colors import b
+from openfl.utils.types.TrainingSpecsJobListing import TrainingSpecsChallenge
 from openfl.utils.types.User import User
 from openfl.api import ConnectionHelper, globals
 

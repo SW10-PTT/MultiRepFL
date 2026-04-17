@@ -63,23 +63,21 @@ OUTPUTHEADERS = [
 WRITERBUFFERSIZE = 200
 
 def main():
+    run()
+
+
+def run():
     startTime = datetime.now().strftime("%d-%m-%y--%H_%M_%S")
+    path = getPath(config, startTime, DATASET, RESULTDATAFOLDER)
+    writer = AsyncWriter(path, OUTPUTHEADERS, WRITERBUFFERSIZE, config, "sample")
+    metadata = {**vars(config), "dataset": DATASET, "timestamp": startTime}
+    logger = ExperimentLogger(experiment_id=path.stem, metadata=metadata)
+    experiment = ExperimentRunner.run_experiment(DATASET, config, writer, logger)
+    writer.finish()
+    logger.save(path.with_suffix(".pkl"))
 
-    try:
-        path = getPath(config, startTime, DATASET, RESULTDATAFOLDER)
-        writer = AsyncWriter(path, OUTPUTHEADERS, WRITERBUFFERSIZE, config, "sample")
-        metadata = {**vars(config), "dataset": DATASET, "timestamp": startTime}
-        logger = ExperimentLogger(experiment_id=path.stem, metadata=metadata)
-        experiment = ExperimentRunner.run_experiment(DATASET, config, writer, logger)
-        writer.finish()
-        logger.save(path.with_suffix(".pkl"))
-
-        experiment.model.visualize_simulation("figures")
-        ExperimentRunner.print_transactions(experiment)
-    except Exception as e:
-        print(f"An error occurred during the experiment: {e}")
-
-
+    experiment.model.visualize_simulation("figures")
+    ExperimentRunner.print_transactions(experiment)
 
 if __name__ == "__main__":
     if (False):

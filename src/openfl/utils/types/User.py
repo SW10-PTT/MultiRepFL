@@ -1,8 +1,6 @@
-import copy
 import logging
 
 import numpy as np
-from web3 import Web3
 
 from experiment_configuration import ExperimentConfiguration
 
@@ -11,7 +9,7 @@ from openfl.contracts import FLManager
 from openfl.utils.async_writer import AsyncWriter
 from openfl.utils.types.Attitude import Attitude
 from openfl.utils.types.Colors import RNG, get_color
-from openfl.utils.TrainingSpecsJobListing import TrainingSpecsJobListing, TrainingSpecsChallenge
+from openfl.utils.types.TrainingSpecsJobListing import TrainingSpecsJobListing, TrainingSpecsChallenge
 from openfl.api import globals
   
 class User:
@@ -96,7 +94,7 @@ class User:
         ):
         from openfl.contracts.FLChallenge import FLChallenge
 
-        new_challenge = FLChallenge(self, pyTorch_model, training_specs, joblisting, )
+        new_challenge = FLChallenge(self, pyTorch_model, training_specs, joblisting, writer, logger)
         
         if joblisting.register_challenge_contract(joblisting.publisher, new_challenge.contract.address):
             return new_challenge
