@@ -944,21 +944,22 @@ class PytorchModel:
 
                 # Reset
                 feedbackGiver.userToEvaluate = []
-                print("FEEDBACK MATRIX:")
-                print(matrices.feedback_matrix)
-                print("-----------------------------------------------------------------------------------")
-                print("ACCURACY MATRIX:")
-                print(matrices.accuracy_matrix)
-                print("-----------------------------------------------------------------------------------")
-                print("LOSS MATRIX:")
-                print(matrices.loss_matrix)
-                print("-----------------------------------------------------------------------------------")
-                print("PREVIOUS ACCURACIES:")
-                print(matrices.prev_accuracies)
-                print("-----------------------------------------------------------------------------------")
-                print("PREVIOUS LOSSES:")
-                print(matrices.prev_losses)
-                print("-----------------------------------------------------------------------------------")
+
+        print("FEEDBACK MATRIX:")
+        print(matrices.feedback_matrix)
+        print("-----------------------------------------------------------------------------------")
+        print("ACCURACY MATRIX:")
+        print(matrices.accuracy_matrix)
+        print("-----------------------------------------------------------------------------------")
+        print("LOSS MATRIX:")
+        print(matrices.loss_matrix)
+        print("-----------------------------------------------------------------------------------")
+        print("PREVIOUS ACCURACIES:")
+        print(matrices.prev_accuracies)
+        print("-----------------------------------------------------------------------------------")
+        print("PREVIOUS LOSSES:")
+        print(matrices.prev_losses)
+        print("-----------------------------------------------------------------------------------")
 
         return matrices
 

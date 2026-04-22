@@ -35,8 +35,12 @@ class AddressIndexList:
 
         self._list[self._address_to_idx[giver_address_or_index]] = min(value, np.iinfo(self.np_int_type).max)
 
+    def _label(self, i: int) -> str:
+        return self._idx_to_address[i][:6]
+
     def __str__(self):
-        return  str(self._list.tolist())
+        rows = [f"{self._label(i)}: {int(self._list[i]):>12,}" for i in range(len(self._idx_to_address))]
+        return "\n".join(rows)
 
     def get_as_normal_int(self, key=None):
         if key is None:
