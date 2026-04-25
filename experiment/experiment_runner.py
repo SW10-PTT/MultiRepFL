@@ -64,10 +64,7 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
           users.append(user)
       #pytorch_model.add_participant("freerider",experiment_config.freerider_start_round) //TODO FOR LATER
 
-  if dataset_name == "mnist":
-      pytorch_model.prepare_mnist_data_for_users(users)
-  elif dataset_name == "cifar-10":
-      pytorch_model.prepare_cifar_data_for_users(users)
+  pytorch_model.prepare_data_for_users(users, dataset_name)
   publisher: User = users[0]
 
   RPC_ENDPOINT = get_RPC_Endpoint()
@@ -190,55 +187,7 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
   return Experiment(newChallenge, manager)
 
 
-def print_configured_data_split(users: List[User]):
-    print("Configured data split per user:")
-    print(
-        "{:<5} {:<11} {:>10}   {:<18}   {}".format(
-            "Idx",
-            "Role",
-            "Data %",
-            "Address",
-            "Label Method",
-        )
-    )
-    print("-" * 105)
-
-    total_percent = 0.0
-    for idx, user in enumerate(users):
-        role = user.futureAttitude.name
-        percent = float(user.data_percent)
-        label_method = get_label_method(user)
-        total_percent += percent
-        print(
-            "{:<5} {:<11} {:>9.2f}%   {:<18}   {}".format(
-                idx,
-                role,
-                percent,
-                user.address[0:16] + "...",
-                label_method,
-            )
-        )
-
-    print("-" * 105)
-    print(f"Configured total data percentage: {total_percent:.2f}%")
-    print("-" * 105)
-
-
-def get_label_method(user: User):
-    if user.only_labels is not None and user.flip_map:
-        return f"only_labels={user.only_labels}, flip_map={user.flip_map}"
-    if user.only_labels is not None:
-        return f"only_labels={user.only_labels}"
-    if user.flip_map:
-        return f"flip_map={user.flip_map}"
-    return "none"
-
-
 def apply_user_data_and_label_config(user: User, user_index: int, experiment_config: ExperimentConfiguration):
-    # Same index is used for both percentage and rule.
-    # Example:
-    # data_percentages = [15, 20, 30, 15, 10, 10]
-    # label_rules = {2: {"flip_map": {4: 9}}}
     user.data_percent = float(experiment_config.data_percentages[user_index])
 
     user_rule = experiment_config.label_rules.get(user_index, {})

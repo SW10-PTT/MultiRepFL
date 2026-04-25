@@ -11,17 +11,14 @@ import os
 import time
 import math
 from collections import Counter
-from pathlib import Path
 from web3 import Web3
 from typing import Tuple
 from collections import OrderedDict
 from torchvision import transforms
 from torchvision.datasets import CIFAR10, MNIST
-from torch.utils.data import DataLoader, Dataset, Subset, random_split
+from torch.utils.data import DataLoader, Subset, random_split
 
-data_partition_path = str(Path(__file__).resolve().parents[3] / "data-partition")
-sys.path.insert(0, data_partition_path)
-from data_partition import DataPartition
+from openfl.ml.data_partition import DataPartition
 
 from openfl.ml.Participant import Participant
 from openfl.utils.types.EvaluationData import EvaluationData
@@ -62,22 +59,6 @@ def cuda_safe_dataloader(ds, batch_size, shuffle=False):
         persistent_workers=PERSISTENT_WORKERS,
     )
 
-
-class LabelMappedDataset(Dataset):
-    # Example flip_map:
-    # {4: 9}  -> change every label 4 to 9
-    # {4: 9, 9: 4} -> swap 4 and 9
-    def __init__(self, dataset, flip_map):
-        self.dataset = dataset
-        self.flip_map = flip_map
-
-    def __len__(self):
-        return len(self.dataset)
-
-    def __getitem__(self, index):
-        image, label = self.dataset[index]
-        mapped_label = self.flip_map.get(int(label), int(label))
-        return image, mapped_label
 
 
 class Net_CIFAR(nn.Module):
@@ -236,108 +217,69 @@ class PytorchModel:
         
         print("Participant added: {:<9} {}".format(rb(user.attitude.name.upper()[0]+user.attitude.name[1:]), rb("User")))
 
-    def prepare_mnist_data_for_users(self, users):
-
+    def prepare_data_for_users(self, users, dataset_name):
         users = list(users)
 
-        requested_user_ids = tuple(sorted(self.get_user_id(user) for user in users))
-        if self.train_by_user_id and requested_user_ids == self.mnist_prepared_user_ids:
-            return
+        if dataset_name == "mnist":
+            trainset = MNIST("./data", train=True, download=True, transform=transforms.ToTensor())
+            testset = MNIST("./data", train=False, download=True, transform=transforms.ToTensor())
+        if dataset_name == "cifar-10":
+            transform = transforms.Compose([
+                transforms.RandomCrop(32, padding=4),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+            ])
+            transform_test = transforms.Compose([
+                transforms.ToTensor(),
+                transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+            ])
+            trainset = CIFAR10("./data", train=True, download=True, transform=transform)
+            testset = CIFAR10("./data", train=False, download=True, transform=transform_test)
 
-        trainset = MNIST("./data", train=True, download=True, transform=transforms.ToTensor())
-        testset = MNIST("./data", train=False, download=True, transform=transforms.ToTensor())
         partitioner = DataPartition(validation_split=0.1, seed=42)
         user_splits = partitioner.split_by_label(users, trainset.targets)
-        partitioner.assign_to_users(users, user_splits)
-        self.print_data_split_summary(users, user_splits, trainset.targets, "MNIST")
 
         trainloaders = []
         valloaders = []
         self.train_by_user_id = {}
         self.val_by_user_id = {}
+        actual_splits = {}
 
         for user in users:
             user_id = self.get_user_id(user)
             user_split = user_splits[user_id]
-            train_dataset = self.apply_label_flip_map(
-                Subset(trainset, user_split["train_ids"]),
-                user,
-            )
-            val_dataset = self.apply_label_flip_map(
-                Subset(trainset, user_split["val_ids"]),
-                user,
-            )
-            train_loader = cuda_safe_dataloader(
-                train_dataset,
-                self.BATCHSIZE,
-                shuffle=True,
-            )
-            val_loader = cuda_safe_dataloader(
-                val_dataset,
-                self.BATCHSIZE,
-                shuffle=False,
-            )
+            train_ids = list(user_split["train_ids"])
+            val_ids = list(user_split["val_ids"])
+
+            if user.only_labels:
+                train_ids = partitioner.filter_indices_by_label(train_ids, trainset.targets, user.only_labels)
+                val_ids = partitioner.filter_indices_by_label(val_ids, trainset.targets, user.only_labels)
+
+            actual_splits[user_id] = {
+                "data_percent": user_split["data_percent"],
+                "num_samples": len(train_ids) + len(val_ids),
+                "train_ids": train_ids,
+                "val_ids": val_ids,
+                "train_samples": len(train_ids),
+                "val_samples": len(val_ids),
+            }
+
+            train_dataset = Subset(trainset, train_ids)
+            val_dataset = Subset(trainset, val_ids)
+
+            if user.flip_map:
+                train_dataset = partitioner.apply_flip_map(train_dataset, user)
+                val_dataset = partitioner.apply_flip_map(val_dataset, user)
+
+            train_loader = cuda_safe_dataloader(train_dataset, self.BATCHSIZE, shuffle=True)
+            val_loader = cuda_safe_dataloader(val_dataset, self.BATCHSIZE, shuffle=False)
             trainloaders.append(train_loader)
             valloaders.append(val_loader)
             self.train_by_user_id[user_id] = train_loader
             self.val_by_user_id[user_id] = val_loader
 
-        self.mnist_prepared_user_ids = requested_user_ids
-        testloader = cuda_safe_dataloader(testset, self.BATCHSIZE, shuffle=False)
-        self.DATA = (trainloaders, valloaders, testloader)
-        self.train, self.val, self.test = self.DATA
-
-    def prepare_cifar_data_for_users(self, users):
-        users = list(users)
-
-        transform = transforms.Compose([
-            transforms.RandomCrop(32, padding=4),
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
-        ])
-        transform_test = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
-        ])
-        trainset = CIFAR10("./data", train=True, download=True, transform=transform)
-        testset = CIFAR10("./data", train=False, download=True, transform=transform_test)
-
-        partitioner = DataPartition(validation_split=0.1, seed=42)
-        user_splits = partitioner.split_by_label(users, trainset.targets)
-        partitioner.assign_to_users(users, user_splits)
-        self.print_data_split_summary(users, user_splits, trainset.targets, "CIFAR-10")
-
-        trainloaders = []
-        valloaders = []
-        self.train_by_user_id = {}
-        self.val_by_user_id = {}
-
-        for user in users:
-            user_id = self.get_user_id(user)
-            user_split = user_splits[user_id]
-            train_dataset = self.apply_label_flip_map(
-                Subset(trainset, user_split["train_ids"]),
-                user,
-            )
-            val_dataset = self.apply_label_flip_map(
-                Subset(trainset, user_split["val_ids"]),
-                user,
-            )
-            train_loader = cuda_safe_dataloader(
-                train_dataset,
-                self.BATCHSIZE,
-                shuffle=True,
-            )
-            val_loader = cuda_safe_dataloader(
-                val_dataset,
-                self.BATCHSIZE,
-                shuffle=False,
-            )
-            trainloaders.append(train_loader)
-            valloaders.append(val_loader)
-            self.train_by_user_id[user_id] = train_loader
-            self.val_by_user_id[user_id] = val_loader
+        self.print_data_split_summary(users, actual_splits, trainset.targets, dataset_name)
 
         testloader = cuda_safe_dataloader(testset, self.BATCHSIZE, shuffle=False)
         self.DATA = (trainloaders, valloaders, testloader)
@@ -356,11 +298,6 @@ class PytorchModel:
         if hasattr(user, "id"):
             return user.id
         return user.number
-
-    def apply_label_flip_map(self, dataset, user):
-        if not user.flip_map:
-            return dataset
-        return LabelMappedDataset(dataset, user.flip_map)
 
     def print_data_split_summary(self, users, user_splits, labels, dataset_name):
         if hasattr(labels, "tolist"):

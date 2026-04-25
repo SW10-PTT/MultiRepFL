@@ -25,17 +25,17 @@ config = ExperimentConfiguration(
     freerider_start_round=1,
     malicious_start_round=1,
     #data_percentages=[30, 10, 15, 15, 10, 20],
-    # "flip_map" {x: y, y: x}: -> flips so when a pariticnpas sees a label x, they say y
-    # "only_labels": [x, y] -> only get data that has label 4 and 9
+    # 0: {"only_labels": [0, 1, 2, 3, 4]}
+    # 0: {"flip_map": {4: 9}}
+    # 0: {"only_labels": [0, 1, 2, 3, 4], "flip_map": {4: 9}}
     label_rules={
-        #0: {"flip_map": {4: 9}},
-        #1: {"flip_map": {4: 9}},
-        2: {"flip_map": {4: 9}},
-        3: {"flip_map": {4: 9}},
-        4: {"flip_map": {4: 9}},
-        5: {"flip_map": {4: 9}},
-         #3: {"flip_map": {2: 5}},
-     },
+        0: {"only_labels": [0, 1, 2, 3, 4]},
+        1: {"only_labels": [0, 1, 2, 3, 4]},
+        2: {"only_labels": [0, 1, 2, 3, 4]},
+        3: {"only_labels": [5, 6, 7, 8, 9]},
+        4: {"only_labels": [5, 6, 7, 8, 9]},
+        5: {"only_labels": [5, 6, 7, 8, 9]},
+    },
 )
 
 # OVERSKRIV variabler her for testing. eksempel: config = ExperimentConfiguration(minimum_rounds=1), hvis du kun vil køre een round#DATASET = "cifar-10"

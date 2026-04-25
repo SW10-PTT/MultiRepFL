@@ -1,5 +1,20 @@
 import math
 import random
+from torch.utils.data import Dataset
+
+
+class FlippedLabelDataset(Dataset):
+    def __init__(self, dataset, user):
+        self.dataset = dataset
+        self.user = user
+
+    def __len__(self):
+        return len(self.dataset)
+
+    def __getitem__(self, index):
+        image, label = self.dataset[index]
+        return image, self.user.flip_map.get(int(label), int(label))
+
 
 class DataPartition:
     def __init__(self, validation_split=0.1, seed=42):
@@ -8,9 +23,6 @@ class DataPartition:
 
         self.validation_split = validation_split
         self.seed = seed
-
-    def get_num_participants(self, users):
-        return len(list(users))
 
     def split_by_label(self, users, labels):
         users = list(users)
@@ -26,11 +38,10 @@ class DataPartition:
 
         for label, sample_ids in ids_by_label.items():
             rng.shuffle(sample_ids)
-            eligible_users = self.get_users_for_label(users, label)
-            counts = self.get_counts_by_percent(eligible_users, len(sample_ids))
+            counts = self.get_counts_by_percent(users, len(sample_ids))
             start = 0
 
-            for user, count in zip(eligible_users, counts):
+            for user, count in zip(users, counts):
                 user_id = self.get_user_id(user)
                 assigned_ids_by_user[user_id].extend(sample_ids[start:start + count])
                 start += count
@@ -40,13 +51,12 @@ class DataPartition:
 
         return self.build_user_splits(users, assigned_ids_by_user)
 
-    def assign_to_users(self, users, user_splits):
-        for user in users:
-            user_id = self.get_user_id(user)
-            user_split = user_splits[user_id]
-            user.train_ids = list(user_split["train_ids"])
-            user.val_ids = list(user_split["val_ids"])
-            user.num_samples = int(user_split["num_samples"])
+    def filter_indices_by_label(self, indices, all_labels, only_labels):
+        only_labels_set = set(only_labels)
+        return [i for i in indices if int(all_labels[i]) in only_labels_set]
+
+    def apply_flip_map(self, dataset, user):
+        return FlippedLabelDataset(dataset, user)
 
     def build_user_splits(self, users, assigned_ids_by_user):
         user_splits = {}
@@ -100,24 +110,10 @@ class DataPartition:
         train_ids = list(assigned_ids[val_size:])
         return train_ids, val_ids
 
-    def get_users_for_label(self, users, label):
-        # If a user has only_labels, they only receive those labels.
-        allowed_users = [user for user in users if self.user_accepts_label(user, label)]
-        if allowed_users:
-            return allowed_users
-        # No one requested this label — only unconstrained users receive it.
-        # If everyone is constrained and nobody claimed it, the label is dropped.
-        return [user for user in users if user.only_labels is None]
-
-    def user_accepts_label(self, user, label):
-        if user.only_labels is None:
-            return True
-        return label in user.only_labels
-
     def validate_percentages(self, users):
         percents = [self.get_percent(user) for user in users]
         if not math.isclose(sum(percents), 100.0, abs_tol=1e-9):
-            raise ValueError("Total data_percent/dataSplit must equal 100")
+            raise ValueError("Total data_percent must equal 100")
 
     def get_user_id(self, user):
         if hasattr(user, "id"):
@@ -129,22 +125,11 @@ class DataPartition:
     def get_percent(self, user):
         if hasattr(user, "data_percent"):
             return float(user.data_percent)
-        if hasattr(user, "dataSplit"):
-            return float(user.dataSplit)
         raise ValueError(
-            f"User {self.get_user_id(user)} is missing data_percent/dataSplit"
+            f"User {self.get_user_id(user)} is missing data_percent"
         )
 
     def normalize_labels(self, labels):
-        if labels is None:
-            raise ValueError("labels must be provided for mnist")
-
         if hasattr(labels, "tolist"):
-            labels = labels.tolist()
-        else:
-            labels = list(labels)
-
-        return [
-            label.item() if hasattr(label, "item") else label
-            for label in labels
-        ]
+            return labels.tolist()
+        return [label.item() if hasattr(label, "item") else label for label in labels]

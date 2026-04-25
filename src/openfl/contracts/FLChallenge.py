@@ -1622,8 +1622,8 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
             if user is not None:
                 selected_users.append(user)
 
-        if getattr(self.pytorch_model, "DATASET", None) == "mnist":
-            self.pytorch_model.prepare_mnist_data_for_users(selected_users)
+        if getattr(self.pytorch_model, "DATASET", None) in ("mnist", "cifar-10"):
+            self.pytorch_model.prepare_data_for_users(selected_users, self.pytorch_model.DATASET)
 
         for user in selected_users:
             self.pytorch_model.add_participant(user)
