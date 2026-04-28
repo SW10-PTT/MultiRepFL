@@ -14,9 +14,9 @@ from analysis import ExperimentLogger
 config = ExperimentConfiguration(
     min_buy_in=int(1e18),
     max_buy_in=int(1e18),
-    contribution_score_strategy="accuracy_loss",
+    contribution_score_strategy="loss_only",
     use_outlier_detection=True,
-    minimum_rounds=10,
+    minimum_rounds=2,
     force_merge_all=False,
     freerider_noise_scale=0.5,
     malicious_noise_scale=0.5,

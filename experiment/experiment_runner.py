@@ -33,18 +33,20 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
 
   users: List[User] = []
 
-  pytorch_model = PM.PytorchModel(dataset_name, 
-                              experiment_config.number_of_good_contributors, 
-                              experiment_config.number_of_contributors, 
-                              experiment_config.epochs, 
-                              experiment_config.batch_size, 
-                              experiment_config.standard_buy_in,
-                              experiment_config.max_buy_in,
-                              experiment_config.freerider_noise_scale,
-                              experiment_config.freerider_start_round,
-                              experiment_config.malicious_start_round,
-                              experiment_config.malicious_noise_scale,
-                              experiment_config.force_merge_all)
+  pytorch_model = PM.PytorchModel(
+      experiment_config,
+      dataset_name,
+      experiment_config.number_of_good_contributors,
+      experiment_config.number_of_contributors,
+      experiment_config.epochs,
+      experiment_config.batch_size,
+      experiment_config.standard_buy_in,
+      experiment_config.max_buy_in,
+      experiment_config.freerider_noise_scale,
+      experiment_config.freerider_start_round,
+      experiment_config.malicious_start_round,
+      experiment_config.malicious_noise_scale,
+      experiment_config.force_merge_all)
 
   for attitude, count in [
       (Attitude.Honest, experiment_config.number_of_good_contributors),
@@ -118,6 +120,7 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
   newChallenge: Challenge = publisher.deploy_challenge_contract(trainingSpecsChallenge, new_job_listing, pytorch_model, writer, logger)
 
   participating_users = get_users_from_addresses(users, participants_addresses)
+  newChallenge.pytorch_model.setup_replay(participating_users)
 
   newChallenge.make_participants_from_users(participating_users)
   for user in newChallenge.pytorch_model.participants:

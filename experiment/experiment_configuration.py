@@ -3,6 +3,8 @@ from openfl.utils.types.TrainingSpecsJobListing import TrainingSpecsJobListing
 
 class ExperimentConfiguration:
     def __init__(self,
+                 name=None,
+                 dataset="MNIST",
                  number_of_good_contributors=4,
                  number_of_bad_contributors=1,
                  number_of_freerider_contributors=1,
@@ -16,15 +18,18 @@ class ExperimentConfiguration:
                  batch_size=32,
                  punish_factor=3,
                  punish_factor_contrib=3,
-                 first_round_fee=50, # Percentage of buy-in to charge as fee in first round
+                 first_round_fee=50,  # Percentage of buy-in to charge as fee in first round
                  fork=True,
                  use_outlier_detection = True,
-                 contribution_score_strategy="accuracy_only", # Options: dotproduct, naive, accuracy, None (defaults to dotproduct)
+                 contribution_score_strategy="accuracy_only",  # Options: dotproduct, naive, accuracy, None (defaults to dotproduct)
                  freerider_noise_scale=1.0,
                  freerider_start_round=3,
                  malicious_noise_scale=1.0,
                  malicious_start_round=3,
                  force_merge_all=False): # Sets all entries in fbb to zeroes
+
+        self.NOTHASHname = name
+        self.dataset = dataset
 
         self.fork = fork
 
@@ -71,3 +76,9 @@ class ExperimentConfiguration:
                 self.number_of_bad_contributors +
                 self.number_of_freerider_contributors +
                 self.number_of_inactive_contributors)
+
+    def to_dict(self):
+        return {
+            k: v for k, v in self.__dict__.items()
+            if not callable(v) and not (k.startswith("_") or k.startswith("NOTHASH"))
+        }

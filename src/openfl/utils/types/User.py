@@ -1,11 +1,10 @@
 import logging
+import uuid
 
 import numpy as np
 
-from experiment_configuration import ExperimentConfiguration
-
+from experiment.experiment_configuration import ExperimentConfiguration
 from openfl.contracts import FLManager
-#from openfl.contracts import FLManager
 from openfl.utils.async_writer import AsyncWriter
 from openfl.utils.types.Attitude import Attitude
 from openfl.utils.types.Colors import RNG, get_color
@@ -21,6 +20,7 @@ class User:
         if type(self) is User:
             self.number = User.user_count
             User.user_count += 1
+        self.id = None
         self.address = address
         self.private_key = private_key
         # User's locally-trained model accuracy on their own validation set (after they trained on top of the global model).
@@ -61,6 +61,12 @@ class User:
                 address, private_key, experiment_config.malicious_start_round, number_of_participants)
         return User(_attitude, experiment_config.min_buy_in, experiment_config.max_buy_in,
                 address, private_key, experiment_config.freerider_start_round, number_of_participants)
+
+    def to_dict(self):
+        return {
+            k: v for k, v in self.__dict__.items()
+            if not callable(v) and not (k.startswith("_") or k.startswith("NOTHASH") or "loader" in k or "private" in k)
+        }
 
     def get_status(self):
         user = f"$user${self.number}, {self.attitude}, {self.futureAttitude}, {self.attitudeSwitch}, {self.address}"
