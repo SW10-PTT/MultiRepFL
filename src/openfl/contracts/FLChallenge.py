@@ -1622,6 +1622,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
 
     def make_participants_from_users(self, users: List[User]):
         users_by_address = {u.address: u for u in users}
+        selected_users = []
 
         if self.pytorch_model.replaying:
             users = [users_by_address.get(par_addr) for par_addr in users_by_address]
@@ -1632,8 +1633,13 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
             for par_addr in self.participant_addresses:
                 user = users_by_address.get(par_addr)
                 if user is not None:
-                    self.pytorch_model.add_participant(user)
-        self.pytorch_model.runRepo.set_participants(self.pytorch_model.participants)
+                    selected_users.append(user)
+
+        if getattr(self.pytorch_model, "DATASET", None) in ("mnist", "cifar-10"):
+            self.pytorch_model.prepare_data_for_users(selected_users, self.pytorch_model.DATASET)
+
+        for user in selected_users:self.pytorch_model.add_participant(user):
+            self.pytorch_model.runRepo.set_participants(self.pytorch_model.participants)
 # def calc_contribution_score(local_model, global_model, num_mergers, eps=1e-12) -> int:
 #     """
 #     FedAvg-normalized dot product score so that sum = 1.

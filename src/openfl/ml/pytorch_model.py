@@ -14,12 +14,15 @@ import torch.multiprocessing as mp
 import os
 import time
 import math
+from collections import Counter
 from web3 import Web3
 from typing import Tuple, List
 from collections import OrderedDict
 from torchvision import transforms
 from torchvision.datasets import CIFAR10, MNIST
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import DataLoader, Subset, random_split
+
+from openfl.ml.data_partition import DataPartition
 
 from experiment.experiment_configuration import ExperimentConfiguration
 from openfl.ml.Participant import Participant
@@ -67,6 +70,7 @@ def cuda_safe_dataloader(ds, batch_size, shuffle=False):
         num_workers=NUM_WORKERS,
         persistent_workers=PERSISTENT_WORKERS,
     )
+
 
 
 class Net_CIFAR(nn.Module):
@@ -127,6 +131,9 @@ class PytorchModel:
         self.NUMBER_OF_INACTIVE_CONTRIBUTORS = 0
         self.NUMBER_OF_HONEST_CONTRIBUTORS = 0
         self.DATA = None
+        self.train_by_user_id = {}
+        self.val_by_user_id = {}
+        self.mnist_prepared_user_ids = tuple()
         self.participants = []
         self.disqualified = []
         self.runRepo: ITestAndTrainer = None
@@ -164,9 +171,8 @@ class PytorchModel:
         print("\n===================================================================================")
 
     def add_participant(self, user):
-
-        _train, _val, _test = self.load_data(self.NUMBER_OF_CONTRIBUTERS)
-
+        train_loader, val_loader = self.get_user_dataloaders(user)
+        
         if self.config.dataset == "mnist":
             _model = Net_MNIST().to(DEVICE)
         else:
@@ -178,14 +184,235 @@ class PytorchModel:
         l = len(self.participants)
         self.participants.append(Participant.from_user(
             user,
-            _train[l],
-            _val[l],
+            train_loader,
+            val_loader,
             _model,
             optimizer,
             criterion
         ))
 
         print("Participant added: {:<9} {}".format(rb(user.attitude.name.upper()[0]+user.attitude.name[1:]), rb("User")))
+
+    def prepare_data_for_users(self, users, dataset_name):
+        users = list(users)
+
+        if dataset_name == "mnist":
+            trainset = MNIST("./data", train=True, download=True, transform=transforms.ToTensor())
+            testset = MNIST("./data", train=False, download=True, transform=transforms.ToTensor())
+        if dataset_name == "cifar-10":
+            transform = transforms.Compose([
+                transforms.RandomCrop(32, padding=4),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+            ])
+            transform_test = transforms.Compose([
+                transforms.ToTensor(),
+                transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+            ])
+            trainset = CIFAR10("./data", train=True, download=True, transform=transform)
+            testset = CIFAR10("./data", train=False, download=True, transform=transform_test)
+
+        partitioner = DataPartition(validation_split=0.1, seed=42)
+        user_splits = partitioner.split_by_label(users, trainset.targets)
+
+        trainloaders = []
+        valloaders = []
+        self.train_by_user_id = {}
+        self.val_by_user_id = {}
+        actual_splits = {}
+
+        for user in users:
+            user_id = self.get_user_id(user)
+            user_split = user_splits[user_id]
+            train_ids = list(user_split["train_ids"])
+            val_ids = list(user_split["val_ids"])
+
+            if user.only_labels:
+                train_ids = partitioner.filter_indices_by_label(train_ids, trainset.targets, user.only_labels)
+                val_ids = partitioner.filter_indices_by_label(val_ids, trainset.targets, user.only_labels)
+
+            actual_splits[user_id] = {
+                "data_percent": user_split["data_percent"],
+                "num_samples": len(train_ids) + len(val_ids),
+                "train_ids": train_ids,
+                "val_ids": val_ids,
+                "train_samples": len(train_ids),
+                "val_samples": len(val_ids),
+            }
+
+            train_dataset = Subset(trainset, train_ids)
+            val_dataset = Subset(trainset, val_ids)
+
+            if user.flip_map:
+                train_dataset = partitioner.apply_flip_map(train_dataset, user)
+                val_dataset = partitioner.apply_flip_map(val_dataset, user)
+
+            train_loader = cuda_safe_dataloader(train_dataset, self.BATCHSIZE, shuffle=True)
+            val_loader = cuda_safe_dataloader(val_dataset, self.BATCHSIZE, shuffle=False)
+            trainloaders.append(train_loader)
+            valloaders.append(val_loader)
+            self.train_by_user_id[user_id] = train_loader
+            self.val_by_user_id[user_id] = val_loader
+
+        self.print_data_split_summary(users, actual_splits, trainset.targets, dataset_name)
+
+        testloader = cuda_safe_dataloader(testset, self.BATCHSIZE, shuffle=False)
+        self.DATA = (trainloaders, valloaders, testloader)
+        self.train, self.val, self.test = self.DATA
+
+    def get_user_dataloaders(self, user):
+        if self.train_by_user_id:
+            user_id = self.get_user_id(user)
+            return self.train_by_user_id[user_id], self.val_by_user_id[user_id]
+
+        trainloaders, valloaders, _test = self.load_data(self.NUMBER_OF_CONTRIBUTERS)
+        index = len(self.participants)
+        return trainloaders[index], valloaders[index]
+
+    def get_user_id(self, user):
+        if hasattr(user, "id"):
+            return user.id
+        return user.number
+
+    def print_data_split_summary(self, users, user_splits, labels, dataset_name):
+        if hasattr(labels, "tolist"):
+            labels = labels.tolist()
+        else:
+            labels = list(labels)
+
+        dataset_size = len(labels)
+        num_classes = len(set(labels))
+        per_class = dataset_size // num_classes
+        print(f"Dataset: {dataset_name} | {dataset_size:,} total samples | {num_classes} classes | ~{per_class:,} per class")
+        print()
+        print("Data split per user:")
+        print(
+            "{:<4} {:<16} {:>10} {:>10} {:>9}   {}".format(
+                "Idx",
+                "Address",
+                "Config %",
+                "Actual %",
+                "Samples",
+                "Rule",
+            )
+        )
+        print("-" * 75)
+
+        total_config_percent = 0.0
+        total_actual_percent = 0.0
+        total_samples = 0
+        label_flip_rows = []
+        label_dist_rows = []
+        all_label_classes = sorted(set(labels))
+
+        for user in users:
+            user_id = self.get_user_id(user)
+            split = user_splits[user_id]
+            config_percent = float(user.data_percent)
+            actual_percent = (100.0 * split["num_samples"] / dataset_size)
+            total_config_percent += config_percent
+            total_actual_percent += actual_percent
+            total_samples += int(split["num_samples"])
+
+            print(
+                "{:<4} {:<16} {:>9.2f}% {:>9.2f}% {:>9,}   {}".format(
+                    getattr(user, "number", user_id),
+                    user.address[0:14] + "...",
+                    config_percent,
+                    actual_percent,
+                    split["num_samples"],
+                    self.get_label_method(user),
+                )
+            )
+
+            all_ids = split["train_ids"] + split["val_ids"]
+            label_counts = self.count_labels(labels, all_ids)
+            label_dist_rows.append((getattr(user, "number", user_id), label_counts))
+
+            if user.flip_map:
+                train_flip_counts = self.count_flipped_labels(labels, split["train_ids"], user.flip_map)
+                val_flip_counts = self.count_flipped_labels(labels, split["val_ids"], user.flip_map)
+                label_flip_rows.append((
+                    getattr(user, "number", user_id), "Train",
+                    self.format_flip_counts(train_flip_counts),
+                    sum(train_flip_counts.values()),
+                    self.ratio_percent(sum(train_flip_counts.values()), split["train_samples"]),
+                ))
+                label_flip_rows.append((
+                    getattr(user, "number", user_id), "Val",
+                    self.format_flip_counts(val_flip_counts),
+                    sum(val_flip_counts.values()),
+                    self.ratio_percent(sum(val_flip_counts.values()), split["val_samples"]),
+                ))
+
+        lost_samples = dataset_size - total_samples
+        lost_percent = 100.0 * lost_samples / dataset_size
+
+        print("-" * 75)
+        print("Configured total: {:.2f}%".format(total_config_percent))
+        print("Assigned: {:>7,} / {:,} samples  ({:.2f}%)".format(total_samples, dataset_size, total_actual_percent))
+        if lost_samples > 0:
+            print("Lost:     {:>7,} / {:,} samples  ({:.2f}%)  <- dropped due to only_labels".format(lost_samples, dataset_size, lost_percent))
+        print()
+
+        col_w = 6
+        header = "{:<4} " + " ".join(f"{'L' + str(l):>{col_w}}" for l in all_label_classes)
+        print(header.format("Idx"))
+        print("-" * (5 + col_w * len(all_label_classes)))
+        for user_idx, label_counts in label_dist_rows:
+            row = "{:<4} " + " ".join(f"{label_counts.get(l, 0):>{col_w},}" for l in all_label_classes)
+            print(row.format(user_idx))
+
+        if not label_flip_rows:
+            return
+
+        print()
+        print("Label flips (samples changed per user):")
+        print("{:<4} {:<5}   {:<24} {:>8} {:>11}".format("Idx", "Set", "Flip counts", "Changed", "% of set"))
+        print("-" * 60)
+        for user_idx, set_name, flip_counts, changed_total, changed_percent in label_flip_rows:
+            print("{:<4} {:<5}   {:<24} {:>8} {:>10.2f}%".format(
+                user_idx, set_name, flip_counts, changed_total, changed_percent,
+            ))
+        print("-" * 60)
+
+    def count_labels(self, labels, ids):
+        counts = Counter(labels[i] for i in ids)
+        return dict(sorted(counts.items()))
+
+    def count_flipped_labels(self, labels, ids, flip_map):
+        before_counts = self.count_labels(labels, ids)
+        return {
+            f"{src}->{dst}": before_counts.get(src, 0)
+            for src, dst in flip_map.items()
+            if before_counts.get(src, 0) > 0
+        }
+
+    def format_flip_counts(self, flip_counts):
+        if not flip_counts:
+            return "none"
+        return ", ".join(f"{flip}:{count}" for flip, count in flip_counts.items())
+
+    def ratio_percent(self, part, whole):
+        if whole == 0:
+            return 0.0
+        return 100.0 * part / whole
+
+    def get_user_role(self, user):
+        role = getattr(user, "futureAttitude", None)
+        if role is None:
+            role = getattr(user, "attitude", None)
+        return role.name if role is not None else "Unknown"
+
+    def get_label_method(self, user):
+        if user.only_labels is not None and user.flip_map:
+            return f"only={user.only_labels}, flip={user.flip_map}"
+        if user.only_labels is not None:
+            return f"only={user.only_labels}"
+        if user.flip_map:
+            return f"flip={user.flip_map}"
+        return "none"
 
 
     def load_data(self, NUM_CLIENTS, _print=False):
@@ -611,21 +838,22 @@ class PytorchModel:
 
                 # Reset
                 feedbackGiver.userToEvaluate = []
-                print("FEEDBACK MATRIX:")
-                print(matrices.feedback_matrix)
-                print("-----------------------------------------------------------------------------------")
-                print("ACCURACY MATRIX:")
-                print(matrices.accuracy_matrix)
-                print("-----------------------------------------------------------------------------------")
-                print("LOSS MATRIX:")
-                print(matrices.loss_matrix)
-                print("-----------------------------------------------------------------------------------")
-                print("PREVIOUS ACCURACIES:")
-                print(matrices.prev_accuracies)
-                print("-----------------------------------------------------------------------------------")
-                print("PREVIOUS LOSSES:")
-                print(matrices.prev_losses)
-                print("-----------------------------------------------------------------------------------")
+
+        print("FEEDBACK MATRIX:")
+        print(matrices.feedback_matrix)
+        print("-----------------------------------------------------------------------------------")
+        print("ACCURACY MATRIX:")
+        print(matrices.accuracy_matrix)
+        print("-----------------------------------------------------------------------------------")
+        print("LOSS MATRIX:")
+        print(matrices.loss_matrix)
+        print("-----------------------------------------------------------------------------------")
+        print("PREVIOUS ACCURACIES:")
+        print(matrices.prev_accuracies)
+        print("-----------------------------------------------------------------------------------")
+        print("PREVIOUS LOSSES:")
+        print(matrices.prev_losses)
+        print("-----------------------------------------------------------------------------------")
 
         return matrices
 
@@ -861,4 +1089,3 @@ def safe_scale(value, scalar, max_val):
         return max_val
 
     return min(round(scaled), max_val)
-

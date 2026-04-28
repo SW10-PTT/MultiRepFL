@@ -50,8 +50,24 @@ class AddressIndexMatrix:
                 self._id_to_idx[receiver_id_or_index]
             ] = min(value, np.iinfo(self.np_int_type).max)
 
+    def _label(self, i: int) -> str:
+        return self._idx_to_address[i][:6]
+
     def __str__(self):
-        return str(self._matrix.tolist())
+        n = len(self._idx_to_address)
+        labels = [self._label(i) for i in range(n)]
+        col_w = 10
+        row_label_w = 8
+
+        header  = " " * row_label_w + "  ".join(f"{lbl:>{col_w}}" for lbl in labels)
+        divider = " " * row_label_w + "  ".join("-" * col_w for _ in labels)
+        rows = [header, divider]
+
+        for i, row_label in enumerate(labels):
+            values = "  ".join(f"{int(v):>{col_w},}" for v in self._matrix[i])
+            rows.append(f"{row_label:<{row_label_w}}{values}")
+
+        return "\n".join(rows)
 
     def get_as_normal_int(self, key=None):
         if key is None:

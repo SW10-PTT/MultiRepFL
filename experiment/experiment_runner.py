@@ -54,16 +54,19 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
       (Attitude.FreeRider, experiment_config.number_of_freerider_contributors),
   ]:
       for _ in range(count):
-          addr, private_key = get_account_RPC(len(users), experiment_config.fork)
-          users.append(
-              User.from_experiment_config(
-                  attitude,
-                  experiment_config,
-                  addr,
-                  private_key
-              )
+          user_index = len(users)
+          addr, private_key = get_account_RPC(user_index, experiment_config.fork)
+          user = User.from_experiment_config(
+              attitude,
+              experiment_config,
+              addr,
+              private_key
           )
+          apply_user_data_and_label_config(user, user_index, experiment_config)
+          users.append(user)
+      #pytorch_model.add_participant("freerider",experiment_config.freerider_start_round) //TODO FOR LATER
 
+  pytorch_model.prepare_data_for_users(users, dataset_name)
   publisher: User = users[0]
 
   RPC_ENDPOINT = get_RPC_Endpoint()
@@ -102,7 +105,7 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
               0,
               ["SelectionComplete"],
               "JobListing.decideOnParticpants",
-              2
+              len(users)
           )
           participants_addresses = events["SelectionComplete"][0]["participants"]
           break
@@ -185,6 +188,14 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
       logger.log_setup(total_experiment_time, hardware, config)
 
   return Experiment(newChallenge, manager)
+
+
+def apply_user_data_and_label_config(user: User, user_index: int, experiment_config: ExperimentConfiguration):
+    user.data_percent = float(experiment_config.data_percentages[user_index])
+
+    user_rule = experiment_config.label_rules.get(user_index, {})
+    user.only_labels = user_rule.get("only_labels")
+    user.flip_map = user_rule.get("flip_map", {})
 
 
 def setup_connection(experiment_config):
