@@ -51,7 +51,7 @@ class AddressIndexMatrix:
             ] = min(value, np.iinfo(self.np_int_type).max)
 
     def _label(self, i: int) -> str:
-        return self._idx_to_address[i][:6]
+        return str(self._idx_to_address[i])[-6:]
 
     def __str__(self):
         n = len(self._idx_to_address)

@@ -15,6 +15,7 @@ import matplotlib.pyplot as plt
 from web3.exceptions import ContractLogicError
 from openfl.contracts import JobListing
 from openfl.ml.pytorch_model import PytorchModel
+from openfl.utils.types.Attitude import Attitude
 from openfl.utils.types.TrainingSpecsJobListing import TrainingSpecsChallenge
 from openfl.utils.types.EvaluationData import EvaluationData
 from openfl.utils.types.Colors import rb, b, green, red, yellow
@@ -55,6 +56,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
         
         self.contribution_score_strategy = training_specs.contribution_score_strategy
         self.use_outlier_detection = training_specs.outlier_detection
+        self.scores = []
         self.gas_feedback = [] 
         self.gas_register = [] 
         self.gas_slot     = [] 
@@ -333,7 +335,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                 if addr in disqualified_addr:
                     continue
 
-                if user.attitude == "inactive":
+                if user.attitude == Attitude.Inactive:
                     continue
 
                 votee = self.pytorch_model.get_participant(matrices.get_user_id(idx))
@@ -1628,18 +1630,16 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
             users = [users_by_address.get(par_addr) for par_addr in users_by_address]
             combinedUsers = self.pytorch_model.runRepo.get_participants(users)
             for user in combinedUsers:
+                selected_users.append(user)
                 self.pytorch_model.add_participant(user)
         else:
             for par_addr in self.participant_addresses:
                 user = users_by_address.get(par_addr)
                 if user is not None:
+                    self.pytorch_model.add_participant(user)
                     selected_users.append(user)
 
-        if getattr(self.pytorch_model, "DATASET", None) in ("mnist", "cifar-10"):
-            self.pytorch_model.prepare_data_for_users(selected_users, self.pytorch_model.DATASET)
-
-        for user in selected_users:self.pytorch_model.add_participant(user):
-            self.pytorch_model.runRepo.set_participants(self.pytorch_model.participants)
+        self.pytorch_model.runRepo.set_participants(self.pytorch_model.participants)
 # def calc_contribution_score(local_model, global_model, num_mergers, eps=1e-12) -> int:
 #     """
 #     FedAvg-normalized dot product score so that sum = 1.

@@ -698,12 +698,12 @@ contract OpenFLChallenge {
             AccuracyLossSubmission({adrs: ads, acc: accuracies, loss: losses})
         );
         require(
-            prev_acc >= 0 && prev_acc <= 10000,
-            "PREVIOUS ACCURACY NOT BETWEEN 0 AND 10000 in submitFeedbackBytesAndAccuraciesLosses"
+            prev_acc >= 0 && prev_acc <= type(uint16).max,
+            "PREVIOUS ACCURACY NOT BETWEEN 0 AND uint16max in submitFeedbackBytesAndAccuraciesLosses"
         );
         require(
-            prev_loss >= 0 && prev_loss <= 10000,
-            "PREVIOUS LOSS NOT BETWEEN 0 AND 10000 in submitFeedbackBytesAndAccuraciesLosses"
+            prev_loss >= 0 && prev_loss <= type(uint16).max,
+            "PREVIOUS LOSS NOT BETWEEN 0 AND uint16max in submitFeedbackBytesAndAccuraciesLosses"
         );
         // EXACT same for-loop as fallback
         for (uint i = 0; i < ads.length; i++) {

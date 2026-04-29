@@ -5,12 +5,13 @@ from unittest import result
 import torch
 from hexbytes import HexBytes
 
+from experiment.experiment_configuration import ExperimentConfiguration
 from openfl.utils.types.ReplayTrainingSpecs import ReplayTrainingSpecs
 from openfl.utils.ITestAndTrainer import ITestAndTrainer
 
 
 class RunRepo(ITestAndTrainer):
-    def __init__(self, config: ReplayTrainingSpecs, path="training_trace.json"):
+    def __init__(self, config: ExperimentConfiguration, path="training_trace.json"):
         super().__init__(config, path)
 
     def train(self, round, tag, net, trainloader: torch.utils.data.DataLoader, epochs: int,

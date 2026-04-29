@@ -1,7 +1,8 @@
+from typing import List
+
 import math
 import random
 from torch.utils.data import Dataset
-
 
 class FlippedLabelDataset(Dataset):
     def __init__(self, dataset, user):
@@ -24,8 +25,7 @@ class DataPartition:
         self.validation_split = validation_split
         self.seed = seed
 
-    def split_by_label(self, users, labels):
-        users = list(users)
+    def split_by_label(self, users: List["User"], labels):
         labels = self.normalize_labels(labels)
         self.validate_percentages(users)
 
@@ -34,7 +34,7 @@ class DataPartition:
         for sample_id, label in enumerate(labels):
             ids_by_label.setdefault(label, []).append(sample_id)
 
-        assigned_ids_by_user = {self.get_user_id(user): [] for user in users}
+        assigned_ids_by_user = {user.get_id_or_address(): [] for user in users}
 
         for label, sample_ids in ids_by_label.items():
             rng.shuffle(sample_ids)
@@ -42,7 +42,7 @@ class DataPartition:
             start = 0
 
             for user, count in zip(users, counts):
-                user_id = self.get_user_id(user)
+                user_id = user.get_id_or_address()
                 assigned_ids_by_user[user_id].extend(sample_ids[start:start + count])
                 start += count
 
@@ -62,7 +62,7 @@ class DataPartition:
         user_splits = {}
 
         for user in users:
-            user_id = self.get_user_id(user)
+            user_id = user.get_id_or_address()
             assigned_ids = list(assigned_ids_by_user[user_id])
             train_ids, val_ids = self.split_train_val(assigned_ids)
             user_splits[user_id] = {
@@ -115,18 +115,11 @@ class DataPartition:
         if not math.isclose(sum(percents), 100.0, abs_tol=1e-9):
             raise ValueError("Total data_percent must equal 100")
 
-    def get_user_id(self, user):
-        if hasattr(user, "id"):
-            return user.id
-        if hasattr(user, "number"):
-            return user.number
-        raise ValueError("User is missing id/number attribute")
-
     def get_percent(self, user):
         if hasattr(user, "data_percent"):
             return float(user.data_percent)
         raise ValueError(
-            f"User {self.get_user_id(user)} is missing data_percent"
+            f"User {user.get_id_or_address()} is missing data_percent"
         )
 
     def normalize_labels(self, labels):

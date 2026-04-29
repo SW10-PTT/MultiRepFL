@@ -223,7 +223,7 @@ class PytorchModel:
         actual_splits = {}
 
         for user in users:
-            user_id = self.get_user_id(user)
+            user_id = user.get_id_or_address()
             user_split = user_splits[user_id]
             train_ids = list(user_split["train_ids"])
             val_ids = list(user_split["val_ids"])
@@ -248,8 +248,8 @@ class PytorchModel:
                 train_dataset = partitioner.apply_flip_map(train_dataset, user)
                 val_dataset = partitioner.apply_flip_map(val_dataset, user)
 
-            train_loader = cuda_safe_dataloader(train_dataset, self.BATCHSIZE, shuffle=True)
-            val_loader = cuda_safe_dataloader(val_dataset, self.BATCHSIZE, shuffle=False)
+            train_loader = cuda_safe_dataloader(train_dataset, self.config.batch_size, shuffle=True)
+            val_loader = cuda_safe_dataloader(val_dataset, self.config.batch_size, shuffle=False)
             trainloaders.append(train_loader)
             valloaders.append(val_loader)
             self.train_by_user_id[user_id] = train_loader
@@ -257,23 +257,18 @@ class PytorchModel:
 
         self.print_data_split_summary(users, actual_splits, trainset.targets, dataset_name)
 
-        testloader = cuda_safe_dataloader(testset, self.BATCHSIZE, shuffle=False)
+        testloader = cuda_safe_dataloader(testset, self.config.batch_size, shuffle=False)
         self.DATA = (trainloaders, valloaders, testloader)
         self.train, self.val, self.test = self.DATA
 
     def get_user_dataloaders(self, user):
         if self.train_by_user_id:
-            user_id = self.get_user_id(user)
-            return self.train_by_user_id[user_id], self.val_by_user_id[user_id]
+            user_id = user.get_id_or_address()
+            return self.train_by_user_id[user.address], self.val_by_user_id[user.address]
 
         trainloaders, valloaders, _test = self.load_data(self.NUMBER_OF_CONTRIBUTERS)
         index = len(self.participants)
         return trainloaders[index], valloaders[index]
-
-    def get_user_id(self, user):
-        if hasattr(user, "id"):
-            return user.id
-        return user.number
 
     def print_data_split_summary(self, users, user_splits, labels, dataset_name):
         if hasattr(labels, "tolist"):
@@ -307,7 +302,7 @@ class PytorchModel:
         all_label_classes = sorted(set(labels))
 
         for user in users:
-            user_id = self.get_user_id(user)
+            user_id = user.get_id_or_address()
             split = user_splits[user_id]
             config_percent = float(user.data_percent)
             actual_percent = (100.0 * split["num_samples"] / dataset_size)
@@ -492,7 +487,7 @@ class PytorchModel:
         if debugging or globals.reuse_runs:
             print(b("\n================ SEQUENTIAL FEDERATED TRAINING START ================"))
             start_total = time.perf_counter()
-            print(yellow("Debugging mode or reuse_runs detected → running sequential training"))
+            print(yellow(f"{'Debugging mode' if debugging else ''} {'and ' if debugging and globals.reuse_runs else ''}{'reuse_runs ' if globals.reuse_runs else ''}detected → running sequential training"))
             results = self.run_sequential()
         else:
             print(b("\n================ PARALLEL FEDERATED TRAINING START ================"))
@@ -710,7 +705,7 @@ class PytorchModel:
                 global_dict[k] = stacked.mean(0)
             self.global_model.load_state_dict(global_dict)
 
-        loss, accuracy = self.runRepo.test(self.round,f"themerge-globalmodel", self.global_model,self.test,DEVICE)
+        loss, accuracy = self.runRepo.test(self.round,f"test-themerge-globalmodel", self.global_model,self.test,DEVICE)
         self.accuracy.append(accuracy)
         self.loss.append(loss)
         print("-----------------------------------------------------------------------------------")
@@ -865,22 +860,9 @@ class PytorchModel:
             return p
         return next((x for x in self.participants if x.address == address_or_id), None)
 
-    def setup_replay(self, participants: List[Participant]):
-        for participant in participants:
-            if participant.futureAttitude == Attitude.Malicious:
-                self.NUMBER_OF_BAD_CONTRIBUTORS += 1
-            if participant.futureAttitude == Attitude.FreeRider:
-                self.NUMBER_OF_FREERIDER_CONTRIBUTORS += 1
-            if participant.futureAttitude == Attitude.Inactive:
-                self.NUMBER_OF_INACTIVE_CONTRIBUTORS += 1
-            if participant.futureAttitude == Attitude.Honest:
-                self.NUMBER_OF_HONEST_CONTRIBUTORS += 1
+    def setup_replay(self, experiment_finger_print, config: ExperimentConfiguration):
 
-        config: ReplayTrainingSpecs = ReplayTrainingSpecs(self.NUMBER_OF_HONEST_CONTRIBUTORS,
-                                                          self.NUMBER_OF_BAD_CONTRIBUTORS,
-                                                          self.NUMBER_OF_FREERIDER_CONTRIBUTORS,
-                                                          self.config.dataset)
-        fileName = get_filename(config)
+        fileName = get_filename(experiment_finger_print, config)
 
         if globals.reuse_runs and fileName.is_file():
             self.runRepo: ITestAndTrainer = RunRepo(config, fileName)  # Hash config to compare?

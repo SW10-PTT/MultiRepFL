@@ -26,12 +26,12 @@ from openfl.utils.types.User import User
 
 
 class ITestAndTrainer(ABC):
-    def __init__(self, config: ReplayTrainingSpecs, path="training_trace.json"):
+    def __init__(self, config: ExperimentConfiguration, path="training_trace.json"):
         self._path = Path(path)
 
         self._data = {
             "participants": [],
-            "config": config,
+            "config": config.to_dict(),
             "rounds": {}
         }
 
@@ -118,7 +118,7 @@ class ITestAndTrainer(ABC):
 
     def set_participants(self, participants: List[Participant]):
         if self._data["participants"] == []:
-            self._data["participants"] = [p.finger_print() for p in participants]
+            self._data["participants"] = [{"finger_print": p.finger_print, "id": p.id} for p in participants]
 
     def get_participants(self, users: List[User]):
         usersRaw = self._data["participants"]
@@ -150,8 +150,7 @@ class ITestAndTrainer(ABC):
 
 
 def match_replay_user_user(replay_user, user: User):
-    return (Attitude.from_string(replay_user["futureAttitude"]) == user.futureAttitude
-            and Attitude.from_string(replay_user["attitude"]) == user.attitude)
+    return replay_user["finger_print"] == user.finger_print
 
 def uuid_hook(obj):
     for k, v in obj.items():
@@ -190,28 +189,25 @@ def _serialize(obj):
         return "0x" + obj.hex()
     raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
 
-def get_filename(config: ReplayTrainingSpecs):
-    h = _hash_config(asdict(config))
+def get_filename(finger_print, config):
     if globals.reuse_runs:
-        files = [f for f in list(Path(globals.repo_dir).glob("*.json")) if f.is_file() and f.name.endswith(f"{h}.json")]
+        files = [f for f in list(Path(globals.repo_dir).glob("*.json")) if f.is_file() and f.name.endswith(f"{finger_print}.json")]
         random_file = random.choice(files) if files else None
         if random_file:
             return random_file
 
-    return Path(globals.repo_dir) / make_filename(config)
+    return Path(globals.repo_dir) / make_filename(config, finger_print)
 
 
-def make_filename(config: ReplayTrainingSpecs):
-    h = _hash_config(asdict(config))
-
+def make_filename(config: ExperimentConfiguration, finger_print) -> str:
     dateTime = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     rand = uuid.uuid4().hex[:6]
     node_id = socket.gethostname()[:6]
-    if False: #config.NOTHASHname: TODO: fix
-        name = _to_pascal_case(config.NOTHASHname)
-        return f"{name}-{dateTime}-{rand}-{node_id}-{h}.json"
+    if config.name is not None:
+        name = _to_pascal_case(config.name)
+        return f"{name}-{dateTime}-{rand}-{node_id}-{finger_print}.json"
     else:
-        return f"{dateTime}-{rand}-{node_id}-{h}.json"
+        return f"{dateTime}-{rand}-{node_id}-{finger_print}.json"
 
 def _to_pascal_case(name: str, max_len=100) -> str:
     # Split on -, _, or whitespace

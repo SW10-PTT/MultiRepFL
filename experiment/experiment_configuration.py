@@ -1,3 +1,8 @@
+import hashlib
+import json
+
+import math
+
 from openfl.utils.types.TrainingSpecsJobListing import TrainingSpecsJobListing
 
 
@@ -26,11 +31,12 @@ class ExperimentConfiguration:
                  freerider_start_round=3,
                  malicious_noise_scale=1.0,
                  malicious_start_round=3,
+                 number_of_participants=2,
                  force_merge_all=False,
                  data_percentages=None,
                  label_rules=None): # Sets all entries in fbb to zeroes
 
-        self.NOTHASHname = name
+        self.name = name
         self.dataset = dataset
 
         self.fork = fork
@@ -44,6 +50,7 @@ class ExperimentConfiguration:
             standard_buy_in = int(standard_buy_in * scale)
 
         # Store everything
+        self.number_of_participants =number_of_participants
         self.number_of_good_contributors = number_of_good_contributors
         self.number_of_bad_contributors = number_of_bad_contributors
         self.number_of_freerider_contributors = number_of_freerider_contributors
@@ -68,8 +75,6 @@ class ExperimentConfiguration:
         self.data_percentages = self._resolve_data_percentages(data_percentages)
         self.label_rules = self._resolve_label_rules(label_rules)
 
-        class userConfig:
-            number_of_good_contributors = "a"
 
     def get_training_specs(self, manager_address, model_hash) -> TrainingSpecsJobListing:
         return TrainingSpecsJobListing(model_hash, self.min_buy_in, self.max_buy_in, manager_address, self.reward, self.minimum_rounds, self.punish_factor, self.punish_factor_contrib, self.first_round_fee, 1) # Todo: Tasktype
@@ -101,7 +106,40 @@ class ExperimentConfiguration:
 
         return data_percentages
 
-    def _resolve_label_rules(self, label_rules):
+    def get_finger_print(self, challenge: "FLChallenge"):
+        participants = []
+        for participant in challenge.pytorch_model.participants:
+            participants.append(participant.finger_print)
+
+        participants = participants.sort()
+
+        data = {
+            "dataset": self.dataset,
+            "minimum_rounds": self.minimum_rounds,
+            "min_buy_in": self.min_buy_in,
+            "max_buy_in": self.max_buy_in,
+            "standard_buy_in": self.standard_buy_in,
+            "epochs": self.epochs,
+            "batch_size": self.batch_size,
+            "punish_factor": self.punish_factor,
+            "punish_factor_contrib": self.punish_factor_contrib,
+            "first_round_fee": self.first_round_fee,
+            "contribution_score_strategy": self.contribution_score_strategy,
+            "use_outlier_detection": self.use_outlier_detection,
+            "freerider_noise_scale": self.freerider_noise_scale,
+            "freerider_start_round": self.freerider_start_round,
+            "malicious_start_round": self.malicious_start_round,
+            "malicious_noise_scale": self.malicious_noise_scale,
+            "force_merge_all": self.force_merge_all,
+            "participants": participants,
+        }
+
+        blob = json.dumps(data, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(blob.encode()).hexdigest()
+
+
+    @staticmethod
+    def _resolve_label_rules(label_rules):
         # Example:
         # {
         #   2: {"only_labels": [4, 9], "flip_map": {4: 9, 9: 4}},
@@ -126,5 +164,5 @@ class ExperimentConfiguration:
     def to_dict(self):
         return {
             k: v for k, v in self.__dict__.items()
-            if not callable(v) and not (k.startswith("_") or k.startswith("NOTHASH"))
+            if not callable(v) and not (k.startswith("_") or k.startswith("__"))
         }

@@ -2,17 +2,17 @@ from typing import Tuple, OrderedDict
 
 import torch
 
-
+from experiment.experiment_configuration import ExperimentConfiguration
 from openfl.utils.ITestAndTrainer import ITestAndTrainer
 from openfl.utils.types.ReplayTrainingSpecs import ReplayTrainingSpecs
 
 
 class PyTorchTrainer(ITestAndTrainer):
-    def __init__(self, config: ReplayTrainingSpecs, path="training_trace.json"):
+    def __init__(self, config: ExperimentConfiguration, path="training_trace.json"):
         super().__init__(config, path)
     def train(self, round, tag, net, trainloader: torch.utils.data.DataLoader, epochs: int,
               device: torch.device) -> None:
-        # Todo: save - nothing to save
+        # nothing to save
         from openfl.ml.pytorch_model import train
         return train(net, trainloader, epochs, device)
 

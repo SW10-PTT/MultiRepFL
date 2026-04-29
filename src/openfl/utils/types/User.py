@@ -1,7 +1,10 @@
+import hashlib
 import logging
 import uuid
 
 import numpy as np
+import json
+from urllib3.util import retry
 
 from experiment.experiment_configuration import ExperimentConfiguration
 from openfl.contracts import FLManager
@@ -16,7 +19,7 @@ class User:
 
     def __init__(self,
                  _attitude, _default_collateral, _max_collateral,
-                address, private_key, _attitude_switch=1, number_of_participants=None):
+                address, private_key, _data_percent, _only_labels, _attitude_switch=1, number_of_participants=None):
         if type(self) is User:
             self.number = User.user_count
             User.user_count += 1
@@ -50,9 +53,24 @@ class User:
 
         self.color = get_color(number_of_participants, self.attitude)
 
-        self.data_percent: float = 0.0
-        self.only_labels: list[int] | None = None
+        self.data_percent: float = _data_percent
+        self.only_labels: list[int] | None = _only_labels
         self.flip_map: dict[int, int] = {}
+
+    @property
+    def finger_print(self):
+        data = {
+            "futureAttitude": self.futureAttitude.name,
+            "attitudeSwitch": self.attitudeSwitch,
+            "min_collateral": self.min_collateral,
+            "max_collateral": self.max_collateral,
+            "data_percent": round(self.data_percent, 8),
+            "only_labels": sorted(self.only_labels) if self.only_labels is not None else None,
+            "flip_map": dict(sorted(self.flip_map.items())),
+        }
+
+        blob = json.dumps(data, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(blob.encode()).hexdigest()
 
     @classmethod
     def from_experiment_config(cls,
@@ -75,6 +93,13 @@ class User:
     def get_status(self):
         user = f"$user${self.number}, {self.attitude}, {self.futureAttitude}, {self.attitudeSwitch}, {self.address}"
         return user
+
+    def get_id_or_address(self):
+        if self.id is not None:
+            return self.id
+        if self.address is not None:
+            return self.address
+        raise ValueError("User is missing id/address attribute")
 
     def deploy_joblisting_contract(
         self,
