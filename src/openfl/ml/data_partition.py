@@ -25,6 +25,8 @@ class FlippedLabelDataset(Dataset):
 
 
 class DataPartition:
+    # allow_overlap=True + replication_factor>1 lets the same sample land under multiple users.
+    # Factor=1.5 means each sample appears in ~1.5 users on average. Disjoint mode keeps factor=1.
     def __init__(self, validation_split=0.1, seed=42, allow_overlap=False, replication_factor=1.0):
         if not 0 <= validation_split < 1:
             raise ValueError("validation_split must be in the range [0, 1)")
@@ -105,6 +107,8 @@ class DataPartition:
         rng.shuffle(pool)
         return pool
 
+    # Removes duplicate sample_ids while keeping first-seen order.
+    # Used in overlap mode so a single user never trains on the same image twice.
     def dedupe_preserve_order(self, ids):
         seen = set()
         out = []

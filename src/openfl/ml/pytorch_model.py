@@ -27,6 +27,7 @@ from torch.utils.data import DataLoader, Subset, random_split
 
 from openfl.ml.data_partition import DataPartition
 
+# Imported only for type hints; skipped at runtime to avoid import errors when not on sys.path.
 if TYPE_CHECKING:
     from experiment.experiment_configuration import ExperimentConfiguration
 from openfl.ml.Participant import Participant
@@ -195,6 +196,7 @@ class PytorchModel:
 
         print("Participant added: {:<9} {}".format(rb(user.attitude.name.upper()[0]+user.attitude.name[1:]), rb("User")))
 
+    # seed/allow_overlap/replication_factor forward to DataPartition for reproducible, optionally overlapping splits.
     def prepare_data_for_users(self, users, dataset_name, seed=42, allow_overlap=False, replication_factor=1.0):
         users = list(users)
 

@@ -9,6 +9,7 @@ import numpy as np
 import json
 from urllib3.util import retry
 
+# Imported only for type hints; skipped at runtime to avoid import errors and circular imports.
 if TYPE_CHECKING:
     from experiment.experiment_configuration import ExperimentConfiguration
     from openfl.contracts import FLManager
@@ -60,6 +61,7 @@ class User:
         self.data_percent: float = _data_percent
         self.only_labels: list[int] | None = _only_labels
         self.flip_map: dict[int, int] = {}
+        # Per-user RNG seed; set by the runner via derive_user_seed for reproducible per-user randomness.
         self.seed: int = 0
 
     @property

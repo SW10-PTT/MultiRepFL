@@ -20,6 +20,7 @@ from openfl.api import globals
 import torch
 from pure_eval.utils import safe_name
 
+# Imported only for type hints; skipped at runtime to avoid import errors when not on sys.path.
 if TYPE_CHECKING:
     from experiment.experiment_configuration import ExperimentConfiguration
 from openfl.utils.types.Attitude import Attitude

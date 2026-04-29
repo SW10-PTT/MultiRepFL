@@ -78,6 +78,8 @@ class ExperimentConfiguration:
         self.force_merge_all = force_merge_all
         self.data_percentages = self._resolve_data_percentages(data_percentages)
         self.label_rules = self._resolve_label_rules(label_rules)
+        # Master seed drives the partition; per-user seeds are derived from it for independent RNG streams.
+        # allow_overlap+replication_factor control whether participants can share dataset samples.
         self.seed = int(seed)
         self.user_seeds = self._resolve_user_seeds(user_seeds)
         self.allow_overlap = bool(allow_overlap)

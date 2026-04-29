@@ -1,6 +1,4 @@
-from __future__ import annotations
-
-
+from __future__ import annotations  # postpone annotation eval; allows forward refs without runtime imports
 
 import copy
 import uuid

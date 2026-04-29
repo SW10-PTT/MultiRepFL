@@ -7,6 +7,7 @@ from unittest import result
 import torch
 from hexbytes import HexBytes
 
+# Imported only for type hints; skipped at runtime to avoid import errors when not on sys.path.
 if TYPE_CHECKING:
     from experiment.experiment_configuration import ExperimentConfiguration
 from openfl.utils.types.ReplayTrainingSpecs import ReplayTrainingSpecs

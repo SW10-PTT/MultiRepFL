@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 from eth_account import Account
 from web3 import Web3
 
+# Imported only for type hints; skipped at runtime to avoid import errors when not on sys.path.
 if TYPE_CHECKING:
     from experiment.experiment_configuration import ExperimentConfiguration
 from openfl.utils import require_env_var
