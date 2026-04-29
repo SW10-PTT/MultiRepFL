@@ -1,9 +1,13 @@
+from __future__ import annotations
+
 from types import SimpleNamespace
+from typing import TYPE_CHECKING
 
 from eth_account import Account
 from web3 import Web3
 
-from experiment_configuration import ExperimentConfiguration
+if TYPE_CHECKING:
+    from experiment.experiment_configuration import ExperimentConfiguration
 from openfl.utils import require_env_var
 from openfl.api import globals
 

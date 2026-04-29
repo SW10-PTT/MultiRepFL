@@ -1,8 +1,11 @@
+from __future__ import annotations
+
 import copy
 import sys
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import torch
 import random
@@ -24,7 +27,8 @@ from torch.utils.data import DataLoader, Subset, random_split
 
 from openfl.ml.data_partition import DataPartition
 
-from experiment.experiment_configuration import ExperimentConfiguration
+if TYPE_CHECKING:
+    from experiment.experiment_configuration import ExperimentConfiguration
 from openfl.ml.Participant import Participant
 from openfl.utils.RunRepo import RunRepo
 from openfl.utils.ITestAndTrainer import ITestAndTrainer, get_filename
@@ -35,8 +39,6 @@ from openfl.utils.types.Attitude import Attitude
 from openfl.utils.types.Colors import gb, rb, red, yellow, green, b
 from openfl.utils.types.ReplayTrainingSpecs import ReplayTrainingSpecs
 from openfl.utils.types.userDict import UserDict
-from parser.types import participant
-
 torch._dynamo.config.cache_size_limit = 512
 import logging
 debugging = sys.gettrace() is not None

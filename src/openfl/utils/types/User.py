@@ -1,18 +1,22 @@
+from __future__ import annotations
+
 import hashlib
 import logging
 import uuid
+from typing import TYPE_CHECKING
 
 import numpy as np
 import json
 from urllib3.util import retry
 
-from experiment.experiment_configuration import ExperimentConfiguration
-from openfl.contracts import FLManager
+if TYPE_CHECKING:
+    from experiment.experiment_configuration import ExperimentConfiguration
+    from openfl.contracts import FLManager
 from openfl.utils.async_writer import AsyncWriter
 from openfl.utils.types.Attitude import Attitude
 from openfl.utils.types.Colors import RNG, get_color
 from openfl.utils.types.TrainingSpecsJobListing import TrainingSpecsJobListing, TrainingSpecsChallenge
-from openfl.api import globals
+import openfl.api.globals as globals
   
 class User:
     user_count = 0

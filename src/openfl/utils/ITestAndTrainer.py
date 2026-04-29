@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import datetime
 import hashlib
 import json
@@ -8,7 +10,7 @@ import uuid
 from abc import ABC, abstractmethod
 from dataclasses import is_dataclass, asdict
 from pathlib import Path
-from typing import Tuple, OrderedDict, List
+from typing import Tuple, OrderedDict, List, TYPE_CHECKING
 
 from hexbytes import HexBytes
 from torch.distributed.checkpoint import state_dict, state_dict_saver
@@ -18,7 +20,8 @@ from openfl.api import globals
 import torch
 from pure_eval.utils import safe_name
 
-from experiment.experiment_configuration import ExperimentConfiguration
+if TYPE_CHECKING:
+    from experiment.experiment_configuration import ExperimentConfiguration
 from openfl.utils.types.Attitude import Attitude
 from openfl.utils.types.ReplayTrainingSpecs import ReplayTrainingSpecs
 from openfl.ml.Participant import Participant

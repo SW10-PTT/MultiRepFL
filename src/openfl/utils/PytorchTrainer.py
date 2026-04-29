@@ -1,8 +1,11 @@
-from typing import Tuple, OrderedDict
+from __future__ import annotations
+
+from typing import Tuple, OrderedDict, TYPE_CHECKING
 
 import torch
 
-from experiment.experiment_configuration import ExperimentConfiguration
+if TYPE_CHECKING:
+    from experiment.experiment_configuration import ExperimentConfiguration
 from openfl.utils.ITestAndTrainer import ITestAndTrainer
 from openfl.utils.types.ReplayTrainingSpecs import ReplayTrainingSpecs
 

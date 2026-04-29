@@ -1,11 +1,14 @@
+from __future__ import annotations
+
 import uuid
-from typing import Tuple
+from typing import Tuple, TYPE_CHECKING
 from unittest import result
 
 import torch
 from hexbytes import HexBytes
 
-from experiment.experiment_configuration import ExperimentConfiguration
+if TYPE_CHECKING:
+    from experiment.experiment_configuration import ExperimentConfiguration
 from openfl.utils.types.ReplayTrainingSpecs import ReplayTrainingSpecs
 from openfl.utils.ITestAndTrainer import ITestAndTrainer
 

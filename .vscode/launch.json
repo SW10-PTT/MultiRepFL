@@ -3,6 +3,7 @@
   // Hover to view descriptions of existing attributes.
   // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
   "version": "0.2.0",
+  "inputs": [],
   "configurations": [
     {
       "name": "Create graphs",
@@ -11,7 +12,13 @@
       "program": "scripts/processData.py",
       "args": [],
       "console": "integratedTerminal",
-      "preLaunchTask": "compile-contracts"
+      "preLaunchTask": "compile-contracts",
+      "cwd": "${workspaceFolder}",
+      "env": { "PYTHONPATH": "${workspaceFolder}" },
+      "python": "${command:python.interpreterPath}",
+      "windows": { "python": "${workspaceFolder}\\.venv\\Scripts\\python.exe" },
+      "linux":   { "python": "${workspaceFolder}/.venv/bin/python" },
+      "osx":     { "python": "${workspaceFolder}/.venv/bin/python" }
     },
     {
       "name": "Compile - Debug: Experiments",
@@ -25,7 +32,11 @@
         "Nykjaer"
       ],
       "console": "integratedTerminal",
-      "preLaunchTask": "compile-contracts"
+      "preLaunchTask": "compile-contracts",
+      "python": "${command:python.interpreterPath}",
+      "windows": { "python": "${workspaceFolder}\\.venv\\Scripts\\python.exe" },
+      "linux":   { "python": "${workspaceFolder}/.venv/bin/python" },
+      "osx":     { "python": "${workspaceFolder}/.venv/bin/python" }
     },
     {
       "name": "Compile - Debug: Sample",
@@ -39,7 +50,11 @@
         "Nykjaer"
       ],
       "console": "integratedTerminal",
-      "preLaunchTask": "compile-contracts"
+      "preLaunchTask": "compile-contracts",
+      "python": "${command:python.interpreterPath}",
+      "windows": { "python": "${workspaceFolder}\\.venv\\Scripts\\python.exe" },
+      "linux":   { "python": "${workspaceFolder}/.venv/bin/python" },
+      "osx":     { "python": "${workspaceFolder}/.venv/bin/python" }
     },
     {
       "name": "Debug: Experiments",
@@ -51,20 +66,34 @@
         "experiment/data"
       ],
       "console": "integratedTerminal",
+      "python": "${command:python.interpreterPath}",
+      "windows": { "python": "${workspaceFolder}\\.venv\\Scripts\\python.exe" },
+      "linux":   { "python": "${workspaceFolder}/.venv/bin/python" },
+      "osx":     { "python": "${workspaceFolder}/.venv/bin/python" }
     },
     {
       "name": "Python Debugger: Processor",
       "type": "debugpy",
       "request": "launch",
       "program": "scripts/processData.py",
-      "console": "integratedTerminal"
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "env": { "PYTHONPATH": "${workspaceFolder}" },
+      "python": "${command:python.interpreterPath}",
+      "windows": { "python": "${workspaceFolder}\\.venv\\Scripts\\python.exe" },
+      "linux":   { "python": "${workspaceFolder}/.venv/bin/python" },
+      "osx":     { "python": "${workspaceFolder}/.venv/bin/python" }
     },
     {
       "name": "Python Debugger: Current File",
       "type": "debugpy",
       "request": "launch",
       "program": "${file}",
-      "console": "integratedTerminal"
+      "console": "integratedTerminal",
+      "python": "${command:python.interpreterPath}",
+      "windows": { "python": "${workspaceFolder}\\.venv\\Scripts\\python.exe" },
+      "linux":   { "python": "${workspaceFolder}/.venv/bin/python" },
+      "osx":     { "python": "${workspaceFolder}/.venv/bin/python" }
     }
   ]
 }
