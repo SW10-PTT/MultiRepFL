@@ -1,3 +1,4 @@
+import hashlib
 import os
 import platform
 import psutil
@@ -64,7 +65,13 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
           users.append(user)
       #pytorch_model.add_participant("freerider",experiment_config.freerider_start_round) //TODO FOR LATER
 
-  pytorch_model.prepare_data_for_users(users, dataset_name)
+  pytorch_model.prepare_data_for_users(
+      users,
+      dataset_name,
+      seed=experiment_config.seed,
+      allow_overlap=experiment_config.allow_overlap,
+      replication_factor=experiment_config.replication_factor,
+  )
   publisher: User = users[0]
 
   RPC_ENDPOINT = get_RPC_Endpoint()
@@ -180,6 +187,11 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
           "malicious_start_round":             cfg.malicious_start_round,
           "malicious_noise_scale":             cfg.malicious_noise_scale,
           "force_merge_all":                   cfg.force_merge_all,
+          "seed":                              cfg.seed,
+          "allow_overlap":                     cfg.allow_overlap,
+          "replication_factor":                cfg.replication_factor,
+          "user_seeds":                        {u.number: u.seed for u in users},
+          "data_percentages":                  {u.number: u.data_percent for u in users},
       }
 
       logger.log_setup(total_experiment_time, hardware, config)
@@ -193,6 +205,18 @@ def apply_user_data_and_label_config(user: User, user_index: int, experiment_con
     user_rule = experiment_config.label_rules.get(user_index, {})
     user.only_labels = user_rule.get("only_labels")
     user.flip_map = user_rule.get("flip_map", {})
+    user.seed = derive_user_seed(experiment_config, user_index)
+
+
+# Independent per-user RNG stream. Hashing master+user_id keeps streams
+# uncorrelated and stable when users are added/removed (unlike `master+i`).
+# Explicit overrides in experiment_config.user_seeds win for debug runs.
+def derive_user_seed(experiment_config: ExperimentConfiguration, user_index: int) -> int:
+    if user_index in experiment_config.user_seeds:
+        return int(experiment_config.user_seeds[user_index])
+    payload = f"{experiment_config.seed}:{user_index}".encode()
+    digest = hashlib.sha256(payload).digest()
+    return int.from_bytes(digest[:4], "big")
 
 
 def setup_connection(experiment_config):

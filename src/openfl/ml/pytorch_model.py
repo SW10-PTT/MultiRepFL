@@ -217,7 +217,7 @@ class PytorchModel:
         
         print("Participant added: {:<9} {}".format(rb(user.attitude.name.upper()[0]+user.attitude.name[1:]), rb("User")))
 
-    def prepare_data_for_users(self, users, dataset_name):
+    def prepare_data_for_users(self, users, dataset_name, seed=42, allow_overlap=False, replication_factor=1.0):
         users = list(users)
 
         if dataset_name == "mnist":
@@ -237,7 +237,12 @@ class PytorchModel:
             trainset = CIFAR10("./data", train=True, download=True, transform=transform)
             testset = CIFAR10("./data", train=False, download=True, transform=transform_test)
 
-        partitioner = DataPartition(validation_split=0.1, seed=42)
+        partitioner = DataPartition(
+            validation_split=0.1,
+            seed=seed,
+            allow_overlap=allow_overlap,
+            replication_factor=replication_factor,
+        )
         user_splits = partitioner.split_by_label(users, trainset.targets)
 
         trainloaders = []

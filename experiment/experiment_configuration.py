@@ -28,7 +28,11 @@ class ExperimentConfiguration:
                  malicious_start_round=3,
                  force_merge_all=False,
                  data_percentages=None,
-                 label_rules=None): # Sets all entries in fbb to zeroes
+                 label_rules=None,
+                 seed=42,
+                 user_seeds=None,
+                 allow_overlap=False,
+                 replication_factor=1.0): # Sets all entries in fbb to zeroes
 
         self.fork = fork
 
@@ -64,6 +68,14 @@ class ExperimentConfiguration:
         self.force_merge_all = force_merge_all
         self.data_percentages = self._resolve_data_percentages(data_percentages)
         self.label_rules = self._resolve_label_rules(label_rules)
+        self.seed = int(seed)
+        self.user_seeds = self._resolve_user_seeds(user_seeds)
+        self.allow_overlap = bool(allow_overlap)
+        self.replication_factor = float(replication_factor)
+        if self.replication_factor < 1.0:
+            raise ValueError("replication_factor must be >= 1.0")
+        if self.replication_factor > 1.0 and not self.allow_overlap:
+            raise ValueError("replication_factor > 1.0 requires allow_overlap=True")
 
         class userConfig:
             number_of_good_contributors = "a"
@@ -97,6 +109,13 @@ class ExperimentConfiguration:
             raise ValueError("data_percentages must sum to 100")
 
         return data_percentages
+
+    def _resolve_user_seeds(self, user_seeds):
+        # Optional explicit per-user overrides. Anything not specified
+        # gets derived from the master seed at runtime via SHA256.
+        if user_seeds is None:
+            return {}
+        return {int(user_index): int(seed) for user_index, seed in user_seeds.items()}
 
     def _resolve_label_rules(self, label_rules):
         # Example:

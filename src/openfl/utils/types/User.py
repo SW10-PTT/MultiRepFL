@@ -53,6 +53,7 @@ class User:
         self.data_percent: float = 0.0
         self.only_labels: list[int] | None = None
         self.flip_map: dict[int, int] = {}
+        self.seed: int = 0
 
     @classmethod
     def from_experiment_config(cls,
