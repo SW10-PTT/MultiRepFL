@@ -34,18 +34,20 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
 
   users: List[User] = []
 
-  pytorch_model = PM.PytorchModel(dataset_name, 
-                              experiment_config.number_of_good_contributors, 
-                              experiment_config.number_of_contributors, 
-                              experiment_config.epochs, 
-                              experiment_config.batch_size, 
-                              experiment_config.standard_buy_in,
-                              experiment_config.max_buy_in,
-                              experiment_config.freerider_noise_scale,
-                              experiment_config.freerider_start_round,
-                              experiment_config.malicious_start_round,
-                              experiment_config.malicious_noise_scale,
-                              experiment_config.force_merge_all)
+  pytorch_model = PM.PytorchModel(
+      experiment_config,
+      dataset_name,
+      experiment_config.number_of_good_contributors,
+      experiment_config.number_of_contributors,
+      experiment_config.epochs,
+      experiment_config.batch_size,
+      experiment_config.standard_buy_in,
+      experiment_config.max_buy_in,
+      experiment_config.freerider_noise_scale,
+      experiment_config.freerider_start_round,
+      experiment_config.malicious_start_round,
+      experiment_config.malicious_noise_scale,
+      experiment_config.force_merge_all)
 
   for attitude, count in [
       (Attitude.Honest, experiment_config.number_of_good_contributors),
@@ -63,7 +65,6 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
           )
           apply_user_data_and_label_config(user, user_index, experiment_config)
           users.append(user)
-      #pytorch_model.add_participant("freerider",experiment_config.freerider_start_round) //TODO FOR LATER
 
   pytorch_model.prepare_data_for_users(
       users,
@@ -110,7 +111,7 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
               0,
               ["SelectionComplete"],
               "JobListing.decideOnParticpants",
-              len(users)
+              experiment_config.number_of_participants
           )
           participants_addresses = events["SelectionComplete"][0]["participants"]
           break
@@ -128,6 +129,10 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
   newChallenge: Challenge = publisher.deploy_challenge_contract(trainingSpecsChallenge, new_job_listing, pytorch_model, writer, logger)
 
   participating_users = get_users_from_addresses(users, participants_addresses)
+
+  experiment_finger_print = experiment_config.get_finger_print(newChallenge)
+
+  newChallenge.pytorch_model.setup_replay(experiment_finger_print, experiment_config)
 
   newChallenge.make_participants_from_users(participating_users)
   for user in newChallenge.pytorch_model.participants:

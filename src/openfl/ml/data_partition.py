@@ -1,6 +1,10 @@
+from typing import List
+
 import math
 import random
 from torch.utils.data import Dataset
+
+from openfl.utils.types import User
 
 
 # Wraps a Subset and rewrites labels on read via user.flip_map.
@@ -43,8 +47,8 @@ class DataPartition:
     # replication_factor before slicing. The same sample_id may now end
     # up under multiple users, but is deduplicated within a single user
     # (no user trains on the same image twice).
-    def split_by_label(self, users, labels):
-        users = list(users)
+
+    def split_by_label(self, users: List["User"], labels):
         labels = self.normalize_labels(labels)
         self.validate_percentages(users)
 
@@ -57,7 +61,7 @@ class DataPartition:
         for sample_id, label in enumerate(labels):
             ids_by_label.setdefault(label, []).append(sample_id)
 
-        assigned_ids_by_user = {self.get_user_id(user): [] for user in users}
+        assigned_ids_by_user = {user.get_id_or_address(): [] for user in users}
 
         # Per class: shuffle, optionally inflate by replication_factor,
         # then hand out contiguous chunks sized by data_percent.
@@ -70,8 +74,8 @@ class DataPartition:
             start = 0
 
             for user, count in zip(users, counts):
-                user_id = self.get_user_id(user)
-                assigned_ids_by_user[user_id].extend(pool[start:start + count])
+                user_id = user.get_id_or_address()
+                assigned_ids_by_user[user_id].extend(sample_ids[start:start + count])
                 start += count
 
         # Dedup within user (overlap mode can produce within-user dupes
@@ -125,7 +129,7 @@ class DataPartition:
         user_splits = {}
 
         for user in users:
-            user_id = self.get_user_id(user)
+            user_id = user.get_id_or_address()
             assigned_ids = list(assigned_ids_by_user[user_id])
             train_ids, val_ids = self.split_train_val(assigned_ids)
             user_splits[user_id] = {
@@ -190,19 +194,11 @@ class DataPartition:
         if not math.isclose(sum(percents), 100.0, abs_tol=1e-9):
             raise ValueError("Total data_percent must equal 100")
 
-    # Accepts both User (has .id) and legacy participant types (.number).
-    def get_user_id(self, user):
-        if hasattr(user, "id"):
-            return user.id
-        if hasattr(user, "number"):
-            return user.number
-        raise ValueError("User is missing id/number attribute")
-
     def get_percent(self, user):
         if hasattr(user, "data_percent"):
             return float(user.data_percent)
         raise ValueError(
-            f"User {self.get_user_id(user)} is missing data_percent"
+            f"User {user.get_id_or_address()} is missing data_percent"
         )
 
     # torchvision datasets expose targets as tensor / ndarray / list.

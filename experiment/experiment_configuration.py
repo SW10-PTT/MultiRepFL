@@ -1,3 +1,6 @@
+import hashlib
+import json
+
 import math
 
 from openfl.utils.types.TrainingSpecsJobListing import TrainingSpecsJobListing
@@ -5,6 +8,8 @@ from openfl.utils.types.TrainingSpecsJobListing import TrainingSpecsJobListing
 
 class ExperimentConfiguration:
     def __init__(self,
+                 name=None,
+                 dataset="MNIST",
                  number_of_good_contributors=4,
                  number_of_bad_contributors=1,
                  number_of_freerider_contributors=1,
@@ -26,6 +31,7 @@ class ExperimentConfiguration:
                  freerider_start_round=3,
                  malicious_noise_scale=1.0,
                  malicious_start_round=3,
+                 number_of_participants=2,
                  force_merge_all=False,
                  data_percentages=None,
                  label_rules=None,
@@ -33,6 +39,9 @@ class ExperimentConfiguration:
                  user_seeds=None,
                  allow_overlap=False,
                  replication_factor=1.0): # Sets all entries in fbb to zeroes
+
+        self.name = name
+        self.dataset = dataset
 
         self.fork = fork
 
@@ -45,6 +54,7 @@ class ExperimentConfiguration:
             standard_buy_in = int(standard_buy_in * scale)
 
         # Store everything
+        self.number_of_participants =number_of_participants
         self.number_of_good_contributors = number_of_good_contributors
         self.number_of_bad_contributors = number_of_bad_contributors
         self.number_of_freerider_contributors = number_of_freerider_contributors
@@ -77,8 +87,6 @@ class ExperimentConfiguration:
         if self.replication_factor > 1.0 and not self.allow_overlap:
             raise ValueError("replication_factor > 1.0 requires allow_overlap=True")
 
-        class userConfig:
-            number_of_good_contributors = "a"
 
     def get_training_specs(self, manager_address, model_hash) -> TrainingSpecsJobListing:
         return TrainingSpecsJobListing(model_hash, self.min_buy_in, self.max_buy_in, manager_address, self.reward, self.minimum_rounds, self.punish_factor, self.punish_factor_contrib, self.first_round_fee, 1) # Todo: Tasktype
@@ -97,7 +105,7 @@ class ExperimentConfiguration:
                 self.number_of_freerider_contributors)
 
     def _resolve_data_percentages(self, data_percentages):
-        # make equal split 
+        # make equal split
         if data_percentages is None:
             equal_percent = 100.0 / self.number_of_data_users
             return [equal_percent] * self.number_of_data_users
@@ -117,7 +125,40 @@ class ExperimentConfiguration:
             return {}
         return {int(user_index): int(seed) for user_index, seed in user_seeds.items()}
 
-    def _resolve_label_rules(self, label_rules):
+    def get_finger_print(self, challenge: "FLChallenge"):
+        participants = []
+        for participant in challenge.pytorch_model.participants:
+            participants.append(participant.finger_print)
+
+        participants = participants.sort()
+
+        data = {
+            "dataset": self.dataset,
+            "minimum_rounds": self.minimum_rounds,
+            "min_buy_in": self.min_buy_in,
+            "max_buy_in": self.max_buy_in,
+            "standard_buy_in": self.standard_buy_in,
+            "epochs": self.epochs,
+            "batch_size": self.batch_size,
+            "punish_factor": self.punish_factor,
+            "punish_factor_contrib": self.punish_factor_contrib,
+            "first_round_fee": self.first_round_fee,
+            "contribution_score_strategy": self.contribution_score_strategy,
+            "use_outlier_detection": self.use_outlier_detection,
+            "freerider_noise_scale": self.freerider_noise_scale,
+            "freerider_start_round": self.freerider_start_round,
+            "malicious_start_round": self.malicious_start_round,
+            "malicious_noise_scale": self.malicious_noise_scale,
+            "force_merge_all": self.force_merge_all,
+            "participants": participants,
+        }
+
+        blob = json.dumps(data, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(blob.encode()).hexdigest()
+
+
+    @staticmethod
+    def _resolve_label_rules(label_rules):
         # Example:
         # {
         #   2: {"only_labels": [4, 9], "flip_map": {4: 9, 9: 4}},
@@ -138,3 +179,9 @@ class ExperimentConfiguration:
             resolved_rules[int(user_index)] = normalized_rule
 
         return resolved_rules
+
+    def to_dict(self):
+        return {
+            k: v for k, v in self.__dict__.items()
+            if not callable(v) and not (k.startswith("_") or k.startswith("__"))
+        }

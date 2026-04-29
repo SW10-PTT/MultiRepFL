@@ -16,7 +16,7 @@ config = ExperimentConfiguration(
     max_buy_in=int(1e18),
     contribution_score_strategy="accuracy_loss",
     use_outlier_detection=True,
-    minimum_rounds=10,
+    minimum_rounds=1,
     force_merge_all=False,
     freerider_noise_scale=0.5,
     malicious_noise_scale=0.5,
@@ -24,18 +24,19 @@ config = ExperimentConfiguration(
     punish_factor_contrib=3,
     freerider_start_round=1,
     malicious_start_round=1,
+    number_of_participants=2
     #data_percentages=[30, 10, 15, 15, 10, 20],
     # 0: {"only_labels": [0, 1, 2, 3, 4]}
     # 0: {"flip_map": {4: 9}}
     # 0: {"only_labels": [0, 1, 2, 3, 4], "flip_map": {4: 9}}
-    label_rules={
-        0: {"only_labels": [0, 1, 2, 3, 4]},
-        1: {"only_labels": [0, 1, 2, 3, 4]},
-        2: {"only_labels": [0, 1, 2, 3, 4]},
-        3: {"only_labels": [5, 6, 7, 8, 9]},
-        4: {"only_labels": [5, 6, 7, 8, 9]},
-        5: {"only_labels": [5, 6, 7, 8, 9]},
-    },
+    # label_rules={
+    #     0: {"only_labels": [0, 1, 2, 3, 4]},
+    #     1: {"only_labels": [0, 1, 2, 3, 4]},
+    #     2: {"only_labels": [0, 1, 2, 3, 4]},
+    #     3: {"only_labels": [5, 6, 7, 8, 9]},
+    #     4: {"only_labels": [5, 6, 7, 8, 9]},
+    #     5: {"only_labels": [5, 6, 7, 8, 9]},
+    # },
 )
 
 # OVERSKRIV variabler her for testing. eksempel: config = ExperimentConfiguration(minimum_rounds=1), hvis du kun vil køre een round#DATASET = "cifar-10"

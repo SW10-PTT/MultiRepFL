@@ -1,7 +1,8 @@
 fork = True
 w3 = None
-reuse_runs = False
+reuse_runs = True
 gas_used = {}
+repo_dir = "runs"
 
 def add_gas_usage(gas_type: str, amount: int, user_addr) -> None:
     global gas_used
