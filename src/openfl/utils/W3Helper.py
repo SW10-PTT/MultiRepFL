@@ -5,6 +5,7 @@ from web3 import Web3
 
 from experiment_configuration import ExperimentConfiguration
 from openfl.utils import require_env_var
+from openfl.utils.printer import log
 from openfl.api import globals
 
 
@@ -33,7 +34,7 @@ def get_PRIVKEYS(experiment_config: ExperimentConfiguration):
             for acc in loaded_accounts
         ]
 
-        print(f"Loaded {len(PRIVKEYS)} private keys.")
+        log("connection_info", f"Loaded {len(PRIVKEYS)} private keys.")
     else:
         PRIVKEYS = None
 

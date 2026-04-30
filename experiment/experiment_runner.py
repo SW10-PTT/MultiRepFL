@@ -19,7 +19,7 @@ from openfl.api import globals
 
 from openfl.utils.async_writer import AsyncWriter
 from openfl.utils.types.User import User
-from openfl.utils.printer import set_enabled_tags
+from openfl.utils.printer import set_enabled_tags, log
 
 
 def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration, writer: AsyncWriter=None, logger=None):
@@ -113,7 +113,7 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
           if "AWO" in str(e):
               globals.w3.provider.make_request("evm_increaseTime", [30])
               globals.w3.provider.make_request("evm_mine", [])
-              print("Application window still open, trying again in 10 seconds")
+              log("round_lifecycle", "Application window still open, trying again in 10 seconds")
               time.sleep(10)
           else:
               raise
@@ -130,17 +130,17 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
         newChallenge.transact("registrationProcess", user, trainingSpecsChallenge.min_collateral, [], "challenge.register")
       except ContractLogicError as e:
           if "SUO" in str(e):
-              print("Participant tried joining but was not selected")
+              log("slot_registration", "Participant tried joining but was not selected")
 
   # This happens after deciding on users
   newChallenge.simulate(rounds=experiment_config.minimum_rounds)
   experiment_end = time.perf_counter()
   total_experiment_time = experiment_end - experiment_start
 
-  print("\n" + "="*75)
-  print(f"TOTAL EXPERIMENT TIME: {total_experiment_time:.2f} seconds")
+  log("experiment_end", "\n" + "="*75)
+  log("experiment_end", f"TOTAL EXPERIMENT TIME: {total_experiment_time:.2f} seconds")
   writer.write_comment(f"TOTAL EXPERIMENT TIME: {total_experiment_time:.2f} seconds")
-  print("="*75 + "\n")
+  log("experiment_end", "="*75 + "\n")
 
   if logger is not None:
       try:
@@ -218,7 +218,7 @@ def setup_connection(experiment_config):
             for acc in loaded_accounts
         ]
 
-        print(f"Loaded {len(PRIVKEYS)} private keys.")
+        log("connection_info", f"Loaded {len(PRIVKEYS)} private keys.")
     else:
         PRIVKEYS = None
 
@@ -235,37 +235,37 @@ def get_users_from_addresses(users, addresses):
 
 def print_transactions(experiment):
   model = experiment.model
-  print("{:<10} - {:^64} -    Gas Used - {}".format("Function", "Transaction Hash", "Success"))
-  print("------------------------------------------------------------------------------------------")
+  log("gas_report", "{:<10} - {:^64} -    Gas Used - {}".format("Function", "Transaction Hash", "Success"))
+  log("gas_report", "------------------------------------------------------------------------------------------")
   for f, txhash, gasUsed in model.txHashes:
       r = globals.w3.eth.wait_for_transaction_receipt(txhash)
       if r["status"] == 1:
           success = "✅"
       else:
           success = "FAIL"
-      
+
       gas = r["gasUsed"]
-      print("{:<10} - {} - {:>9,.0f} -   {}".format(f, txhash, gas, success))
+      log("gas_report", "{:<10} - {} - {:>9,.0f} -   {}".format(f, txhash, gas, success))
 
 
 def print_latex(experiment):
   model = experiment.model
   manager = experiment.manager
-  print("\\renewcommand{\\arraystretch}{1.3}")
-  print("\\begin{center}")
-  print("\\begin{tabular}{ c|c }")
+  log("latex_output", "\\renewcommand{\\arraystretch}{1.3}")
+  log("latex_output", "\\begin{center}")
+  log("latex_output", "\\begin{tabular}{ c|c }")
 
-  print("Contract & Address (Ropsten Testnet) \\\\")
-  print("\\hline")
-  print("Ma-1 & {} \\ ".format(manager.manager.address))
-  print("Ch-1 & {} \\ ".format(model.model.address))
+  log("latex_output", "Contract & Address (Ropsten Testnet) \\\\")
+  log("latex_output", "\\hline")
+  log("latex_output", "Ma-1 & {} \\ ".format(manager.manager.address))
+  log("latex_output", "Ch-1 & {} \\ ".format(model.model.address))
   for i, p in enumerate(model.pytorch_model.participants[:-1] + \
                             model.pytorch_model.disqualified + \
                             [model.pytorch_model.participants[-1]]):
-      print("P-{}  & {} \\ ".format(i+1, p.address))
+      log("latex_output", "P-{}  & {} \\ ".format(i+1, p.address))
 
-  print("\\end{tabular}")
-  print("\\end{center}")
+  log("latex_output", "\\end{tabular}")
+  log("latex_output", "\\end{center}")
 
 
 def table_with_gas_and_transactions_latex(experiment):
@@ -283,16 +283,16 @@ def table_with_gas_and_transactions_latex(experiment):
   tot  = 0
   tot2 = 0
 
-  print("\\begin{tabular}{ |c|c|c| }\n\\hline\nFunction & Gas Amount & Gas Costs*\\\\ \n\\hline")
+  log("latex_output", "\\begin{tabular}{ |c|c|c| }\n\\hline\nFunction & Gas Amount & Gas Costs*\\\\ \n\\hline")
   for i, f in [reg,slo,wei,fed,clo]:
-      print("{} & {:,.0f} & {:.5f} ETH \\\\".format(f, sum(i)/len(i), sum(i)/len(i) * 20e9 / 1e18 ))
+      log("latex_output", "{} & {:,.0f} & {:.5f} ETH \\\\".format(f, sum(i)/len(i), sum(i)/len(i) * 20e9 / 1e18))
       tot += sum(i)/len(i)
       if i != clo[0]:
               tot2 += sum(i)/len(i)
-          
-  print("\\hline\n\\hline")
-  print("complete round & {:,.0f} & {:.5f} \\ ".format(tot, tot * 20e9 / 1e18))
-  print("\\hline\n\\end{tabular}")
+
+  log("latex_output", "\\hline\n\\hline")
+  log("latex_output", "complete round & {:,.0f} & {:.5f} \\ ".format(tot, tot * 20e9 / 1e18))
+  log("latex_output", "\\hline\n\\end{tabular}")
 
 class Experiment:
   def __init__(self, model, manager):

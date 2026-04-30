@@ -11,6 +11,7 @@ from openfl.utils.types.Attitude import Attitude
 from openfl.utils.types.Colors import RNG, get_color
 from openfl.utils.types.TrainingSpecsJobListing import TrainingSpecsJobListing, TrainingSpecsChallenge
 from openfl.api import globals
+from openfl.utils.printer import log
   
 class User:
     user_count = 0
@@ -104,9 +105,9 @@ class User:
         txHash = receipt["transactionHash"]
         self.txs.append(txHash)
         bal = globals.w3.eth.get_balance(globals.w3.eth.default_account)
-        print("{:<17} {} | {} | {:>25,.0f} WEI".format("Account registered:", 
-                self.address[0:16] + "...", 
-                txHash.hex()[0:6] + "...", 
+        log("account_registration", "{:<17} {} | {} | {:>25,.0f} WEI".format("Account registered:",
+                self.address[0:16] + "...",
+                txHash.hex()[0:6] + "...",
                 self.collateral
                 ))
         return self.txs

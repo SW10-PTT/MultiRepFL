@@ -216,7 +216,7 @@ class PytorchModel:
             criterion,
         ))
         
-        print("Participant added: {:<9} {}".format(rb(user.attitude.name.upper()[0]+user.attitude.name[1:]), rb("User")))
+        log("participant_added", "Participant added: {:<9} {}".format(rb(user.attitude.name.upper()[0]+user.attitude.name[1:]), rb("User")))
 
     def prepare_data_for_users(self, users, dataset_name):
         users = list(users)
@@ -463,9 +463,9 @@ class PytorchModel:
             
         
         if _print:
-            print("Data Loaded:")
-            print("Nr. of images for training: {:,.0f}".format(len(trainset)))
-            print("Nr. of images for testing:  {:,.0f}\n".format(len(testset)))
+            log("data_loaded", "Data Loaded:")
+            log("data_loaded", "Nr. of images for training: {:,.0f}".format(len(trainset)))
+            log("data_loaded", "Nr. of images for testing:  {:,.0f}\n".format(len(testset)))
 
         # Split training set into partitions to simulate the individual dataset
         partition_size = len(trainset) // NUM_CLIENTS
@@ -514,12 +514,12 @@ class PytorchModel:
 
 
     def federated_training(self):
-        print(b("\n================ PARALLEL FEDERATED TRAINING START ================"))
+        log("training_banner", b("\n================ PARALLEL FEDERATED TRAINING START ================"))
 
         start_total = time.perf_counter()
 
         if debugging:
-            print(yellow("Debugging mode detected → running sequential training"))
+            log("training_banner", yellow("Debugging mode detected → running sequential training"))
             results = self.run_sequential()
         else:
             results = self.run_multi_processing()
@@ -527,8 +527,8 @@ class PytorchModel:
         self.apply_training_results(results)
         total_time = time.perf_counter() - start_total
 
-        print(b("=================== PARALLEL TRAINING END ===================\n"))
-        print(green(f"Total federated training time: {total_time:.2f} seconds\n"))
+        log("training_banner", b("=================== PARALLEL TRAINING END ===================\n"))
+        log("training_banner", green(f"Total federated training time: {total_time:.2f} seconds\n"))
 
     def finalize_paricipant_evaluation(self, participant): # Same as lines 294-296,306 in orgiginal code.
         loss, acc = test(participant.model, self.test, DEVICE) # TODO: Investigate if this should be user.val instead.
@@ -616,19 +616,19 @@ class PytorchModel:
                     self.finalize_paricipant_evaluation(user)
 
             results = [r.get() for r in async_results] # Gather results from Multi-Processing
-        print(green(f"Parallel execution time: {time.perf_counter() - start_pool:.2f} seconds"))
+        log("training_banner", green(f"Parallel execution time: {time.perf_counter() - start_pool:.2f} seconds"))
         return results
 
 
     def let_malicious_users_do_their_work(self):
         for i in range(len(self.participants)):
             if self.participants[i].attitude == Attitude.Malicious:                
-                print(red("Address {} going to provide random weights".format(self.participants[i].address[0:16]+"...")))
+                log("malicious_behavior", red("Address {} going to provide random weights".format(self.participants[i].address[0:16]+"...")))
                 manipulated_state_dict = manipulate(self.participants[i].model,scale=self.malicious_noise_scale,)
                 self.participants[i].model.load_state_dict(manipulated_state_dict)
                 self.participants[i].hashedModel = self.get_hash(self.participants[i].model.state_dict())
                 loss, accuracy = test(self.participants[i].model, self.test, DEVICE)
-                print("{:<17} {} |  Testing  | Accuracy {:>3.0f} % | Loss ∞\n".format("Account testing:   ",
+                log("malicious_behavior", "{:<17} {} |  Testing  | Accuracy {:>3.0f} % | Loss ∞\n".format("Account testing:   ",
                                                                                 self.participants[i].address[0:16]+"...",
                                                                                 accuracy*100, loss))
                 # TODO: Why is test_loss not used here?
@@ -637,7 +637,7 @@ class PytorchModel:
         for user in self.participants:
             if user.attitudeSwitch == self.round \
                 and user.attitude != user.futureAttitude:
-                print(rb("Address {} going to switch attitude to {}".format(user.address[0:16]+"...",
+                log("attitude_switch", rb("Address {} going to switch attitude to {}".format(user.address[0:16]+"...",
                                                                             user.futureAttitude)))
                 user.attitude = user.futureAttitude
                 user.update_color(None, user.attitude)
@@ -665,7 +665,7 @@ class PytorchModel:
                 #     print(red("Address {} going to add random noise to weights".format(user_idx[0:16]+"...")))
                 #     user.model.load_state_dict(add_noise(copy.deepcopy(user.model)))
                 if self.round < self.freerider_start_round:
-                    print(yellow(
+                    log("freerider_behavior", yellow(
                         "Address {} waiting until round {} to start freeriding".format(
                             user.address[0:16] + "...",
                             self.freerider_start_round,
@@ -679,7 +679,7 @@ class PytorchModel:
                 user.model.load_state_dict(new_state_dict)
                 user.hashedModel = self.get_hash(user.model.state_dict())
                 loss, accuracy = test(user.model, self.test, DEVICE)
-                print("{:<17} {} |  Testing  | Accuracy {:>3.0f} % | Loss ∞\n".format("Account testing:   ",
+                log("freerider_behavior", "{:<17} {} |  Testing  | Accuracy {:>3.0f} % | Loss ∞\n".format("Account testing:   ",
                                                                                 user.address[0:16]+"...",
                                                                                 accuracy*100, loss))
                 # TODO: Why is loss not used here?
@@ -692,10 +692,10 @@ class PytorchModel:
             raise ValueError("freerider_noise_scale must be non-negative")
 
         if self.freerider_noise_scale == 0: # Copy global model if noise is zero
-            print(yellow("Address {} resubmitting original model".format(user.address[0:16]+"...")))
+            log("freerider_behavior", yellow("Address {} resubmitting original model".format(user.address[0:16]+"...")))
             return copy.deepcopy(user.model).state_dict()
 
-        print(red(
+        log("freerider_behavior", red(
             "Address {} adding noise (scale={}) to global weights".format(
                 user.address[0:16]+"...",
                 self.freerider_noise_scale,
@@ -707,17 +707,17 @@ class PytorchModel:
     def the_merge(self, _users):
         # No qualified users → skip merge this round
         if not _users:
-            print("-----------------------------------------------------------------------------------")
-            print(red("No participants qualified for merge this round – skipping aggregation"))
-            print("-----------------------------------------------------------------------------------\n")
+            log("merge_result", "-----------------------------------------------------------------------------------")
+            log("merge_result", red("No participants qualified for merge this round – skipping aggregation"))
+            log("merge_result", "-----------------------------------------------------------------------------------\n")
             return
 
         ids, client_models = [], []
         for u in _users:
             ids.append(u.address)
             client_models.append(u.model)
-            print("Account {} participating in merge".format(u.address[0:16]+"..."))
-            #print(test(c[1],self.test,DEVICE))
+            log("merge_result", "Account {} participating in merge".format(u.address[0:16]+"..."))
+            #log("merge_result", test(c[1],self.test,DEVICE))
 
         with torch.no_grad():
             global_dict = self.global_model.state_dict()
@@ -731,23 +731,23 @@ class PytorchModel:
                 ], dim=0)
                 global_dict[k] = stacked.mean(0)
             self.global_model.load_state_dict(global_dict)
-        
+
         loss, accuracy = test(self.global_model,self.test,DEVICE)
         self.accuracy.append(accuracy)
         self.loss.append(loss)
-        print("-----------------------------------------------------------------------------------")
-        print(b("Merged Model: Accuracy {:>3.0f} % | Loss {:>6,.2f}".format(accuracy*100,loss)))
+        log("merge_result", "-----------------------------------------------------------------------------------")
+        log("merge_result", b("Merged Model: Accuracy {:>3.0f} % | Loss {:>6,.2f}".format(accuracy*100,loss)))
 
         for u in self.participants:
             u.previousModel = copy.deepcopy(u.model) #the model from this round
             u.model.load_state_dict(self.global_model.state_dict()) #the global model
-           
-        print("-----------------------------------------------------------------------------------\n")
+
+        log("merge_result", "-----------------------------------------------------------------------------------\n")
     
     
 
     def exchange_models(self):
-        print("Users exchanging models...")
+        log("model_exchange", "Users exchanging models...")
         for user in self.participants:
             user.userToEvaluate = []
             for j in self.participants:
@@ -756,19 +756,19 @@ class PytorchModel:
                 if j.model in user.userToEvaluate:
                     continue
                 user.userToEvaluate.append(j)
-        print("-----------------------------------------------------------------------------------")
+        log("model_exchange", "-----------------------------------------------------------------------------------")
     
 
     def verify_models(self, on_chain_hashes):
-        print("Users verifying models...")
+        log("model_verify", "Users verifying models...")
         for _user in self.participants:
             _user.cheater = []
-            for user in _user.userToEvaluate:  
+            for user in _user.userToEvaluate:
                 if not self.get_hash(user.model.state_dict()) == on_chain_hashes[user.address]:
-                    print(red(f"Account {_user.number}: Account {user.address[0:16]}... could not provide the registered model"))
+                    log("model_verify", red(f"Account {_user.number}: Account {user.address[0:16]}... could not provide the registered model"))
                     _user.cheater.append(user)
-                    
-        print("-----------------------------------------------------------------------------------")
+
+        log("model_verify", "-----------------------------------------------------------------------------------")
 
 
     def get_hash(self, _state_dict):
@@ -795,7 +795,7 @@ class PytorchModel:
         return self.get_hash(self.global_model.state_dict())
 
     def evaluation(self):
-        print("Users evaluating models...")
+        log("evaluation", "Users evaluating models...")
 
         scalar = 100 # Adds more decimals for precision (Adding 0 gives another decimal, vice versa)
         MAX_UINT16_SIZE = 65535
@@ -1031,7 +1031,7 @@ def train_user_proc(user_addr, model_state, train_ds, val_ds, epochs, device_id,
         del train_loader
         del val_loader
 
-        print(f"[{device_label(device, device_id)}] User {user_addr} done | Acc: {val_acc:.3f}, Loss: {val_loss:.3f}")
+        log("user_training", f"[{device_label(device, device_id)}] User {user_addr} done | Acc: {val_acc:.3f}, Loss: {val_loss:.3f}")
         
         # Ensure all GPU work is complete before worker exits
         if device.type == "cuda":
@@ -1042,23 +1042,23 @@ def train_user_proc(user_addr, model_state, train_ds, val_ds, epochs, device_id,
 def print_training_mode(num_gpus: int, num_processes: int):
     """Prints a clean status message describing how training will run."""
     if num_gpus >= 2:
-        print(green(f"Detected {num_gpus} GPU(s) → Parallel multi-GPU training"))
+        log("training_mode", green(f"Detected {num_gpus} GPU(s) → Parallel multi-GPU training"))
 
     elif num_gpus == 1:
         if num_processes > 1:
-            print(yellow(
+            log("training_mode", yellow(
                 f"Detected 1 GPU → Parallel training on one GPU (shared across {num_processes} workers)"
             ))
         else:
-            print(green("Detected 1 GPU → Sequential GPU training"))
+            log("training_mode", green("Detected 1 GPU → Sequential GPU training"))
 
     else:  # CPU-only
         if num_processes > 1:
-            print(yellow(
+            log("training_mode", yellow(
                 f"Detected 0 GPU(s) → Parallel CPU training ({num_processes} workers)"
             ))
         else:
-            print(red("Detected 0 GPU(s) → Sequential CPU mode"))
+            log("training_mode", red("Detected 0 GPU(s) → Sequential CPU mode"))
 
 
 

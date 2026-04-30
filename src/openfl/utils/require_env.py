@@ -3,6 +3,7 @@ from pathlib import Path
 import sys
 
 from dotenv import load_dotenv
+from openfl.utils.printer import log
 
 env_loaded = False
 
@@ -19,13 +20,13 @@ def require_env_var(name: str) -> str:
     return value
 
 def load_env():
-    print("Loading environment")
+    log("env_info", "Loading environment")
     # Choose env file dynamically
     env = os.getenv("ENV", "ganache")  # defaults to dev if ENV not set
     env_file = Path(__file__).parents[3] / ".env" / f".env.{env}"
 
-    print(env_file)
+    log("env_info", env_file)
 
     load_dotenv(env_file)
 
-    print(f"Loaded environment: {env_file}")
+    log("env_info", f"Loaded environment: {env_file}")
