@@ -1,15 +1,7 @@
 import math
 
 from openfl.utils.types.TrainingSpecsJobListing import TrainingSpecsJobListing
-
-DEFAULT_ENABLED_PRINTS_CONFIG = {
-    #"gpu_info",
-    #"pytorch_model_created",
-    #"round_matrices",
-    #"data_split",
-    #"data_split_labels",
-    #"HelloWorld"
-}
+from print_config import DEFAULT_ENABLED_PRINTS_CONFIG, PRINTS_SILENT, PRINTS_MINIMAL, PRINTS_NORMAL, PRINTS_DEBUG
 
 class ExperimentConfiguration:
     def __init__(self,
