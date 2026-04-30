@@ -24,6 +24,7 @@ from openfl.ml.Participant import Participant
 from openfl.utils.types.EvaluationData import EvaluationData
 from openfl.utils.types.Attitude import Attitude
 from openfl.utils.types.Colors import gb, rb, red, yellow, green, b
+from openfl.utils.printer import log
 
 torch._dynamo.config.cache_size_limit = 512
 import logging
@@ -155,10 +156,10 @@ class PytorchModel:
         self.loss = [loss]
 
         self.round = 1
-        print("===================================================================================")
-        print("Pytorch Model created:\n")
-        print(str(self.global_model))
-        print("\n===================================================================================")
+        log("pytorch_model_created", "===================================================================================")
+        log("pytorch_model_created","Pytorch Model created:\n")
+        log("pytorch_model_created", str(self.global_model))
+        log("pytorch_model_created","\n===================================================================================")
 
 
 
@@ -308,10 +309,10 @@ class PytorchModel:
         dataset_size = len(labels)
         num_classes = len(set(labels))
         per_class = dataset_size // num_classes
-        print(f"Dataset: {dataset_name} | {dataset_size:,} total samples | {num_classes} classes | ~{per_class:,} per class")
-        print()
-        print("Data split per user:")
-        print(
+        log("data_split", f"Dataset: {dataset_name} | {dataset_size:,} total samples | {num_classes} classes | ~{per_class:,} per class")
+        log("data_split")
+        log("data_split", "Data split per user:")
+        log("data_split",
             "{:<4} {:<16} {:>10} {:>10} {:>9}   {}".format(
                 "Idx",
                 "Address",
@@ -321,7 +322,7 @@ class PytorchModel:
                 "Rule",
             )
         )
-        print("-" * 75)
+        log("data_split", "-" * 75)
 
         total_config_percent = 0.0
         total_actual_percent = 0.0
@@ -339,7 +340,7 @@ class PytorchModel:
             total_actual_percent += actual_percent
             total_samples += int(split["num_samples"])
 
-            print(
+            log("data_split",
                 "{:<4} {:<16} {:>9.2f}% {:>9.2f}% {:>9,}   {}".format(
                     getattr(user, "number", user_id),
                     user.address[0:14] + "...",
@@ -373,33 +374,33 @@ class PytorchModel:
         lost_samples = dataset_size - total_samples
         lost_percent = 100.0 * lost_samples / dataset_size
 
-        print("-" * 75)
-        print("Configured total: {:.2f}%".format(total_config_percent))
-        print("Assigned: {:>7,} / {:,} samples  ({:.2f}%)".format(total_samples, dataset_size, total_actual_percent))
+        log("data_split", "-" * 75)
+        log("data_split", "Configured total: {:.2f}%".format(total_config_percent))
+        log("data_split", "Assigned: {:>7,} / {:,} samples  ({:.2f}%)".format(total_samples, dataset_size, total_actual_percent))
         if lost_samples > 0:
-            print("Lost:     {:>7,} / {:,} samples  ({:.2f}%)  <- dropped due to only_labels".format(lost_samples, dataset_size, lost_percent))
-        print()
+            log("data_split", "Lost:     {:>7,} / {:,} samples  ({:.2f}%)  <- dropped due to only_labels".format(lost_samples, dataset_size, lost_percent))
+        log("data_split")
 
         col_w = 6
         header = "{:<4} " + " ".join(f"{'L' + str(l):>{col_w}}" for l in all_label_classes)
-        print(header.format("Idx"))
-        print("-" * (5 + col_w * len(all_label_classes)))
+        log("data_split_labels", header.format("Idx"))
+        log("data_split_labels", "-" * (5 + col_w * len(all_label_classes)))
         for user_idx, label_counts in label_dist_rows:
             row = "{:<4} " + " ".join(f"{label_counts.get(l, 0):>{col_w},}" for l in all_label_classes)
-            print(row.format(user_idx))
+            log("data_split_labels", row.format(user_idx))
 
         if not label_flip_rows:
             return
 
-        print()
-        print("Label flips (samples changed per user):")
-        print("{:<4} {:<5}   {:<24} {:>8} {:>11}".format("Idx", "Set", "Flip counts", "Changed", "% of set"))
-        print("-" * 60)
+        log("data_split_labels")
+        log("data_split_labels", "Label flips (samples changed per user):")
+        log("data_split_labels", "{:<4} {:<5}   {:<24} {:>8} {:>11}".format("Idx", "Set", "Flip counts", "Changed", "% of set"))
+        log("data_split_labels", "-" * 60)
         for user_idx, set_name, flip_counts, changed_total, changed_percent in label_flip_rows:
-            print("{:<4} {:<5}   {:<24} {:>8} {:>10.2f}%".format(
+            log("data_split_labels", "{:<4} {:<5}   {:<24} {:>8} {:>10.2f}%".format(
                 user_idx, set_name, flip_counts, changed_total, changed_percent,
             ))
-        print("-" * 60)
+        log("data_split_labels", "-" * 60)
 
     def count_labels(self, labels, ids):
         counts = Counter(labels[i] for i in ids)
@@ -882,21 +883,21 @@ class PytorchModel:
                 # Reset
                 feedbackGiver.userToEvaluate = []
 
-        print("FEEDBACK MATRIX:")
-        print(matrices.feedback_matrix)
-        print("-----------------------------------------------------------------------------------")
-        print("ACCURACY MATRIX:")
-        print(matrices.accuracy_matrix)
-        print("-----------------------------------------------------------------------------------")
-        print("LOSS MATRIX:")
-        print(matrices.loss_matrix)
-        print("-----------------------------------------------------------------------------------")
-        print("PREVIOUS ACCURACIES:")
-        print(matrices.prev_accuracies)
-        print("-----------------------------------------------------------------------------------")
-        print("PREVIOUS LOSSES:")
-        print(matrices.prev_losses)
-        print("-----------------------------------------------------------------------------------")
+        log("round_matrices", "FEEDBACK MATRIX:")
+        log("round_matrices", matrices.feedback_matrix)
+        log("round_matrices", "-----------------------------------------------------------------------------------")
+        log("round_matrices", "ACCURACY MATRIX:")
+        log("round_matrices", matrices.accuracy_matrix)
+        log("round_matrices", "-----------------------------------------------------------------------------------")
+        log("round_matrices", "LOSS MATRIX:")
+        log("round_matrices", matrices.loss_matrix)
+        log("round_matrices", "-----------------------------------------------------------------------------------")
+        log("round_matrices", "PREVIOUS ACCURACIES:")
+        log("round_matrices", matrices.prev_accuracies)
+        log("round_matrices", "-----------------------------------------------------------------------------------")
+        log("round_matrices", "PREVIOUS LOSSES:")
+        log("round_matrices", matrices.prev_losses)
+        log("round_matrices", "-----------------------------------------------------------------------------------")
 
         return matrices
 

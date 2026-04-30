@@ -3,9 +3,12 @@ import math
 from openfl.utils.types.TrainingSpecsJobListing import TrainingSpecsJobListing
 
 DEFAULT_ENABLED_PRINTS_CONFIG = {
-    "tag1",
-    "tag2",
-    "HelloWorld"
+    #"gpu_info",
+    #"pytorch_model_created",
+    #"round_matrices",
+    #"data_split",
+    #"data_split_labels",
+    #"HelloWorld"
 }
 
 class ExperimentConfiguration:
