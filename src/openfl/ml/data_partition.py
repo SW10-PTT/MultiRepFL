@@ -1,9 +1,13 @@
-from typing import List
+from __future__ import annotations
 
 import math
 import random
+from abc import ABC, abstractmethod
+from typing import Dict, List, Optional
+
 from torch.utils.data import Dataset
 
+from openfl.ml.partition_spec import UserPartitionSpec
 from openfl.utils.types import User
 
 
@@ -27,7 +31,15 @@ class FlippedLabelDataset(Dataset):
 class DataPartition:
     # allow_overlap=True + replication_factor>1 lets the same sample land under multiple users.
     # Factor=1.5 means each sample appears in ~1.5 users on average. Disjoint mode keeps factor=1.
-    def __init__(self, validation_split=0.1, seed=42, allow_overlap=False, replication_factor=1.0):
+    # per_user_specs (optional): switches to PerUserSpecStrategy. Otherwise StratifiedGlobalStrategy.
+    def __init__(
+        self,
+        validation_split: float = 0.1,
+        seed: int = 42,
+        allow_overlap: bool = False,
+        replication_factor: float = 1.0,
+        per_user_specs: Optional[Dict[int, UserPartitionSpec]] = None,
+    ):
         if not 0 <= validation_split < 1:
             raise ValueError("validation_split must be in the range [0, 1)")
         if replication_factor < 1.0:
@@ -39,7 +51,74 @@ class DataPartition:
         self.seed = seed
         self.allow_overlap = bool(allow_overlap)
         self.replication_factor = float(replication_factor)
+        self.per_user_specs = per_user_specs or None
 
+        if self.per_user_specs:
+            self.strategy: PartitionStrategy = PerUserSpecStrategy(self)
+        else:
+            self.strategy = StratifiedGlobalStrategy(self)
+
+    # Public entry point. Delegates to the active strategy. Backward
+    # compatible with prior signature (users, labels) -> {user_id: {...}}.
+    def split_by_label(self, users: List["User"], labels):
+        labels = self.normalize_labels(labels)
+        return self.strategy.split_by_label(users, labels)
+
+    # ---- shared helpers used by both strategies ----
+
+    # Destructive filter: drops samples whose label is not in only_labels.
+    # Kept for backward compat with the legacy global path; in per_user mode
+    # the strategy already restricts indices to only_labels so calling this
+    # is a no-op.
+    def filter_indices_by_label(self, indices, all_labels, only_labels):
+        only_labels_set = set(only_labels)
+        return [i for i in indices if int(all_labels[i]) in only_labels_set]
+
+    def apply_flip_map(self, dataset, user):
+        return FlippedLabelDataset(dataset, user)
+
+    def split_train_val(self, assigned_ids):
+        if not assigned_ids:
+            return [], []
+
+        # Single-sample users cannot be split; everything goes to train.
+        if self.validation_split == 0 or len(assigned_ids) == 1:
+            return list(assigned_ids), []
+
+        # Force at least 1 train and 1 val sample when possible, so
+        # downstream loaders never see an empty split.
+        val_size = int(len(assigned_ids) * self.validation_split)
+        val_size = max(1, min(val_size, len(assigned_ids) - 1))
+
+        val_ids = list(assigned_ids[:val_size])
+        train_ids = list(assigned_ids[val_size:])
+        return train_ids, val_ids
+
+    def get_percent(self, user):
+        if hasattr(user, "data_percent"):
+            return float(user.data_percent)
+        raise ValueError(
+            f"User {user.get_id_or_address()} is missing data_percent"
+        )
+
+    # torchvision datasets expose targets as tensor / ndarray / list.
+    # Convert to plain Python ints so dict keys hash consistently.
+    def normalize_labels(self, labels):
+        if hasattr(labels, "tolist"):
+            return labels.tolist()
+        return [label.item() if hasattr(label, "item") else label for label in labels]
+
+
+class PartitionStrategy(ABC):
+    def __init__(self, partition: DataPartition):
+        self.partition = partition
+
+    @abstractmethod
+    def split_by_label(self, users: List["User"], labels) -> dict:
+        ...
+
+
+class StratifiedGlobalStrategy(PartitionStrategy):
     # Stratified partition of `labels` across `users`, weighted by each
     # user's data_percent.
     #
@@ -49,17 +128,15 @@ class DataPartition:
     # replication_factor before slicing. The same sample_id may now end
     # up under multiple users, but is deduplicated within a single user
     # (no user trains on the same image twice).
-
-    def split_by_label(self, users: List["User"], labels):
-        labels = self.normalize_labels(labels)
+    def split_by_label(self, users, labels):
         self.validate_percentages(users)
 
         # Fixed seed -> deterministic split across runs.
-        rng = random.Random(self.seed)
+        rng = random.Random(self.partition.seed)
 
         # Bucket sample indices by class so we can slice each class
         # proportionally; this is what makes the split stratified.
-        ids_by_label = {}
+        ids_by_label: Dict[int, List[int]] = {}
         for sample_id, label in enumerate(labels):
             ids_by_label.setdefault(label, []).append(sample_id)
 
@@ -83,7 +160,7 @@ class DataPartition:
         # Dedup within user (overlap mode can produce within-user dupes
         # from the inflated pool) and mix classes so batches stay diverse.
         for user_id, sample_ids in assigned_ids_by_user.items():
-            if self.allow_overlap:
+            if self.partition.allow_overlap:
                 sample_ids = self.dedupe_preserve_order(sample_ids)
             rng.shuffle(sample_ids)
             assigned_ids_by_user[user_id] = sample_ids
@@ -95,13 +172,13 @@ class DataPartition:
     # to ceil(len * factor), shuffled. Truncation lets non-integer
     # factors (e.g. 1.5) work without distorting class balance.
     def build_pool(self, sample_ids, rng):
-        if not self.allow_overlap or self.replication_factor == 1.0:
+        if not self.partition.allow_overlap or self.partition.replication_factor == 1.0:
             shuffled = list(sample_ids)
             rng.shuffle(shuffled)
             return shuffled
 
-        target_size = math.ceil(len(sample_ids) * self.replication_factor)
-        repeats = math.ceil(self.replication_factor)
+        target_size = math.ceil(len(sample_ids) * self.partition.replication_factor)
+        repeats = math.ceil(self.partition.replication_factor)
         pool = list(sample_ids) * repeats
         pool = pool[:target_size]
         rng.shuffle(pool)
@@ -119,25 +196,15 @@ class DataPartition:
             out.append(sample_id)
         return out
 
-    # Destructive filter: drops samples whose label is not in only_labels.
-    # TODO: User ends up with fewer samples than data_percent implies; no
-    # rebalancing happens to compensate. Consider if this is a problem and if so, how to address it.
-    def filter_indices_by_label(self, indices, all_labels, only_labels):
-        only_labels_set = set(only_labels)
-        return [i for i in indices if int(all_labels[i]) in only_labels_set]
-
-    def apply_flip_map(self, dataset, user):
-        return FlippedLabelDataset(dataset, user)
-
     def build_user_splits(self, users, assigned_ids_by_user):
         user_splits = {}
 
         for user in users:
             user_id = user.get_id_or_address()
             assigned_ids = list(assigned_ids_by_user[user_id])
-            train_ids, val_ids = self.split_train_val(assigned_ids)
+            train_ids, val_ids = self.partition.split_train_val(assigned_ids)
             user_splits[user_id] = {
-                "data_percent": self.get_percent(user),
+                "data_percent": self.partition.get_percent(user),
                 "num_samples": len(assigned_ids),
                 "train_ids": train_ids,
                 "val_ids": val_ids,
@@ -155,9 +222,9 @@ class DataPartition:
         if dataset_size == 0:
             return []
 
-        total_percent = sum(self.get_percent(user) for user in users)
+        total_percent = sum(self.partition.get_percent(user) for user in users)
         raw_counts = [
-            dataset_size * self.get_percent(user) / total_percent
+            dataset_size * self.partition.get_percent(user) / total_percent
             for user in users
         ]
         sample_counts = [math.floor(count) for count in raw_counts]
@@ -173,41 +240,236 @@ class DataPartition:
 
         return sample_counts
 
-    def split_train_val(self, assigned_ids):
-        if not assigned_ids:
-            return [], []
-
-        # Single-sample users cannot be split; everything goes to train.
-        if self.validation_split == 0 or len(assigned_ids) == 1:
-            return list(assigned_ids), []
-
-        # Force at least 1 train and 1 val sample when possible, so
-        # downstream loaders never see an empty split.
-        val_size = int(len(assigned_ids) * self.validation_split)
-        val_size = max(1, min(val_size, len(assigned_ids) - 1))
-
-        val_ids = list(assigned_ids[:val_size])
-        train_ids = list(assigned_ids[val_size:])
-        return train_ids, val_ids
-
     # Hard requirement: shares must cover the full dataset.
     # Sub-100 totals would silently drop samples; over-100 would
     # over-allocate and break the disjoint-partition invariant.
     def validate_percentages(self, users):
-        percents = [self.get_percent(user) for user in users]
+        percents = [self.partition.get_percent(user) for user in users]
         if not math.isclose(sum(percents), 100.0, abs_tol=1e-9):
             raise ValueError("Total data_percent must equal 100")
 
-    def get_percent(self, user):
-        if hasattr(user, "data_percent"):
-            return float(user.data_percent)
-        raise ValueError(
-            f"User {user.get_id_or_address()} is missing data_percent"
+
+class PerUserSpecStrategy(PartitionStrategy):
+    # Per-user strategy: each user has a UserPartitionSpec describing
+    # total budget (data_percent of dataset) and optional per-class slicing
+    # (label_distribution and/or only_labels).
+    #
+    # Allocation order: build the demand matrix [user][class] = sample count
+    # FIRST (deterministic, order-independent), then disburse from each
+    # class bucket. This avoids "early users eat the bucket" bugs and lets
+    # us validate per-class supply once before any data movement.
+    def split_by_label(self, users, labels):
+        rng = random.Random(self.partition.seed)
+        specs = self.partition.per_user_specs or {}
+
+        # Resolve user -> spec via user.number (the data-user index).
+        user_to_spec = {}
+        for user in users:
+            spec = self._resolve_user_spec(user, specs)
+            user_to_spec[user.get_id_or_address()] = spec
+
+        # Bucket samples by class.
+        ids_by_label: Dict[int, List[int]] = {}
+        for sample_id, label in enumerate(labels):
+            ids_by_label.setdefault(int(label), []).append(sample_id)
+
+        dataset_size = len(labels)
+        all_classes = sorted(ids_by_label.keys())
+
+        # Build per-class supply (with replication factor if overlap).
+        class_supply = {
+            cls: int(math.floor(len(ids_by_label[cls]) * self.partition.replication_factor))
+            if self.partition.allow_overlap
+            else len(ids_by_label[cls])
+            for cls in all_classes
+        }
+
+        # Compute demand matrix: demand[user_id][class] = target sample count.
+        demand = self._build_demand_matrix(users, user_to_spec, ids_by_label, dataset_size)
+
+        # Per-class supply check — fail fast with a detailed message.
+        self._validate_class_supply(demand, class_supply, all_classes)
+
+        # Allocate: shuffle each class pool once, then carve contiguous
+        # chunks to each user according to demand. User iteration order is
+        # sorted by user_index for determinism (independent of users list order).
+        ordered_users = sorted(
+            users,
+            key=lambda u: user_to_spec[u.get_id_or_address()].user_index,
         )
 
-    # torchvision datasets expose targets as tensor / ndarray / list.
-    # Convert to plain Python ints so dict keys hash consistently.
-    def normalize_labels(self, labels):
-        if hasattr(labels, "tolist"):
-            return labels.tolist()
-        return [label.item() if hasattr(label, "item") else label for label in labels]
+        assigned_by_class: Dict[str, Dict[int, List[int]]] = {
+            user.get_id_or_address(): {cls: [] for cls in all_classes} for user in users
+        }
+
+        for cls in all_classes:
+            pool = self._build_class_pool(ids_by_label[cls], rng)
+            cursor = 0
+            for user in ordered_users:
+                user_id = user.get_id_or_address()
+                count = demand[user_id].get(cls, 0)
+                if count == 0:
+                    continue
+                chunk = pool[cursor:cursor + count]
+                cursor += count
+                assigned_by_class[user_id][cls] = chunk
+
+        # Stratified train/val split per class, then concatenate + shuffle.
+        return self._build_splits_stratified(users, user_to_spec, assigned_by_class, all_classes, rng)
+
+    # Picks the spec for a given user. Prefers a spec already attached to
+    # the User by the runner (`user.partition_spec`); otherwise falls back
+    # to specs indexed by `user.number` or `user.get_id_or_address()` so
+    # this strategy can be exercised in tests without the full User class.
+    def _resolve_user_spec(self, user, specs):
+        attached = getattr(user, "partition_spec", None)
+        if attached is not None:
+            return attached
+        index = getattr(user, "number", None)
+        if index is not None and index in specs:
+            return specs[index]
+        if user.get_id_or_address() in specs:
+            return specs[user.get_id_or_address()]
+        raise ValueError(
+            f"PerUserSpecStrategy: no spec found for user {user.get_id_or_address()} "
+            f"(number={index})"
+        )
+
+    def _build_class_pool(self, sample_ids, rng):
+        if not self.partition.allow_overlap or self.partition.replication_factor == 1.0:
+            shuffled = list(sample_ids)
+            rng.shuffle(shuffled)
+            return shuffled
+
+        target_size = math.floor(len(sample_ids) * self.partition.replication_factor)
+        repeats = math.ceil(self.partition.replication_factor)
+        pool = list(sample_ids) * repeats
+        pool = pool[:target_size]
+        rng.shuffle(pool)
+        return pool
+
+    # Build demand[user_id][class] = integer sample count using
+    # total-budget-then-slice semantics. Largest-remainder rounding so the
+    # per-user totals stay close to budget without exceeding class supply.
+    def _build_demand_matrix(self, users, user_to_spec, ids_by_label, dataset_size):
+        demand: Dict[str, Dict[int, int]] = {}
+
+        for user in users:
+            user_id = user.get_id_or_address()
+            spec = user_to_spec[user_id]
+            budget = int(round(dataset_size * spec.data_percent / 100.0))
+
+            class_weights = self._resolve_class_weights(spec, ids_by_label)
+            counts = self._distribute_budget(budget, class_weights)
+            demand[user_id] = counts
+
+        return demand
+
+    # Resolve per-class weights for one user.
+    # Priority:
+    #   1. label_distribution (explicit) -> use as weights
+    #   2. only_labels        -> uniform over allowed classes weighted by class supply (stratified within allowed)
+    #   3. nothing            -> uniform over all classes weighted by class supply (full stratified)
+    def _resolve_class_weights(self, spec: UserPartitionSpec, ids_by_label) -> Dict[int, float]:
+        if spec.label_distribution is not None:
+            return {int(cls): float(weight) for cls, weight in spec.label_distribution.items()}
+
+        if spec.only_labels is not None:
+            allowed = [cls for cls in spec.only_labels if cls in ids_by_label]
+            return {cls: float(len(ids_by_label[cls])) for cls in allowed}
+
+        return {cls: float(len(samples)) for cls, samples in ids_by_label.items()}
+
+    # Distribute an integer budget across classes using largest-remainder.
+    # Filters out zero-weight classes so they get exactly zero samples.
+    def _distribute_budget(self, budget: int, class_weights: Dict[int, float]) -> Dict[int, int]:
+        if budget <= 0 or not class_weights:
+            return {cls: 0 for cls in class_weights}
+
+        weight_sum = sum(class_weights.values())
+        if weight_sum <= 0:
+            return {cls: 0 for cls in class_weights}
+
+        raw = {cls: budget * weight / weight_sum for cls, weight in class_weights.items()}
+        floor_counts = {cls: int(math.floor(value)) for cls, value in raw.items()}
+        leftover = budget - sum(floor_counts.values())
+        remainders = sorted(
+            ((raw[cls] - floor_counts[cls], cls) for cls in class_weights),
+            reverse=True,
+        )
+        for _, cls in remainders[:leftover]:
+            floor_counts[cls] += 1
+        return floor_counts
+
+    def _validate_class_supply(self, demand, class_supply, all_classes):
+        per_class_total: Dict[int, int] = {cls: 0 for cls in all_classes}
+        for user_counts in demand.values():
+            for cls, count in user_counts.items():
+                per_class_total[cls] = per_class_total.get(cls, 0) + count
+
+        conflicts = []
+        for cls, total in per_class_total.items():
+            supply = class_supply.get(cls, 0)
+            if total > supply:
+                conflicts.append(
+                    f"label {cls}: demand {total} > supply {supply}"
+                )
+        if conflicts:
+            raise ValueError(
+                "PerUserSpecStrategy: per-class budget conflict\n  - "
+                + "\n  - ".join(conflicts)
+            )
+
+    # Stratified train/val split: split per class, then concat. Guarantees
+    # the val split keeps the same class distribution as train within a user.
+    def _build_splits_stratified(self, users, user_to_spec, assigned_by_class, all_classes, rng):
+        user_splits = {}
+
+        for user in users:
+            user_id = user.get_id_or_address()
+            spec = user_to_spec[user_id]
+
+            train_ids: List[int] = []
+            val_ids: List[int] = []
+
+            for cls in all_classes:
+                ids = assigned_by_class[user_id].get(cls, [])
+                if not ids:
+                    continue
+                cls_train, cls_val = self.partition.split_train_val(ids)
+                train_ids.extend(cls_train)
+                val_ids.extend(cls_val)
+
+            # Within-user dedup in case overlap-mode pool produced dupes.
+            if self.partition.allow_overlap:
+                train_ids = self._dedupe_preserve_order(train_ids)
+                val_ids = self._dedupe_preserve_order(val_ids)
+                # If a sample landed in both train and val for this user,
+                # keep it in train and drop from val.
+                train_set = set(train_ids)
+                val_ids = [i for i in val_ids if i not in train_set]
+
+            rng.shuffle(train_ids)
+            rng.shuffle(val_ids)
+
+            num_samples = len(train_ids) + len(val_ids)
+            user_splits[user_id] = {
+                "data_percent": spec.data_percent,
+                "num_samples": num_samples,
+                "train_ids": train_ids,
+                "val_ids": val_ids,
+                "train_samples": len(train_ids),
+                "val_samples": len(val_ids),
+            }
+
+        return user_splits
+
+    def _dedupe_preserve_order(self, ids):
+        seen = set()
+        out = []
+        for sample_id in ids:
+            if sample_id in seen:
+                continue
+            seen.add(sample_id)
+            out.append(sample_id)
+        return out

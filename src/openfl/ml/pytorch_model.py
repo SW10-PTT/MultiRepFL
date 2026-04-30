@@ -217,11 +217,17 @@ class PytorchModel:
             trainset = CIFAR10("./data", train=True, download=True, transform=transform)
             testset = CIFAR10("./data", train=False, download=True, transform=transform_test)
 
+        per_user_specs = (
+            self.config.per_user_partitions
+            if self.config.partition_strategy == "per_user"
+            else None
+        )
         partitioner = DataPartition(
             validation_split=0.1,
             seed=seed,
             allow_overlap=allow_overlap,
             replication_factor=replication_factor,
+            per_user_specs=per_user_specs,
         )
         user_splits = partitioner.split_by_label(users, trainset.targets)
 

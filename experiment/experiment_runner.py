@@ -205,11 +205,20 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
 
 
 def apply_user_data_and_label_config(user: User, user_index: int, experiment_config: ExperimentConfiguration):
-    user.data_percent = float(experiment_config.data_percentages[user_index])
+    # Per-user strategy: spec drives data_percent, only_labels, flip_map.
+    # Global strategy: legacy data_percentages + label_rules drive them.
+    if experiment_config.partition_strategy == "per_user":
+        spec = experiment_config.per_user_partitions[user_index]
+        user.partition_spec = spec
+        user.data_percent = float(spec.data_percent)
+        user.only_labels = list(spec.only_labels) if spec.only_labels is not None else None
+        user.flip_map = dict(spec.flip_map)
+    else:
+        user.data_percent = float(experiment_config.data_percentages[user_index])
+        user_rule = experiment_config.label_rules.get(user_index, {})
+        user.only_labels = user_rule.get("only_labels")
+        user.flip_map = user_rule.get("flip_map", {})
 
-    user_rule = experiment_config.label_rules.get(user_index, {})
-    user.only_labels = user_rule.get("only_labels")
-    user.flip_map = user_rule.get("flip_map", {})
     user.seed = derive_user_seed(experiment_config, user_index)
 
 

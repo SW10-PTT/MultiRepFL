@@ -1,0 +1,61 @@
+{
+  "_doc": [
+    "Per-user partition spec, one entry per data-user (good + bad + freerider).",
+    "Activate by setting partition_strategy='per_user' + per_user_partitions='<this path>'",
+    "in ExperimentConfiguration.",
+    "",
+    "Fields per user:",
+    "  id         (int, required)        User Id",
+    "  data_percent       (float, required)      Total budget as % of dataset.",
+    "                                             Sum across users <= 100 (disjoint)",
+    "                                             or <= 100*replication_factor (overlap).",
+    "  label_distribution (dict[int->float])     Optional per-class weights (relative;",
+    "                                             normalized internally). Slices the",
+    "                                             total budget across the listed labels.",
+    "  only_labels        (list[int])            Optional whitelist. If set without",
+    "                                             label_distribution, budget is split",
+    "                                             stratified across the allowed classes.",
+    "  flip_map           (dict[int->int])       Optional malicious label-flip map.",
+    "                                             Wraps the dataset on read.",
+    "",
+    "Per-class supply check is order-independent: total demand for each class",
+    "(summed across users) must not exceed dataset's class size (or class size *",
+    "replication_factor in overlap mode). Conflicts raise ValueError up front.",
+    "",
+    "Example below: 6 data-users on a balanced 10-class dataset (e.g. MNIST/CIFAR10)."
+  ],
+
+  "users": [
+    {
+      "id": 0,
+      "data_percent": 12.0,
+      "label_distribution": {"0": 0.5, "1": 0.5}
+    },
+    {
+      "id": 1,
+      "data_percent": 12.0,
+      "label_distribution": {"2": 0.5, "3": 0.5}
+    },
+    {
+      "id": 2,
+      "data_percent": 12.0,
+      "label_distribution": {"4": 0.7, "9": 0.3}
+    },
+    {
+      "id": 3,
+      "data_percent": 18.0,
+      "only_labels": [5, 6, 7]
+    },
+    {
+      "id": 4,
+      "data_percent": 16.0,
+      "only_labels": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+    },
+    {
+      "id": 5,
+      "data_percent": 10.0,
+      "only_labels": [4, 9],
+      "flip_map": {"4": 9}
+    }
+  ]
+}

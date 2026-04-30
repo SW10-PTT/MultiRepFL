@@ -63,6 +63,8 @@ class User:
         self.flip_map: dict[int, int] = {}
         # Per-user RNG seed; set by the runner via derive_user_seed for reproducible per-user randomness.
         self.seed: int = 0
+        # Optional UserPartitionSpec (only set when ExperimentConfiguration uses partition_strategy="per_user").
+        self.partition_spec = None
 
     @property
     def finger_print(self):
@@ -75,6 +77,9 @@ class User:
             "only_labels": sorted(self.only_labels) if self.only_labels is not None else None,
             "flip_map": dict(sorted(self.flip_map.items())),
             "seed": self.seed,
+            "partition_spec": (
+                self.partition_spec.fingerprint_dict() if self.partition_spec is not None else None
+            ),
         }
 
         blob = json.dumps(data, sort_keys=True, separators=(",", ":"))

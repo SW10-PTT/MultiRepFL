@@ -1,9 +1,21 @@
+from __future__ import annotations
+
 import hashlib
 import json
 
 import math
+from typing import TYPE_CHECKING
 
+from openfl.ml.partition_spec import UserPartitionSpec, load_partition_specs
 from openfl.utils.types.TrainingSpecsJobListing import TrainingSpecsJobListing
+
+# Imported only for type hints; skipped at runtime to avoid circular imports
+# (FLChallenge transitively imports things that depend on this module).
+if TYPE_CHECKING:
+    from openfl.contracts.FLChallenge import FLChallenge
+
+
+VALID_PARTITION_STRATEGIES = ("global", "per_user")
 
 
 class ExperimentConfiguration:
@@ -38,7 +50,9 @@ class ExperimentConfiguration:
                  seed=42,
                  user_seeds=None,
                  allow_overlap=True,
-                 replication_factor=2.0): # Sets all entries in fbb to zeroes
+                 replication_factor=2.0,
+                 partition_strategy="global",
+                 per_user_partitions=None): # Sets all entries in fbb to zeroes
 
         self.name = name
         self.dataset = dataset
@@ -89,6 +103,19 @@ class ExperimentConfiguration:
         if self.replication_factor > 1.0 and not self.allow_overlap:
             raise ValueError("replication_factor > 1.0 requires allow_overlap=True")
 
+        # Toggle between the legacy stratified-global partitioner and the
+        # spec-driven per-user partitioner. per_user mode requires one spec
+        # per data-user (resolved below) and overrides data_percentages and
+        # label_rules at partition time.
+        if partition_strategy not in VALID_PARTITION_STRATEGIES:
+            raise ValueError(
+                f"partition_strategy must be one of {VALID_PARTITION_STRATEGIES}, got {partition_strategy!r}"
+            )
+        self.partition_strategy = partition_strategy
+        self.per_user_partitions = self._resolve_per_user_partitions(per_user_partitions)
+        if self.partition_strategy == "per_user":
+            self._validate_per_user_partitions()
+
 
     def get_training_specs(self, manager_address, model_hash) -> TrainingSpecsJobListing:
         return TrainingSpecsJobListing(model_hash, self.min_buy_in, self.max_buy_in, manager_address, self.reward, self.minimum_rounds, self.punish_factor, self.punish_factor_contrib, self.first_round_fee, 1) # Todo: Tasktype
@@ -119,6 +146,59 @@ class ExperimentConfiguration:
             raise ValueError("data_percentages must sum to 100")
 
         return data_percentages
+
+    def _resolve_per_user_partitions(self, per_user_partitions):
+        if per_user_partitions is None:
+            return {}
+        return load_partition_specs(per_user_partitions)
+
+    # Fail-fast validation for the per_user strategy. Catches missing/extra
+    # users, total-budget overflow, and (when disjoint) per-class budget
+    # overflow approximations. Per-class supply checks against the actual
+    # dataset happen later in PerUserSpecStrategy where the labels are known.
+    def _validate_per_user_partitions(self):
+        if not self.per_user_partitions:
+            raise ValueError(
+                "partition_strategy='per_user' requires per_user_partitions to be provided"
+            )
+
+        expected_indices = set(range(self.number_of_data_users))
+        provided_indices = set(self.per_user_partitions.keys())
+        missing = expected_indices - provided_indices
+        extra = provided_indices - expected_indices
+        if missing:
+            raise ValueError(f"per_user_partitions missing entries for user_index {sorted(missing)}")
+        if extra:
+            raise ValueError(f"per_user_partitions has unexpected entries for user_index {sorted(extra)}")
+
+        budget_cap = 100.0 * self.replication_factor if self.allow_overlap else 100.0
+        total_budget = sum(spec.data_percent for spec in self.per_user_partitions.values())
+        if total_budget > budget_cap + 1e-9:
+            raise ValueError(
+                f"per_user_partitions total data_percent {total_budget:.4f}% exceeds cap {budget_cap:.4f}%"
+            )
+
+        # Per-class demand check using label_distribution alone — actual
+        # supply check happens against the dataset in PerUserSpecStrategy.
+        # Here we only catch sums that are impossible regardless of dataset.
+        class_demand: dict[int, float] = {}
+        for spec in self.per_user_partitions.values():
+            if spec.label_distribution is None:
+                continue
+            weight_sum = sum(spec.label_distribution.values())
+            for label, weight in spec.label_distribution.items():
+                share = spec.data_percent * (weight / weight_sum)
+                class_demand[label] = class_demand.get(label, 0.0) + share
+
+        # Per-class budget can't exceed cap of one class — but classes are
+        # equal-sized only in balanced datasets. We check the loose ceiling:
+        # demand on a single class can never exceed budget_cap of dataset.
+        for label, demand in class_demand.items():
+            if demand > budget_cap + 1e-9:
+                raise ValueError(
+                    f"per_user_partitions over-subscribes label {label}: "
+                    f"demand {demand:.4f}% > cap {budget_cap:.4f}%"
+                )
 
     def _resolve_user_seeds(self, user_seeds):
         # Optional explicit per-user overrides. Anything not specified
@@ -158,6 +238,11 @@ class ExperimentConfiguration:
             "allow_overlap": self.allow_overlap,
             "replication_factor": self.replication_factor,
             "user_seeds": dict(sorted(self.user_seeds.items())),
+            "partition_strategy": self.partition_strategy,
+            "per_user_partitions": [
+                spec.fingerprint_dict()
+                for _, spec in sorted(self.per_user_partitions.items())
+            ],
         }
 
         blob = json.dumps(data, sort_keys=True, separators=(",", ":"))
