@@ -124,6 +124,9 @@ class PytorchModel:
         else:
             self.global_model = Net_CIFAR().to(DEVICE)
 
+        if USE_CUDA:
+            self.global_model = torch.compile(self.global_model, mode="reduce-overhead")
+
 
         self.NUMBER_OF_CONTRIBUTERS = _totalParticipants
         self.NUMBER_OF_BAD_CONTRIBUTORS = 0
@@ -177,6 +180,9 @@ class PytorchModel:
             _model = Net_MNIST().to(DEVICE)
         else:
             _model = Net_CIFAR().to(DEVICE)
+
+        if USE_CUDA:
+            _model = torch.compile(_model, mode="reduce-overhead")
 
         optimizer = optim.SGD(_model.parameters(), lr=0.001, momentum=0.9)
         criterion = nn.CrossEntropyLoss()
@@ -903,15 +909,15 @@ def train(net, trainloader: torch.utils.data.DataLoader, epochs: int, device: to
     # Compile ONCE per process (not per batch)
     if device.type == "cuda":
         try:
-            net = torch.compile(net)#, mode="reduce-overhead")
+            pass
+            #net = torch.compile(net)#, mode="reduce-overhead")
         except Exception:
             pass
 
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.SGD(net.parameters(), lr=0.001, momentum=0.9)
 
-    use_amp = device.type == "cuda"
-    scaler = torch.amp.GradScaler(enabled=use_amp)
+    scaler = torch.amp.GradScaler(enabled=AMP)
 
     net.train()
 
@@ -922,20 +928,16 @@ def train(net, trainloader: torch.utils.data.DataLoader, epochs: int, device: to
 
             optimizer.zero_grad(set_to_none=True)
 
-            with torch.autocast(device_type=device.type, enabled=use_amp):
+            with torch.autocast(device_type=device.type, enabled=AMP):
                 outputs = net(images)
-                loss = criterion(outputs, labels)
+
+            loss = criterion(outputs, labels)
 
             scaler.scale(loss).backward()
             scaler.step(optimizer)
             scaler.update()
 
-def test(net, testloader: torch.utils.data.DataLoader, device: torch.device) -> Tuple[float, float]:
-    """
-    Evaluate model on test set: forward pass only (no gradients), with optional AMP on CUDA
-    Accumulate total cross-entropy loss and count correct predictions for accuracy
-    Returns (total_loss, accuracy) over the entire test dataset
-    """
+def test(net, testloader, device):
     criterion = nn.CrossEntropyLoss()
     net.eval()
 
@@ -943,23 +945,24 @@ def test(net, testloader: torch.utils.data.DataLoader, device: torch.device) -> 
     total = 0
     loss = 0.0
 
-    use_amp = device.type == "cuda"
-
     with torch.no_grad():
         for images, labels in testloader:
             images = images.to(device, non_blocking=NON_BLOCKING)
             labels = labels.to(device, non_blocking=NON_BLOCKING)
 
-            with torch.autocast(device_type=device.type, enabled=use_amp):
+            with torch.autocast(device_type=device.type, enabled=AMP):
                 outputs = net(images)
-                loss += criterion(outputs, labels).item()
-                _, predicted = torch.max(outputs, 1)
+
+            batch_loss = criterion(outputs, labels)
+            loss += batch_loss.item() * labels.size(0)
+
+            predicted = outputs.argmax(dim=1)
 
             total += labels.size(0)
             correct += (predicted == labels).sum().item()
 
+    loss /= total
     accuracy = correct / total
-    loss = min(sys.float_info.max, loss)
 
     return loss, accuracy
 
@@ -1000,14 +1003,16 @@ def train_user_proc(user_addr, model_state, train_ds, val_ds, epochs, device_id,
                     shuffle):
     # Multi-GPU Support
     # Select device
-    use_cuda = torch.cuda.is_available()
-    device = torch.device(f"cuda:{device_id}" if use_cuda else "cpu")
+    device = torch.device(f"cuda:{device_id}" if USE_CUDA else "cpu")
 
     # Recreate model based on dataset
     if dataset == "mnist":
         model = Net_MNIST()
     else:
         model = Net_CIFAR()
+
+    if USE_CUDA:
+            model = torch.compile(model, mode="reduce-overhead")
 
     model.load_state_dict(model_state)
     model.to(device)

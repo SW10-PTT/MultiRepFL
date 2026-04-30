@@ -19,6 +19,7 @@ class PyTorchTrainer(ITestAndTrainer):
 
     def test(self, round, tag, net, testloader: torch.utils.data.DataLoader, device: torch.device) -> Tuple[
             float, float]:
+        print(f"Test device: {device}")
         from openfl.ml.pytorch_model import test
         data = test(net, testloader, device)
         if ReplayMode.Record in reuse_runs:

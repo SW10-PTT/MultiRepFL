@@ -1,0 +1,119 @@
+{
+  "participants": [
+    {
+      "finger_print": "6b271cbb23c17118f40899b0c7a2d6693c96d388c10396c3b061d3c564deccbf",
+      "id": "a80c3d68-fbb9-4125-9d27-bef31c0a8dc1"
+    },
+    {
+      "finger_print": "6b271cbb23c17118f40899b0c7a2d6693c96d388c10396c3b061d3c564deccbf",
+      "id": "10a42186-7d6a-41b0-98b4-7ab446062d8f"
+    }
+  ],
+  "config": {
+    "name": null,
+    "dataset": "mnist",
+    "fork": true,
+    "number_of_participants": 2,
+    "number_of_good_contributors": 4,
+    "number_of_bad_contributors": 1,
+    "number_of_freerider_contributors": 1,
+    "number_of_inactive_contributors": 0,
+    "reward": 1000000000000000000,
+    "minimum_rounds": 1,
+    "min_buy_in": 1000000000000000000,
+    "max_buy_in": 1000000000000000000,
+    "standard_buy_in": 1000000000000000000,
+    "epochs": 1,
+    "batch_size": 256,
+    "punish_factor": 3,
+    "punish_factor_contrib": 3,
+    "first_round_fee": 50,
+    "contribution_score_strategy": "accuracy_loss",
+    "use_outlier_detection": true,
+    "freerider_noise_scale": 0.5,
+    "freerider_start_round": 1,
+    "malicious_start_round": 1,
+    "malicious_noise_scale": 0.5,
+    "force_merge_all": false,
+    "data_percentages": [
+      16.666666666666668,
+      16.666666666666668,
+      16.666666666666668,
+      16.666666666666668,
+      16.666666666666668,
+      16.666666666666668
+    ],
+    "label_rules": {}
+  },
+  "rounds": {
+    "0": {
+      "test-setup_replay-globalmodel": [
+        2.299175,
+        0.1294
+      ]
+    },
+    "-1": {
+      "save-setup_replay-path": "/mnt/bigSpeed/dev/MultiRepFL/experiment/data/sample/30-04-26--16_14_14/mnist-accuracy_loss-1-0.5-1-0.5-True-{93366f4e-304a-4f76-8e7a-8bdf610820b1}.csv",
+      "get_task_rep_delta_and_GRS-simulate": [
+        [
+          "a80c3d68-fbb9-4125-9d27-bef31c0a8dc1",
+          553225806451612900,
+          1553225806451612900
+        ],
+        [
+          "10a42186-7d6a-41b0-98b4-7ab446062d8f",
+          446774193548387099,
+          1446774193548387099
+        ]
+      ]
+    },
+    "1": {
+      "train_user_proc-run_sequential-a80c3d68-fbb9-4125-9d27-bef31c0a8dc1-1": [
+        "a80c3d68-fbb9-4125-9d27-bef31c0a8dc1",
+        2.286109375,
+        0.183
+      ],
+      "train_user_proc-run_sequential-10a42186-7d6a-41b0-98b4-7ab446062d8f-1": [
+        "10a42186-7d6a-41b0-98b4-7ab446062d8f",
+        2.291015625,
+        0.13
+      ],
+      "test-finalize_paricipant_evaluation-a80c3d68-fbb9-4125-9d27-bef31c0a8dc1": [
+        2.287259375,
+        0.1755
+      ],
+      "get_hash-finalize_paricipant_evaluation-a80c3d68-fbb9-4125-9d27-bef31c0a8dc1": "0xf2ee4bab5c318d12e50648fce8cbc9dbe391e6d7346734dac14ab98de66ff7b5",
+      "test-finalize_paricipant_evaluation-10a42186-7d6a-41b0-98b4-7ab446062d8f": [
+        2.290559375,
+        0.1143
+      ],
+      "get_hash-finalize_paricipant_evaluation-10a42186-7d6a-41b0-98b4-7ab446062d8f": "0xa03868669732d9e3d50bc652a2ae037ab60ff0076002de85cbadc034a0f506b4",
+      "on_chain_hashed_weights-simulate": {
+        "a80c3d68-fbb9-4125-9d27-bef31c0a8dc1": "f2ee4bab5c318d12e50648fce8cbc9dbe391e6d7346734dac14ab98de66ff7b5",
+        "10a42186-7d6a-41b0-98b4-7ab446062d8f": "a03868669732d9e3d50bc652a2ae037ab60ff0076002de85cbadc034a0f506b4"
+      },
+      "get_hash-verify_models-10a42186-7d6a-41b0-98b4-7ab446062d8f": "0xa03868669732d9e3d50bc652a2ae037ab60ff0076002de85cbadc034a0f506b4",
+      "get_hash-verify_models-a80c3d68-fbb9-4125-9d27-bef31c0a8dc1": "0xf2ee4bab5c318d12e50648fce8cbc9dbe391e6d7346734dac14ab98de66ff7b5",
+      "test-feedback-globalmodel-a80c3d68-fbb9-4125-9d27-bef31c0a8dc1-10a42186-7d6a-41b0-98b4-7ab446062d8f": [
+        2.298375,
+        0.126
+      ],
+      "test-feedback-usermodel-a80c3d68-fbb9-4125-9d27-bef31c0a8dc1-10a42186-7d6a-41b0-98b4-7ab446062d8f": [
+        2.291015625,
+        0.122
+      ],
+      "test-feedback-globalmodel-10a42186-7d6a-41b0-98b4-7ab446062d8f-a80c3d68-fbb9-4125-9d27-bef31c0a8dc1": [
+        2.298375,
+        0.133
+      ],
+      "test-feedback-usermodel-10a42186-7d6a-41b0-98b4-7ab446062d8f-a80c3d68-fbb9-4125-9d27-bef31c0a8dc1": [
+        2.288109375,
+        0.188
+      ],
+      "test-themerge-globalmodel": [
+        2.30108125,
+        0.132
+      ]
+    }
+  }
+}
