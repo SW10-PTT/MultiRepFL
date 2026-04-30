@@ -519,8 +519,8 @@ class PytorchModel:
     def apply_training_results(self, results):
         # Apply results back to participants
         participant_map = {x.id: x for x in self.participants}
-        for user_address, state_dict, val_loss, val_acc in results:
-            user = participant_map[user_address]
+        for user_id, state_dict, val_loss, val_acc in results:
+            user = participant_map[user_id]
             user.model.load_state_dict(state_dict)
             user.currentAcc = val_acc # Line 287 in original code
             user.currentLoss = val_loss
@@ -582,7 +582,7 @@ class PytorchModel:
                     async_results.append(pool.apply_async(
                         train_user_proc,
                         (
-                        user.address,
+                        user.id,
                         sd_cpu,
                         user.train.dataset,
                         user.val.dataset,

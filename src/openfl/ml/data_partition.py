@@ -77,7 +77,7 @@ class DataPartition:
 
             for user, count in zip(users, counts):
                 user_id = user.get_id_or_address()
-                assigned_ids_by_user[user_id].extend(sample_ids[start:start + count])
+                assigned_ids_by_user[user_id].extend(pool[start:start + count])
                 start += count
 
         # Dedup within user (overlap mode can produce within-user dupes

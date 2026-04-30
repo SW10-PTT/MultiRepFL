@@ -1,0 +1,98 @@
+{
+  "participants": [
+    {
+      "finger_print": "6b271cbb23c17118f40899b0c7a2d6693c96d388c10396c3b061d3c564deccbf",
+      "id": "02a1e541-9cd4-427e-8cd1-50d55fd111fa"
+    },
+    {
+      "finger_print": "6b271cbb23c17118f40899b0c7a2d6693c96d388c10396c3b061d3c564deccbf",
+      "id": "c6feaac5-07bb-45cc-ae37-abe8af22d876"
+    }
+  ],
+  "config": {
+    "name": null,
+    "dataset": "mnist",
+    "fork": true,
+    "number_of_participants": 2,
+    "number_of_good_contributors": 4,
+    "number_of_bad_contributors": 1,
+    "number_of_freerider_contributors": 1,
+    "number_of_inactive_contributors": 0,
+    "reward": 1000000000000000000,
+    "minimum_rounds": 1,
+    "min_buy_in": 1000000000000000000,
+    "max_buy_in": 1000000000000000000,
+    "standard_buy_in": 1000000000000000000,
+    "epochs": 1,
+    "batch_size": 32,
+    "punish_factor": 3,
+    "punish_factor_contrib": 3,
+    "first_round_fee": 50,
+    "contribution_score_strategy": "accuracy_loss",
+    "use_outlier_detection": true,
+    "freerider_noise_scale": 0.5,
+    "freerider_start_round": 1,
+    "malicious_start_round": 1,
+    "malicious_noise_scale": 0.5,
+    "force_merge_all": false,
+    "data_percentages": [
+      16.666666666666668,
+      16.666666666666668,
+      16.666666666666668,
+      16.666666666666668,
+      16.666666666666668,
+      16.666666666666668
+    ],
+    "label_rules": {},
+    "seed": 42,
+    "user_seeds": {},
+    "allow_overlap": true,
+    "replication_factor": 2.0
+  },
+  "rounds": {
+    "0": {
+      "test-setup_replay-globalmodel": [
+        720.9883234500885,
+        0.1141
+      ]
+    },
+    "1": {
+      "test-finalize_paricipant_evaluation-02a1e541-9cd4-427e-8cd1-50d55fd111fa": [
+        142.19155182689428,
+        0.8734
+      ],
+      "finalize_paricipant_evaluation-02a1e541-9cd4-427e-8cd1-50d55fd111fa": "0x9d872a54750ea8a279db101458c807e7f8234afec33777318c80279979ab909a",
+      "test-finalize_paricipant_evaluation-c6feaac5-07bb-45cc-ae37-abe8af22d876": [
+        149.40634743124247,
+        0.8638
+      ],
+      "finalize_paricipant_evaluation-c6feaac5-07bb-45cc-ae37-abe8af22d876": "0x46433c3f6df5c6abe0ec2e433a1ba5d5b1a2c05b05b965b0c0842d4bb2488bcb",
+      "on_chain_hashed_weights-simulate": {
+        "02a1e541-9cd4-427e-8cd1-50d55fd111fa": "0x9d872a54750ea8a279db101458c807e7f8234afec33777318c80279979ab909a",
+        "c6feaac5-07bb-45cc-ae37-abe8af22d876": "0x46433c3f6df5c6abe0ec2e433a1ba5d5b1a2c05b05b965b0c0842d4bb2488bcb"
+      },
+      "get_hash-verify_models-c6feaac5-07bb-45cc-ae37-abe8af22d876": "0x46433c3f6df5c6abe0ec2e433a1ba5d5b1a2c05b05b965b0c0842d4bb2488bcb",
+      "get_hash-verify_models-02a1e541-9cd4-427e-8cd1-50d55fd111fa": "0x9d872a54750ea8a279db101458c807e7f8234afec33777318c80279979ab909a",
+      "test-feedback-globalmodel-02a1e541-9cd4-427e-8cd1-50d55fd111fa-c6feaac5-07bb-45cc-ae37-abe8af22d876": [
+        133.58586978912354,
+        0.12962962962962962
+      ],
+      "test-feedback-usermodel-02a1e541-9cd4-427e-8cd1-50d55fd111fa-c6feaac5-07bb-45cc-ae37-abe8af22d876": [
+        28.637712359428406,
+        0.8600217864923747
+      ],
+      "test-feedback-globalmodel-c6feaac5-07bb-45cc-ae37-abe8af22d876-02a1e541-9cd4-427e-8cd1-50d55fd111fa": [
+        133.65487599372864,
+        0.1050626020685901
+      ],
+      "test-feedback-usermodel-c6feaac5-07bb-45cc-ae37-abe8af22d876-02a1e541-9cd4-427e-8cd1-50d55fd111fa": [
+        26.99817955493927,
+        0.8655416439847577
+      ],
+      "test-themerge-globalmodel": [
+        512.2080023288727,
+        0.8041
+      ]
+    }
+  }
+}

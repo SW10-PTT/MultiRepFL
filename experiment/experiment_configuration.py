@@ -37,8 +37,8 @@ class ExperimentConfiguration:
                  label_rules=None,
                  seed=42,
                  user_seeds=None,
-                 allow_overlap=False,
-                 replication_factor=1.0): # Sets all entries in fbb to zeroes
+                 allow_overlap=True,
+                 replication_factor=2.0): # Sets all entries in fbb to zeroes
 
         self.name = name
         self.dataset = dataset

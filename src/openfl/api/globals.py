@@ -1,6 +1,6 @@
 fork = True
 w3 = None
-reuse_runs = True
+reuse_runs = False
 gas_used = {}
 repo_dir = "runs"
 
