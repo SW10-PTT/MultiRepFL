@@ -28,14 +28,14 @@ config = ExperimentConfiguration(
     # 0: {"only_labels": [0, 1, 2, 3, 4]}
     # 0: {"flip_map": {4: 9}}
     # 0: {"only_labels": [0, 1, 2, 3, 4], "flip_map": {4: 9}}
-    label_rules={
-        0: {"only_labels": [0, 1, 2, 3, 4]},
-        1: {"only_labels": [0, 1, 2, 3, 4]},
-        2: {"only_labels": [0, 1, 2, 3, 4]},
-        3: {"only_labels": [5, 6, 7, 8, 9]},
-        4: {"only_labels": [5, 6, 7, 8, 9]},
-        5: {"only_labels": [5, 6, 7, 8, 9]},
-    },
+    #label_rules={
+    #    0: {"only_labels": [0, 1, 2, 3, 4]},
+    #    1: {"only_labels": [0, 1, 2, 3, 4]},
+    #    2: {"only_labels": [0, 1, 2, 3, 4]},
+    #    3: {"only_labels": [5, 6, 7, 8, 9]},
+    #    4: {"only_labels": [5, 6, 7, 8, 9]},
+    #    5: {"only_labels": [5, 6, 7, 8, 9]},
+    #},
 )
 
 # OVERSKRIV variabler her for testing. eksempel: config = ExperimentConfiguration(minimum_rounds=1), hvis du kun vil køre een round#DATASET = "cifar-10"
