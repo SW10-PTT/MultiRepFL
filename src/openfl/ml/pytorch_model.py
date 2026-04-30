@@ -22,6 +22,7 @@ from torchvision import transforms
 from torchvision.datasets import CIFAR10, MNIST
 from torch.utils.data import DataLoader, Subset, random_split
 
+from openfl.api.globals import ReplayMode
 from openfl.ml.data_partition import DataPartition
 
 from experiment.experiment_configuration import ExperimentConfiguration
@@ -864,7 +865,7 @@ class PytorchModel:
 
         fileName = get_filename(experiment_finger_print, config)
 
-        if globals.reuse_runs and fileName.is_file():
+        if ReplayMode.PlayBack in globals.reuse_runs and fileName.is_file():
             self.runRepo: ITestAndTrainer = RunRepo(config, fileName)  # Hash config to compare?
             self.replaying = True
         else:

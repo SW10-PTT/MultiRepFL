@@ -154,7 +154,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                 continue
             if globals.fork:
                 tx = super().build_tx(acc.address, self.contractAddress, 0)
-                txHash = self.contract.functions.provideHashedWeights(acc.hashedModel, acc.secret).transact(tx)
+                txHash = self.contract.functions.provideHashedWeights(acc.hashedModel, acc.secret).transact(tx) # Todo: use self.transact
 
             else:          
                 nonce = globals.w3.eth.get_transaction_count(acc.address) 
@@ -200,7 +200,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
             score = -1
         try:
             if fork:
-                txHash = self.contract.functions.feedback(target.address, score).transact(tx)
+                txHash = self.contract.functions.feedback(target.address, score).transact(tx) # Todo: use self.transact
             else:          
                 nonce = w3.eth.get_transaction_count(feedbackGiver.address)
                 fe = super().build_non_fork_tx(feedbackGiver.address, nonce)
@@ -212,7 +212,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                 input("Inactive users found - such users do not provide hashed weights.. \nGoing to forward time for 1 day\n")
                 w3.provider.make_request("evm_increaseTime", [self.config.WAIT_DELAY])
                 time.sleep(1)
-                txHash = self.contract.functions.feedback(target.address, score).transact(tx)
+                txHash = self.contract.functions.feedback(target.address, score).transact(tx) # Todo: use self.transact
             else:
                 print(rb("Encountered error at feedback function"))
                 raise 
@@ -361,7 +361,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                     tx = super().build_tx(user.address, self.contractAddress)
                     tx_hash = self.contract.functions.submitFeedbackBytes(
                         rb_fbb
-                    ).transact(tx)
+                    ).transact(tx) # Todo: use self.transact
                 else:
                     tx_hash = self.sign_and_send_tx(
                         user,
@@ -374,7 +374,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                     tx = super().build_tx(user.address, self.contractAddress)
                     tx_hash = self.contract.functions.submitFeedbackBytesAndAccuraciesLosses(
                         rb_fbb, filtered_accs, filtered_losses, matrices.prev_accuracies[user_id].tolist(), matrices.prev_losses[user_id].tolist()
-                    ).transact(tx)
+                    ).transact(tx) # Todo: use self.transact
                 else:
                     tx_hash = self.sign_and_send_tx(
                         user,
@@ -391,7 +391,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                     tx = super().build_tx(user.address, self.contractAddress)
                     tx_hash = self.contract.functions.submitFeedbackBytesAndAccuracies(
                         rb_fbb, filtered_accs, prev_acc
-                    ).transact(tx)
+                    ).transact(tx) # Todo: use self.transact
                 else:
                     tx_hash = self.sign_and_send_tx(
                         user,
@@ -408,7 +408,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                     tx = super().build_tx(user.address, self.contractAddress)
                     tx_hash = self.contract.functions.submitFeedbackBytesAndLosses(
                         rb_fbb, filtered_losses, prev_loss
-                    ).transact(tx)
+                    ).transact(tx) # Todo: use self.transact
                 else:
                     tx_hash = self.sign_and_send_tx(
                         user,
@@ -658,7 +658,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                                                acc.secret, acc.address])
             if globals.fork:
                 tx = super().build_tx(acc.address, self.contractAddress, 0)
-                txHash = self.contract.functions.registerSlot(reservation).transact(tx)
+                txHash = self.contract.functions.registerSlot(reservation).transact(tx) # Todo: use self.transact
             else:
                 w3 = ConnectionHelper.get_w3()          
                 nonce = w3.eth.get_transaction_count(acc.address) 
@@ -696,7 +696,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
             
             if globals.fork:
                 tx = super().build_tx(acc.address, self.contractAddress, 0)
-                txHash = self.contract.functions.exitModel().transact(tx)
+                txHash = self.contract.functions.exitModel().transact(tx) # Todo: use self.transact
             else:
                 w3 = ConnectionHelper.get_w3()          
                 nonce = w3.eth.get_transaction_count(acc.address) 
@@ -831,7 +831,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                 tx = super().build_tx(u.address, self.contractAddress)
                 tx_hash = self.contract.functions.submitContributionScore(
                     score
-                ).transact(tx)
+                ).transact(tx) # Todo: use self.transact
             else:  # TODO: Dobbeltjek at logic er rigtig her.
                 nonce = globals.w3.eth.get_transaction_count(u.address)
                 cl = super().build_non_fork_tx(

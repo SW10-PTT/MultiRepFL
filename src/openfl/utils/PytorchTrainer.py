@@ -1,11 +1,11 @@
-from typing import Tuple, OrderedDict
+from typing import Tuple
 
 import torch
 
 from experiment.experiment_configuration import ExperimentConfiguration
+from openfl.api.globals import ReplayMode, reuse_runs
 from openfl.utils.ITestAndTrainer import ITestAndTrainer
-from openfl.utils.types.ReplayTrainingSpecs import ReplayTrainingSpecs
-
+import openfl.api.globals
 
 class PyTorchTrainer(ITestAndTrainer):
     def __init__(self, config: ExperimentConfiguration, path="training_trace.json"):
@@ -20,7 +20,8 @@ class PyTorchTrainer(ITestAndTrainer):
             float, float]:
         from openfl.ml.pytorch_model import test
         data = test(net, testloader, device)
-        self.save(round, tag, data)
+        if ReplayMode.Record in reuse_runs:
+            self.save(round, tag, data)
         return data
 
     def get_hash(
@@ -30,16 +31,14 @@ class PyTorchTrainer(ITestAndTrainer):
             model_state):
         from openfl.ml.pytorch_model import get_hash
         result = get_hash(model_state)
-        self.save(round, tag, result)
+        if ReplayMode.Record in reuse_runs:
+            self.save(round, tag, result)
         return result
 
     def on_chain_hashed_weights(self, round, tag, FLChallenge):
-        resultSave = {
-            str(u.id): "0x" + FLChallenge.get_hashed_weights_of(u).hex()
-            for u in FLChallenge.pytorch_model.participants
-        }
         result = {u.id: FLChallenge.get_hashed_weights_of(u) for u in FLChallenge.pytorch_model.participants}
-        self.save(round, tag, resultSave)
+        if ReplayMode.Record in reuse_runs:
+            self.save(round, tag, result)
         return result
 
     # NOT TO BE USED WITH MP
@@ -53,5 +52,6 @@ class PyTorchTrainer(ITestAndTrainer):
         result = train_user_proc(user_id, model_state, train_ds, val_ds, epochs, device_id, dataset, batchsize, pin_memory,
                                  shuffle)
         stripped_result = (result[0], result[2], result[3])
-        self.save(round, tag, stripped_result)
+        if ReplayMode.Record in reuse_runs:
+            self.save(round, tag, stripped_result)
         return result

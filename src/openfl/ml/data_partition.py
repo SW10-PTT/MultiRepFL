@@ -1,8 +1,15 @@
+from __future__ import annotations
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from openfl.utils.types.User import User
+
 from typing import List
 
 import math
 import random
 from torch.utils.data import Dataset
+
 
 class FlippedLabelDataset(Dataset):
     def __init__(self, dataset, user):
@@ -25,7 +32,7 @@ class DataPartition:
         self.validation_split = validation_split
         self.seed = seed
 
-    def split_by_label(self, users: List["User"], labels):
+    def split_by_label(self, users: List[User], labels):
         labels = self.normalize_labels(labels)
         self.validate_percentages(users)
 
@@ -115,7 +122,7 @@ class DataPartition:
         if not math.isclose(sum(percents), 100.0, abs_tol=1e-9):
             raise ValueError("Total data_percent must equal 100")
 
-    def get_percent(self, user):
+    def get_percent(self, user: User):
         if hasattr(user, "data_percent"):
             return float(user.data_percent)
         raise ValueError(

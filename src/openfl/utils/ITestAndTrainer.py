@@ -11,16 +11,14 @@ from pathlib import Path
 from typing import Tuple, OrderedDict, List
 
 from hexbytes import HexBytes
-from torch.distributed.checkpoint import state_dict, state_dict_saver
 
 from openfl.api import globals
 
 import torch
-from pure_eval.utils import safe_name
 
 from experiment.experiment_configuration import ExperimentConfiguration
+from openfl.api.globals import ReplayMode
 from openfl.utils.types.Attitude import Attitude
-from openfl.utils.types.ReplayTrainingSpecs import ReplayTrainingSpecs
 from openfl.ml.Participant import Participant
 from openfl.utils.types.User import User
 
@@ -190,7 +188,7 @@ def _serialize(obj):
     raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
 
 def get_filename(finger_print, config):
-    if globals.reuse_runs:
+    if ReplayMode.PlayBack in globals.reuse_runs:
         files = [f for f in list(Path(globals.repo_dir).glob("*.json")) if f.is_file() and f.name.endswith(f"{finger_print}.json")]
         random_file = random.choice(files) if files else None
         if random_file:

@@ -1,8 +1,12 @@
+from __future__ import annotations
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from openfl.utils.types.User import User
 import hashlib
 import json
 
 import math
-
 from openfl.utils.types.TrainingSpecsJobListing import TrainingSpecsJobListing
 
 
@@ -106,12 +110,12 @@ class ExperimentConfiguration:
 
         return data_percentages
 
-    def get_finger_print(self, challenge: "FLChallenge"):
-        participants = []
-        for participant in challenge.pytorch_model.participants:
-            participants.append(participant.finger_print)
+    def get_finger_print(self, selected_users: list[User]):
+        users = []
+        for user in selected_users:
+            users.append(user.finger_print)
 
-        participants = participants.sort()
+        users = users.sort()
 
         data = {
             "dataset": self.dataset,
@@ -131,7 +135,7 @@ class ExperimentConfiguration:
             "malicious_start_round": self.malicious_start_round,
             "malicious_noise_scale": self.malicious_noise_scale,
             "force_merge_all": self.force_merge_all,
-            "participants": participants,
+            "users": users,
         }
 
         blob = json.dumps(data, sort_keys=True, separators=(",", ":"))

@@ -120,11 +120,11 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
 
   trainingSpecsChallenge = training_specs.to_challenge(experiment_config.contribution_score_strategy, experiment_config.use_outlier_detection, new_job_listing.contract.address)
 
-  newChallenge: Challenge = publisher.deploy_challenge_contract(trainingSpecsChallenge, new_job_listing, pytorch_model, writer, logger)
-
   participating_users = get_users_from_addresses(users, participants_addresses)
 
-  experiment_finger_print = experiment_config.get_finger_print(newChallenge)
+  experiment_finger_print = experiment_config.get_finger_print(participating_users)
+
+  newChallenge: Challenge = publisher.deploy_challenge_contract(trainingSpecsChallenge, new_job_listing, pytorch_model, writer, logger)
 
   newChallenge.pytorch_model.setup_replay(experiment_finger_print, experiment_config)
 
