@@ -74,6 +74,7 @@ class User:
             "data_percent": round(self.data_percent, 8),
             "only_labels": sorted(self.only_labels) if self.only_labels is not None else None,
             "flip_map": dict(sorted(self.flip_map.items())),
+            "seed": self.seed,
         }
 
         blob = json.dumps(data, sort_keys=True, separators=(",", ":"))

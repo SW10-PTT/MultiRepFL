@@ -128,11 +128,12 @@ class ExperimentConfiguration:
         return {int(user_index): int(seed) for user_index, seed in user_seeds.items()}
 
     def get_finger_print(self, challenge: "FLChallenge"):
-        participants = []
-        for participant in challenge.pytorch_model.participants:
-            participants.append(participant.finger_print)
-
-        participants = participants.sort()
+        # Sort participant fingerprints so config fingerprint is order-invariant.
+        # `list.sort()` returns None, so use `sorted()` to actually capture the result.
+        participants = sorted(
+            participant.finger_print
+            for participant in challenge.pytorch_model.participants
+        )
 
         data = {
             "dataset": self.dataset,
@@ -153,6 +154,10 @@ class ExperimentConfiguration:
             "malicious_noise_scale": self.malicious_noise_scale,
             "force_merge_all": self.force_merge_all,
             "participants": participants,
+            "seed": self.seed,
+            "allow_overlap": self.allow_overlap,
+            "replication_factor": self.replication_factor,
+            "user_seeds": dict(sorted(self.user_seeds.items())),
         }
 
         blob = json.dumps(data, sort_keys=True, separators=(",", ":"))
