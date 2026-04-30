@@ -153,7 +153,7 @@ venv.bak/
 !.env/
 .env/*
 !.env/.env.ganache.example
-.runs/*
+runs/
 
 #Bytecode
 artifacts/bytecode/**
