@@ -19,9 +19,11 @@ from openfl.api import globals
 
 from openfl.utils.async_writer import AsyncWriter
 from openfl.utils.types.User import User
+from openfl.utils.printer import set_enabled_tags
 
 
 def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration, writer: AsyncWriter=None, logger=None):
+  set_enabled_tags(experiment_config.enabled_prints)
 
   dataset_name = dataset_name.replace(".", "-")
   experiment_config.dataset = dataset_name

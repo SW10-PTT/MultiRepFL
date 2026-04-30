@@ -2,6 +2,11 @@ import math
 
 from openfl.utils.types.TrainingSpecsJobListing import TrainingSpecsJobListing
 
+DEFAULT_ENABLED_PRINTS_CONFIG = {
+    "tag1",
+    "tag2",
+    "HelloWorld"
+}
 
 class ExperimentConfiguration:
     def __init__(self,
@@ -28,7 +33,8 @@ class ExperimentConfiguration:
                  malicious_start_round=3,
                  force_merge_all=False,
                  data_percentages=None,
-                 label_rules=None): # Sets all entries in fbb to zeroes
+                 label_rules=None,
+                 enabled_prints=None): # Sets all entries in fbb to zeroes
 
         self.fork = fork
 
@@ -64,6 +70,10 @@ class ExperimentConfiguration:
         self.force_merge_all = force_merge_all
         self.data_percentages = self._resolve_data_percentages(data_percentages)
         self.label_rules = self._resolve_label_rules(label_rules)
+        self.enabled_prints = (
+            set(enabled_prints) if enabled_prints is not None
+            else set(DEFAULT_ENABLED_PRINTS_CONFIG)
+        )
 
         class userConfig:
             number_of_good_contributors = "a"
