@@ -36,7 +36,6 @@ from openfl.utils.types.Attitude import Attitude
 from openfl.utils.types.Colors import gb, rb, red, yellow, green, b
 from openfl.utils.types.ReplayTrainingSpecs import ReplayTrainingSpecs
 from openfl.utils.types.userDict import UserDict
-from parser.types import participant
 
 torch._dynamo.config.cache_size_limit = 512
 import logging
@@ -505,7 +504,7 @@ class PytorchModel:
         loss, acc = self.runRepo.test(self.round,f"test-finalize_paricipant_evaluation-{participant.id}", participant.model, self.test, DEVICE) # TODO: Investigate if this should be user.val instead.
         participant._accuracy.append(acc) # Line 295 in original code # TODO: Investigate if this should be test and not validation accuracy.
         participant._loss.append(loss) # Line 296 in original code # TODO: Investigate if this should be test and not validation loss.
-        participant.hashedModel = self.runRepo.get_hash(self.round, f"finalize_paricipant_evaluation-{participant.id}", participant.model.state_dict())
+        participant.hashedModel = self.runRepo.get_hash(self.round, f"get_hash-finalize_paricipant_evaluation-{participant.id}", participant.model.state_dict())
 
 
     def apply_training_results(self, results):
@@ -749,6 +748,7 @@ class PytorchModel:
 
     def evaluation(self):
         print("Users evaluating models...")
+        start_total = time.perf_counter()
 
         scalar = 100 # Adds more decimals for precision (Adding 0 gives another decimal, vice versa)
         MAX_UINT16_SIZE = 65535
@@ -850,26 +850,24 @@ class PytorchModel:
         print("PREVIOUS LOSSES:")
         print(matrices.prev_losses)
         print("-----------------------------------------------------------------------------------")
-
+        print(f"TOTAL evaluation time: {time.perf_counter() - start_total:.3f}s")
         return matrices
 
-        return feedback_matrix, accuracy_matrix, loss_matrix, prev_accs, prev_losses, addresses
-
-    def get_participant(self, address_or_id):
-        p = next((x for x in self.participants if x.id == address_or_id), None)
+    def get_participant(self, address_or_id, participants = None):
+        if participants is None:
+            participants = self.participants
+        p = next((x for x in participants if x.id == address_or_id), None)
         if p:
             return p
-        return next((x for x in self.participants if x.address == address_or_id), None)
+        return next((x for x in participants if x.address == address_or_id), None)
 
-    def setup_replay(self, experiment_finger_print, config: ExperimentConfiguration):
+    def setup_replay(self, filename, config: ExperimentConfiguration, path):
 
-        fileName = get_filename(experiment_finger_print, config)
-
-        if ReplayMode.PlayBack in globals.reuse_runs and fileName.is_file():
-            self.runRepo: ITestAndTrainer = RunRepo(config, fileName)  # Hash config to compare?
+        if ReplayMode.PlayBack in globals.reuse_runs and filename.is_file():
+            self.runRepo: ITestAndTrainer = RunRepo(config, filename)
             self.replaying = True
         else:
-            self.runRepo: ITestAndTrainer = PyTorchTrainer(config, fileName)  # Hash config to compare?
+            self.runRepo: ITestAndTrainer = PyTorchTrainer(config, filename)
 
         loss, accuracy = self.runRepo.test(0, f"test-setup_replay-globalmodel", self.global_model, self.test, DEVICE)
 
@@ -877,6 +875,7 @@ class PytorchModel:
         self.loss = [loss]
 
         self.round = 1
+        self.runRepo.save(-1, f"save-setup_replay-path", path)
 
 def get_hash(_state_dict):
     if not isinstance(_state_dict, dict):
@@ -923,7 +922,7 @@ def train(net, trainloader: torch.utils.data.DataLoader, epochs: int, device: to
 
             optimizer.zero_grad(set_to_none=True)
 
-            with torch.amp.autocast("cuda", enabled=use_amp):
+            with torch.autocast(device_type=device.type, enabled=use_amp):
                 outputs = net(images)
                 loss = criterion(outputs, labels)
 
@@ -951,7 +950,7 @@ def test(net, testloader: torch.utils.data.DataLoader, device: torch.device) -> 
             images = images.to(device, non_blocking=NON_BLOCKING)
             labels = labels.to(device, non_blocking=NON_BLOCKING)
 
-            with torch.amp.autocast("cuda", enabled=use_amp):
+            with torch.autocast(device_type=device.type, enabled=use_amp):
                 outputs = net(images)
                 loss += criterion(outputs, labels).item()
                 _, predicted = torch.max(outputs, 1)

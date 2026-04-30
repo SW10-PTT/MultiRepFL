@@ -3,7 +3,7 @@ from types import SimpleNamespace
 from eth_account import Account
 from web3 import Web3
 
-from experiment_configuration import ExperimentConfiguration
+from experiment.experiment_configuration import ExperimentConfiguration
 from openfl.utils import require_env_var
 from openfl.api import globals
 

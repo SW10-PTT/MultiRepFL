@@ -5,6 +5,21 @@
   "version": "0.2.0",
   "configurations": [
     {
+      "name": "Compile - Debug: Sample",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "experiment.sample",
+      "args": [
+        "--skipFolder",
+        "experiment/data",
+        "--author",
+        "Nykjaer"
+      ],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "compile-contracts"
+    },
+    {
       "name": "Create graphs",
       "type": "debugpy",
       "request": "launch",
@@ -18,20 +33,6 @@
       "type": "debugpy",
       "request": "launch",
       "program": "experiment/experiments.py",
-      "args": [
-        "--skipFolder",
-        "experiment/data",
-        "--author",
-        "Nykjaer"
-      ],
-      "console": "integratedTerminal",
-      "preLaunchTask": "compile-contracts"
-    },
-    {
-      "name": "Compile - Debug: Sample",
-      "type": "debugpy",
-      "request": "launch",
-      "program": "experiment/sample.py",
       "args": [
         "--skipFolder",
         "experiment/data",

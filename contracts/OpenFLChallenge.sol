@@ -49,6 +49,7 @@ contract OpenFLChallenge {
     struct User {
         int256 weightedContribScore; // 32
         uint globalReputationScore; // 32
+        int taskRepDelta; // 32
         int256 roundReputation; // 32
         address addr; // 20
         uint8 nrOfRoundsParticipated; // 1
@@ -208,9 +209,7 @@ contract OpenFLChallenge {
         bool is_reward
     );
 
-    event SelectedUsers(
-        address[] users
-    );
+    event SelectedUsers(address[] users);
 
     constructor(ChallengeSpecifications memory taskSpecs) payable {
         // Initialize Contract
@@ -237,7 +236,7 @@ contract OpenFLChallenge {
 
             address[] memory selectedUsers = job.getSelectedParticipants();
             emit SelectedUsers(selectedUsers); //TODO: DEBUG
-            for(uint i = 0; i < selectedUsers.length; i++) {
+            for (uint i = 0; i < selectedUsers.length; i++) {
                 users[selectedUsers[i]].isSelected = true;
             }
         }
@@ -258,8 +257,12 @@ contract OpenFLChallenge {
     }
 
     // Registration
-    function registrationProcess(
-    ) public payable onlyNotYetRegisteredUsers(msg.sender) onlySelectedUsers(msg.sender) {
+    function registrationProcess()
+        public
+        payable
+        onlyNotYetRegisteredUsers(msg.sender)
+        onlySelectedUsers(msg.sender)
+    {
         require(
             msg.value >= min_collateral && msg.value <= max_collateral,
             "NWR"
@@ -394,9 +397,8 @@ contract OpenFLChallenge {
         for (uint i = 0; i < participants.length; i++) {
             User storage user = users[participants[i]];
             if (user.nrOfRoundsParticipated == 1) {
-                user.globalReputationScore =
-                    user.globalReputationScore -
-                    freeriderPenalty;
+                user.globalReputationScore -= freeriderPenalty;
+                user.taskRepDelta -= int256(freeriderPenalty);
                 freeriderLock += freeriderPenalty;
             }
         }
@@ -423,6 +425,7 @@ contract OpenFLChallenge {
                         user.globalReputationScore =
                             user.globalReputationScore -
                             punishment;
+                        user.taskRepDelta -= int256(punishment);
                         user.roundReputation =
                             user.roundReputation -
                             int(punishment);
@@ -440,6 +443,7 @@ contract OpenFLChallenge {
                         user.whitelistedForRewards = false;
 
                         totalPunishment += user.globalReputationScore;
+                        user.taskRepDelta -= int(user.globalReputationScore);
 
                         emit Disqualification(
                             user.addr,
@@ -484,19 +488,20 @@ contract OpenFLChallenge {
         // Pay back freerider 1st round stake to good users
         for (uint i = 0; i < participants.length; i++) {
             User storage user = users[participants[i]];
-            if (user.isRegistered && !user.isDisqualified) {
-                if (user.nrOfRoundsParticipated == 1) {
-                    if (user.whitelistedForRewards) {
-                        user.globalReputationScore =
-                            user.globalReputationScore +
-                            freeriderPenalty;
-                        freeriderLock -= freeriderPenalty;
-                    } else {
-                        totalPunishment += freeriderPenalty;
-                        freeriderLock -= freeriderPenalty;
-                    }
-                }
+
+            if (!user.isRegistered) continue;
+            if (user.isDisqualified) continue;
+            if (user.nrOfRoundsParticipated != 1) continue;
+
+            if (user.whitelistedForRewards) {
+                user.globalReputationScore += freeriderPenalty;
+                user.taskRepDelta += int256(freeriderPenalty);
+                freeriderLock -= freeriderPenalty;
+                continue;
             }
+
+            totalPunishment += freeriderPenalty;
+            freeriderLock -= freeriderPenalty;
         }
 
         // Devide reward between every user who provided (non-malicious) feedback
@@ -507,8 +512,7 @@ contract OpenFLChallenge {
         if (votesPerRound > 0 && rewardLeft >= rewardPerRound) {
             rewardLeft -= rewardPerRound;
 
-            uint reward = rewardPerRound;
-            reward += totalPunishment;
+            uint reward = rewardPerRound + totalPunishment;
 
             // Compute weights
             for (uint i = 0; i < participants.length; i++) {
@@ -564,6 +568,7 @@ contract OpenFLChallenge {
                         user.globalReputationScore <= punishment
                     ) {
                         reward += user.globalReputationScore;
+                        user.taskRepDelta -= int256(user.globalReputationScore);
 
                         emit Disqualification(
                             participants[i],
@@ -578,6 +583,7 @@ contract OpenFLChallenge {
                     } else {
                         // this is a punishment
                         user.globalReputationScore -= punishment;
+                        user.taskRepDelta -= int256(punishment);
                         reward += punishment;
 
                         emit Reward(
@@ -608,6 +614,11 @@ contract OpenFLChallenge {
                         positiveSumOfWeightedContribScore;
 
                     user.globalReputationScore += personalReward;
+
+                    uint personalRep = (rewardPerRound *
+                        uint(user.weightedContribScore)) /
+                        positiveSumOfWeightedContribScore;
+                    user.taskRepDelta += int(personalRep);
 
                     emit Reward(
                         user.addr,
@@ -649,18 +660,40 @@ contract OpenFLChallenge {
         delete punishedAddresses;
     }
 
-    // Exit contract - Not safe, gaurds exists but will crash the contract if not met, exits should be queued?
+    // // Exit contract - Not safe, gaurds exists but will crash the contract if not met, exits should be queued?
+    // function exitModel() public onlyRegisteredUsers feedbackRoundClosed {
+    //     require(users[msg.sender].globalReputationScore > 0, "NEF");
+    //     uint val = users[msg.sender].globalReputationScore;
+    //     users[msg.sender].globalReputationScore = 0;
+    //     for (uint i = 0; i < participants.length; i++) {
+    //         if (participants[i] == msg.sender) {
+    //             delete participants[i];
+    //         }
+    //     }
+    //     users[msg.sender].isRegistered = false;
+    //     payable(address(msg.sender)).transfer(val);
+    // }
+
     function exitModel() public onlyRegisteredUsers feedbackRoundClosed {
-        require(users[msg.sender].globalReputationScore > 0, "NEF");
-        uint val = users[msg.sender].globalReputationScore;
-        users[msg.sender].globalReputationScore = 0;
+        User storage user = users[msg.sender];
+
+        uint val = user.globalReputationScore;
+        require(val > 0, "NEF");
+
+        // EFFECTS (state changes first)
+        user.globalReputationScore = 0;
+        user.isRegistered = false;
+
         for (uint i = 0; i < participants.length; i++) {
             if (participants[i] == msg.sender) {
                 delete participants[i];
+                break; // important
             }
         }
-        users[msg.sender].isRegistered = false;
-        payable(address(msg.sender)).transfer(val);
+
+        // INTERACTION (external call last)
+        (bool success, ) = msg.sender.call{value: val}("");
+        require(success, "ETH transfer failed");
     }
 
     function submitFeedbackBytes(bytes calldata raw) external {
@@ -677,6 +710,42 @@ contract OpenFLChallenge {
         }
     }
 
+    // function submitFeedbackBytesAndAccuraciesLosses(
+    //     bytes calldata raw,
+    //     uint16[] calldata accuracies,
+    //     uint16[] calldata losses,
+    //     uint16 prev_acc,
+    //     uint16 prev_loss
+    // ) external {
+    //     address[] memory ads;
+    //     int16[] memory ints;
+
+    //     (ads, ints) = parseRaw(raw);
+
+    //     require(
+    //         accuracies.length == ads.length,
+    //         "INVALID_LENGTH OF ACCURACY ARRAY"
+    //     );
+    //     require(losses.length == ads.length, "INVALID_LENGTH OF LOSS ARRAY");
+    //     accuracyLossSubmissions[round][msg.sender].push(
+    //         AccuracyLossSubmission({adrs: ads, acc: accuracies, loss: losses})
+    //     );
+    //     require(
+    //         prev_acc >= 0 && prev_acc <= type(uint16).max,
+    //         "PREVIOUS ACCURACY NOT BETWEEN 0 AND uint16max in submitFeedbackBytesAndAccuraciesLosses"
+    //     );
+    //     require(
+    //         prev_loss >= 0 && prev_loss <= type(uint16).max,
+    //         "PREVIOUS LOSS NOT BETWEEN 0 AND uint16max in submitFeedbackBytesAndAccuraciesLosses"
+    //     );
+    //     // EXACT same for-loop as fallback
+    //     for (uint i = 0; i < ads.length; i++) {
+    //         if (!testing) {
+    //             feedback(ads[i], ints[i]);
+    //         }
+    //     }
+    // }
+
     function submitFeedbackBytesAndAccuraciesLosses(
         bytes calldata raw,
         uint16[] calldata accuracies,
@@ -684,28 +753,49 @@ contract OpenFLChallenge {
         uint16 prev_acc,
         uint16 prev_loss
     ) external {
-        address[] memory ads;
-        int16[] memory ints;
+        (address[] memory ads, int16[] memory ints) = parseRaw(raw);
 
-        (ads, ints) = parseRaw(raw);
-
-        require(
-            accuracies.length == ads.length,
-            "INVALID_LENGTH OF ACCURACY ARRAY"
+        _validateAccuracyLossInputs(
+            ads.length,
+            accuracies.length,
+            losses.length,
+            prev_acc,
+            prev_loss
         );
-        require(losses.length == ads.length, "INVALID_LENGTH OF LOSS ARRAY");
-        accuracyLossSubmissions[round][msg.sender].push(
+        _storeAccuracyLoss(msg.sender, ads, accuracies, losses);
+
+        _processFeedbackLoop(ads, ints);
+    }
+
+    function _validateAccuracyLossInputs(
+        uint adsLength,
+        uint accLength,
+        uint lossLength,
+        uint16 prev_acc,
+        uint16 prev_loss
+    ) internal pure {
+        require(accLength == adsLength, "INVALID_LENGTH OF ACCURACY ARRAY");
+        require(lossLength == adsLength, "INVALID_LENGTH OF LOSS ARRAY");
+
+        require(prev_acc <= type(uint16).max, "PREVIOUS ACCURACY OUT OF RANGE");
+        require(prev_loss <= type(uint16).max, "PREVIOUS LOSS OUT OF RANGE");
+    }
+
+    function _storeAccuracyLoss(
+        address sender,
+        address[] memory ads,
+        uint16[] calldata accuracies,
+        uint16[] calldata losses
+    ) internal {
+        accuracyLossSubmissions[round][sender].push(
             AccuracyLossSubmission({adrs: ads, acc: accuracies, loss: losses})
         );
-        require(
-            prev_acc >= 0 && prev_acc <= type(uint16).max,
-            "PREVIOUS ACCURACY NOT BETWEEN 0 AND uint16max in submitFeedbackBytesAndAccuraciesLosses"
-        );
-        require(
-            prev_loss >= 0 && prev_loss <= type(uint16).max,
-            "PREVIOUS LOSS NOT BETWEEN 0 AND uint16max in submitFeedbackBytesAndAccuraciesLosses"
-        );
-        // EXACT same for-loop as fallback
+    }
+
+    function _processFeedbackLoop(
+        address[] memory ads,
+        int16[] memory ints
+    ) internal {
         for (uint i = 0; i < ads.length; i++) {
             if (!testing) {
                 feedback(ads[i], ints[i]);
@@ -1034,6 +1124,30 @@ contract OpenFLChallenge {
             !user.isDisqualified);
     }
 
+    struct TaskRep {
+        address user;
+        int256 delta;
+        uint globalReputationScore;
+    }
+
+    function getTaskRepDeltaAndGRS() public view returns (TaskRep[] memory) {
+        uint len = participants.length;
+        TaskRep[] memory taskReps = new TaskRep[](len);
+
+        for (uint i = 0; i < len; i++) {
+            address addr = participants[i];
+            User storage user = users[addr];
+
+            taskReps[i] = TaskRep({
+                user: addr,
+                delta: user.taskRepDelta,
+                globalReputationScore: user.globalReputationScore
+            });
+        }
+
+        return taskReps;
+    }
+
     // Fallback function parses dynamic size feedback arrays
     // @dev This allows the contract to have an arbitrary number of participants
     fallback() external {
@@ -1103,39 +1217,39 @@ contract OpenFLChallenge {
             }
         }
     }
-
-    function getUser(
-        address u
-    )
-        external
-        view
-        returns (
-            address,
-            int256,
-            uint,
-            int,
-            uint8,
-            uint8,
-            bool,
-            bool,
-            bool,
-            bool
-        )
-    {
-        User storage user = users[u];
-        return (
-            user.addr,
-            user.weightedContribScore,
-            user.globalReputationScore,
-            user.roundReputation,
-            user.nrOfRoundsParticipated,
-            user.nrOfVotesFromUser,
-            user.isPunished,
-            user.isRegistered,
-            user.whitelistedForRewards,
-            user.isDisqualified
-        );
-    }
+    // Missing taskRepDelta
+    // function getUser(
+    //     address u
+    // )
+    //     external
+    //     view
+    //     returns (
+    //         address,
+    //         int256,
+    //         uint,
+    //         int,
+    //         uint8,
+    //         uint8,
+    //         bool,
+    //         bool,
+    //         bool,
+    //         bool
+    //     )
+    // {
+    //     User storage user = users[u];
+    //     return (
+    //         user.addr,
+    //         user.weightedContribScore,
+    //         user.globalReputationScore,
+    //         user.roundReputation,
+    //         user.nrOfRoundsParticipated,
+    //         user.nrOfVotesFromUser,
+    //         user.isPunished,
+    //         user.isRegistered,
+    //         user.whitelistedForRewards,
+    //         user.isDisqualified
+    //     );
+    // }
 
     function absUint(int x) public pure returns (uint) {
         return x >= 0 ? uint(x) : uint(-x);

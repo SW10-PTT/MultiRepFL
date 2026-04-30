@@ -2,10 +2,11 @@ from datetime import datetime
 import sys
 import multiprocessing as mp
 from pathlib import Path
-import experiment_runner as ExperimentRunner
-from experiment_configuration import ExperimentConfiguration
+import experiment.experiment_runner as ExperimentRunner
+from experiment.experiment_configuration import ExperimentConfiguration
 from openfl.utils.async_writer import AsyncWriter
-from helper import getPath
+from experiment.helper import getPath
+from openfl.api import globals
 
 # Add the repo root to sys.path so `analysis` package is importable from here
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -70,15 +71,21 @@ def main():
 def run():
     startTime = datetime.now().strftime("%d-%m-%y--%H_%M_%S")
     path = getPath(config, startTime, DATASET, RESULTDATAFOLDER)
-    writer = AsyncWriter(path, OUTPUTHEADERS, WRITERBUFFERSIZE, config, "sample")
+    flags = globals.ReplayMode._actively_replaying | globals.ReplayMode.HardPlayBack
+    writer = None
+    logger = None
     metadata = {**vars(config), "dataset": DATASET, "timestamp": startTime}
-    logger = ExperimentLogger(experiment_id=path.stem, metadata=metadata)
-    experiment = ExperimentRunner.run_experiment(DATASET, config, writer, logger)
+    if (globals.reuse_runs & flags) != flags:
+        writer = AsyncWriter(path, OUTPUTHEADERS, WRITERBUFFERSIZE, config, "sample")
+        logger = ExperimentLogger(experiment_id=path.stem, metadata=metadata)
+    experiment = ExperimentRunner.run_experiment(DATASET, config, writer, logger, path)
     writer.finish()
     logger.save(path.with_suffix(".pkl"))
 
-    experiment.model.visualize_simulation("figures")
-    ExperimentRunner.print_transactions(experiment)
+    flags = globals.ReplayMode._actively_replaying | globals.ReplayMode.HardPlayBack
+    if (globals.reuse_runs & flags) != flags:
+        experiment.model.visualize_simulation("figures")
+        ExperimentRunner.print_transactions(experiment)
 
 if __name__ == "__main__":
     if (False):

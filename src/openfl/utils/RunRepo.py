@@ -4,6 +4,7 @@ from unittest import result
 
 import torch
 from hexbytes import HexBytes
+from web3.contract import Contract
 
 from experiment.experiment_configuration import ExperimentConfiguration
 from openfl.utils.types.ReplayTrainingSpecs import ReplayTrainingSpecs
@@ -39,6 +40,9 @@ class RunRepo(ITestAndTrainer):
             for k, v in data.items()
         }
 
+    def flush(self):
+        pass
+
     def train_user_proc(
             self,
             round: int,
@@ -48,3 +52,8 @@ class RunRepo(ITestAndTrainer):
         data = self.load(round, tag)
         expanded_data = (data[0], model_state, data[1], data[2])
         return expanded_data
+    
+    def get_task_rep_delta_and_GRS(self, round, tag, contract: Contract, get_participant_func):
+        data = self.load(round, tag)
+        formatted_data = [(get_participant_func(u[0]).address, u[1], u[2]) for u in data ]
+        return formatted_data

@@ -8,7 +8,7 @@ class ReplayMode(IntFlag):
 
 fork = True
 w3 = None
-reuse_runs: ReplayMode = ReplayMode.Record | ReplayMode.PlayBack
+reuse_runs: ReplayMode = ReplayMode.Record | ReplayMode.PlayBack | ReplayMode.HardPlayBack
 gas_used = {}
 repo_dir = "runs"
 

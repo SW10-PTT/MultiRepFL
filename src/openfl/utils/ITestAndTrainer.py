@@ -7,11 +7,11 @@ import socket
 import uuid
 from abc import ABC, abstractmethod
 from dataclasses import is_dataclass, asdict
-from pathlib import Path
+from pathlib import Path, PosixPath
 from typing import Tuple, OrderedDict, List
 
 from hexbytes import HexBytes
-
+from web3.contract import Contract
 from openfl.api import globals
 
 import torch
@@ -146,6 +146,10 @@ class ITestAndTrainer(ABC):
     def on_chain_hashed_weights(self, round, tag, FLChallenge):
         pass
 
+    @abstractmethod
+    def get_task_rep_delta_and_GRS(self, round, tag, contract: Contract, get_participant_func):
+        pass
+
 
 def match_replay_user_user(replay_user, user: User):
     return replay_user["finger_print"] == user.finger_print
@@ -185,6 +189,8 @@ def _serialize(obj):
         return str(obj)
     if isinstance(obj, HexBytes):
         return "0x" + obj.hex()
+    if isinstance(obj, PosixPath):
+        return str(obj)
     raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
 
 def get_filename(finger_print, config):
@@ -192,6 +198,7 @@ def get_filename(finger_print, config):
         files = [f for f in list(Path(globals.repo_dir).glob("*.json")) if f.is_file() and f.name.endswith(f"{finger_print}.json")]
         random_file = random.choice(files) if files else None
         if random_file:
+            globals.reuse_runs = globals.reuse_runs | ReplayMode._actively_replaying
             return random_file
 
     return Path(globals.repo_dir) / make_filename(config, finger_print)
@@ -220,3 +227,4 @@ def _to_pascal_case(name: str, max_len=100) -> str:
 def _hash_config(config: dict) -> str:
     blob = json.dumps(config, sort_keys=True).encode()
     return hashlib.sha256(blob).hexdigest()
+    

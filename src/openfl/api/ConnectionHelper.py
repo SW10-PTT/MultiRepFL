@@ -6,6 +6,7 @@ import os
 import time
 import signal
 from web3 import Web3
+import web3
 from web3.contract import Contract
 from termcolor import colored
 from subprocess import Popen, PIPE
@@ -139,7 +140,7 @@ class ConnectionHelper:
             except:
                 latestBlock = 1000000
 
-        return latestBlock;
+        return latestBlock
 
     def initialize_manager(self):
         bytecode_path = Path(__file__).resolve().parents[3] / "artifacts" / "bytecode"
@@ -316,7 +317,7 @@ class ConnectionHelper:
 
         return results
     
-    def deploy(factory, constructor_args, sender, value=0):
+    def deploy(factory, constructor_args, sender, value=0) -> tuple[web3.contract.contract.Contract, web3.contract.contract.Receipt]:
         w3 = globals.w3
 
         # --- FORK / LOCAL NODE (no private key needed) ---

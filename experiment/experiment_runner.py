@@ -6,11 +6,12 @@ from pathlib import Path
 
 from web3.exceptions import ContractLogicError
 from typing import List
-from experiment_configuration import ExperimentConfiguration
+from experiment.experiment_configuration import ExperimentConfiguration
 from openfl.contracts.JobListing import JobListing
 from openfl.ml import pytorch_model as PM
 from openfl.contracts import FLChallenge as Challenge, FLManager as Manager
 from openfl.utils import require_env_var
+from openfl.utils.ITestAndTrainer import get_filename
 from openfl.utils.W3Helper import get_PRIVKEYS, get_RPC_Endpoint, get_account_RPC
 from openfl.utils.types.Attitude import Attitude
 from types import SimpleNamespace
@@ -21,7 +22,7 @@ from openfl.utils.async_writer import AsyncWriter
 from openfl.utils.types.User import User
 
 
-def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration, writer: AsyncWriter=None, logger=None):
+def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration, writer: AsyncWriter=None, logger=None, path=None):
 
   dataset_name = dataset_name.replace(".", "-")
   experiment_config.dataset = dataset_name
@@ -123,10 +124,23 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
   participating_users = get_users_from_addresses(users, participants_addresses)
 
   experiment_finger_print = experiment_config.get_finger_print(participating_users)
+  
+  filename = get_filename(experiment_finger_print, experiment_config) # also sets globals.reuse_runs | _actively_replaying
+  pytorch_model.setup_replay(filename, experiment_config, path)
+  ############
+  ## REPLAY ##
+  ############
+  flags = globals.ReplayMode._actively_replaying | globals.ReplayMode.HardPlayBack
+  if (globals.reuse_runs & flags) == flags:
+    print("We replaying, baby!")
+    # replay
+    users_by_address = {u.address: u for u in users}
+
+    users = [users_by_address.get(par_addr) for par_addr in users_by_address]
+    combinedUsers = pytorch_model.runRepo.get_participants(users)
+    return pytorch_model.runRepo.get_task_rep_delta_and_GRS(-1, "get_task_rep_delta_and_GRS-simulate", None, lambda x: pytorch_model.get_participant(x, combinedUsers))
 
   newChallenge: Challenge = publisher.deploy_challenge_contract(trainingSpecsChallenge, new_job_listing, pytorch_model, writer, logger)
-
-  newChallenge.pytorch_model.setup_replay(experiment_finger_print, experiment_config)
 
   newChallenge.make_participants_from_users(participating_users)
   for user in newChallenge.pytorch_model.participants:

@@ -2,6 +2,7 @@ from typing import Tuple
 
 import torch
 
+from web3.contract import Contract
 from experiment.experiment_configuration import ExperimentConfiguration
 from openfl.api.globals import ReplayMode, reuse_runs
 from openfl.utils.ITestAndTrainer import ITestAndTrainer
@@ -37,9 +38,17 @@ class PyTorchTrainer(ITestAndTrainer):
 
     def on_chain_hashed_weights(self, round, tag, FLChallenge):
         result = {u.id: FLChallenge.get_hashed_weights_of(u) for u in FLChallenge.pytorch_model.participants}
+        saveData = {str(key): value.hex() for (key, value) in result.items()}
         if ReplayMode.Record in reuse_runs:
-            self.save(round, tag, result)
+            self.save(round, tag, saveData)
         return result
+
+    def get_task_rep_delta_and_GRS(self, round, tag, contract: Contract, get_participant_func):
+        data = contract.functions.getTaskRepDeltaAndGRS.call()
+        formatted_data = [(str((get_participant_func(u[0]).id)), u[1], u[2]) for u in data ]
+        if ReplayMode.Record in reuse_runs:
+            self.save(round, tag, formatted_data)
+        return data
 
     # NOT TO BE USED WITH MP
     def train_user_proc(
