@@ -51,6 +51,7 @@ NON_BLOCKING = USE_CUDA
 NUM_WORKERS = min(4, os.cpu_count() // 2) if torch.cuda.is_available() else 0
 PERSISTENT_WORKERS = USE_CUDA and NUM_WORKERS > 0
 AMP = USE_CUDA # Optional: mixed precision on CUDA
+COMPILE = False
 
 # cuDNN autotune for fixed-size inputs (both MNIST 28x28 and CIFAR-10 32x32)
 torch.backends.cudnn.benchmark = USE_CUDA
@@ -124,7 +125,7 @@ class PytorchModel:
         else:
             self.global_model = Net_CIFAR().to(DEVICE)
 
-        if USE_CUDA:
+        if USE_CUDA and COMPILE:
             self.global_model = torch.compile(self.global_model, mode="reduce-overhead")
 
 
@@ -181,7 +182,7 @@ class PytorchModel:
         else:
             _model = Net_CIFAR().to(DEVICE)
 
-        if USE_CUDA:
+        if USE_CUDA and COMPILE:
             _model = torch.compile(_model, mode="reduce-overhead")
 
         optimizer = optim.SGD(_model.parameters(), lr=0.001, momentum=0.9)
@@ -906,14 +907,6 @@ def get_hash(_state_dict):
 # PYTORCH FUNCTIONS
 def train(net, trainloader: torch.utils.data.DataLoader, epochs: int, device: torch.device) -> None:
 
-    # Compile ONCE per process (not per batch)
-    if device.type == "cuda":
-        try:
-            pass
-            #net = torch.compile(net)#, mode="reduce-overhead")
-        except Exception:
-            pass
-
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.SGD(net.parameters(), lr=0.001, momentum=0.9)
 
@@ -1003,7 +996,8 @@ def train_user_proc(user_addr, model_state, train_ds, val_ds, epochs, device_id,
                     shuffle):
     # Multi-GPU Support
     # Select device
-    device = torch.device(f"cuda:{device_id}" if USE_CUDA else "cpu")
+    use_cuda = torch.cuda.is_available()
+    device = torch.device(f"cuda:{device_id}" if use_cuda else "cpu")
 
     # Recreate model based on dataset
     if dataset == "mnist":
@@ -1011,7 +1005,7 @@ def train_user_proc(user_addr, model_state, train_ds, val_ds, epochs, device_id,
     else:
         model = Net_CIFAR()
 
-    if USE_CUDA:
+    if USE_CUDA and COMPILE:
             model = torch.compile(model, mode="reduce-overhead")
 
     model.load_state_dict(model_state)
