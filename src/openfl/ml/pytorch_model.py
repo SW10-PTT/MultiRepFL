@@ -30,7 +30,7 @@ from openfl.ml.data_partition import DataPartition
 
 # Imported only for type hints; skipped at runtime to avoid import errors when not on sys.path.
 if TYPE_CHECKING:
-    from experiment_configuration import ExperimentConfiguration
+    from experiment.experiment_configuration import ExperimentConfiguration
 from openfl.ml.Participant import Participant
 from openfl.utils.RunRepo import RunRepo
 from openfl.utils.ITestAndTrainer import ITestAndTrainer, get_filename
@@ -203,7 +203,7 @@ class PytorchModel:
             criterion
         ))
 
-        print("Participant added: {:<9} {}".format(rb(user.attitude.name.upper()[0]+user.attitude.name[1:]), rb("User")))
+        print("Participant added: {:<9} {}".format(rb(user.attitude.name.upper()[0]+user.attitude.name[1:]), rb(user.display_label())))
 
     # seed/allow_overlap/replication_factor forward to DataPartition for reproducible, optionally overlapping splits.
     def prepare_data_for_users(self, users, dataset_name, seed=42, allow_overlap=False, replication_factor=1.0):
@@ -227,7 +227,7 @@ class PytorchModel:
             testset = CIFAR10("./data", train=False, download=True, transform=transform_test)
 
         per_user_specs = (
-            self.config.per_user_partitions
+            self.config.get_partition_specs(dataset_name)
             if self.config.partition_strategy == "per_user"
             else None
         )
@@ -307,8 +307,9 @@ class PytorchModel:
         print()
         print("Data split per user:")
         print(
-            "{:<4} {:<16} {:>10} {:>10} {:>9}   {}".format(
+            "{:<4} {:<14} {:<16} {:>10} {:>10} {:>9}   {}".format(
                 "Idx",
+                "Name",
                 "Address",
                 "Config %",
                 "Actual %",
@@ -316,7 +317,7 @@ class PytorchModel:
                 "Rule",
             )
         )
-        print("-" * 75)
+        print("-" * 90)
 
         total_config_percent = 0.0
         total_actual_percent = 0.0
@@ -334,9 +335,13 @@ class PytorchModel:
             total_actual_percent += actual_percent
             total_samples += int(split["num_samples"])
 
+            user_idx = getattr(user, "number", user_id)
+            user_name = (getattr(user, "partition_name", None) or "-")[:14]
+
             print(
-                "{:<4} {:<16} {:>9.2f}% {:>9.2f}% {:>9,}   {}".format(
-                    getattr(user, "number", user_id),
+                "{:<4} {:<14} {:<16} {:>9.2f}% {:>9.2f}% {:>9,}   {}".format(
+                    user_idx,
+                    user_name,
                     user.address[0:14] + "...",
                     config_percent,
                     actual_percent,
@@ -347,19 +352,19 @@ class PytorchModel:
 
             all_ids = split["train_ids"] + split["val_ids"]
             label_counts = self.count_labels(labels, all_ids)
-            label_dist_rows.append((getattr(user, "number", user_id), label_counts))
+            label_dist_rows.append((user_idx, user_name, label_counts))
 
             if user.flip_map:
                 train_flip_counts = self.count_flipped_labels(labels, split["train_ids"], user.flip_map)
                 val_flip_counts = self.count_flipped_labels(labels, split["val_ids"], user.flip_map)
                 label_flip_rows.append((
-                    getattr(user, "number", user_id), "Train",
+                    user_idx, user_name, "Train",
                     self.format_flip_counts(train_flip_counts),
                     sum(train_flip_counts.values()),
                     self.ratio_percent(sum(train_flip_counts.values()), split["train_samples"]),
                 ))
                 label_flip_rows.append((
-                    getattr(user, "number", user_id), "Val",
+                    user_idx, user_name, "Val",
                     self.format_flip_counts(val_flip_counts),
                     sum(val_flip_counts.values()),
                     self.ratio_percent(sum(val_flip_counts.values()), split["val_samples"]),
@@ -368,7 +373,7 @@ class PytorchModel:
         lost_samples = dataset_size - total_samples
         lost_percent = 100.0 * lost_samples / dataset_size
 
-        print("-" * 75)
+        print("-" * 90)
         print("Configured total: {:.2f}%".format(total_config_percent))
         print("Assigned: {:>7,} / {:,} samples  ({:.2f}%)".format(total_samples, dataset_size, total_actual_percent))
         if lost_samples > 0:
@@ -376,25 +381,25 @@ class PytorchModel:
         print()
 
         col_w = 6
-        header = "{:<4} " + " ".join(f"{'L' + str(l):>{col_w}}" for l in all_label_classes)
-        print(header.format("Idx"))
-        print("-" * (5 + col_w * len(all_label_classes)))
-        for user_idx, label_counts in label_dist_rows:
-            row = "{:<4} " + " ".join(f"{label_counts.get(l, 0):>{col_w},}" for l in all_label_classes)
-            print(row.format(user_idx))
+        header = "{:<4} {:<14} " + " ".join(f"{'L' + str(l):>{col_w}}" for l in all_label_classes)
+        print(header.format("Idx", "Name"))
+        print("-" * (20 + col_w * len(all_label_classes)))
+        for user_idx, user_name, label_counts in label_dist_rows:
+            row = "{:<4} {:<14} " + " ".join(f"{label_counts.get(l, 0):>{col_w},}" for l in all_label_classes)
+            print(row.format(user_idx, user_name))
 
         if not label_flip_rows:
             return
 
         print()
         print("Label flips (samples changed per user):")
-        print("{:<4} {:<5}   {:<24} {:>8} {:>11}".format("Idx", "Set", "Flip counts", "Changed", "% of set"))
-        print("-" * 60)
-        for user_idx, set_name, flip_counts, changed_total, changed_percent in label_flip_rows:
-            print("{:<4} {:<5}   {:<24} {:>8} {:>10.2f}%".format(
-                user_idx, set_name, flip_counts, changed_total, changed_percent,
+        print("{:<4} {:<14} {:<5}   {:<24} {:>8} {:>11}".format("Idx", "Name", "Set", "Flip counts", "Changed", "% of set"))
+        print("-" * 75)
+        for user_idx, user_name, set_name, flip_counts, changed_total, changed_percent in label_flip_rows:
+            print("{:<4} {:<14} {:<5}   {:<24} {:>8} {:>10.2f}%".format(
+                user_idx, user_name, set_name, flip_counts, changed_total, changed_percent,
             ))
-        print("-" * 60)
+        print("-" * 75)
 
     def count_labels(self, labels, ids):
         counts = Counter(labels[i] for i in ids)
@@ -620,22 +625,30 @@ class PytorchModel:
     def let_malicious_users_do_their_work(self):
         for i in range(len(self.participants)):
             if self.participants[i].attitude == Attitude.Malicious:
-                print(red("Address {} going to provide random weights".format(self.participants[i].address[0:16]+"...")))
+                print(red("{} ({}) going to provide random weights".format(
+                    self.participants[i].display_label(),
+                    self.participants[i].address[0:16]+"...",
+                )))
                 manipulated_state_dict = manipulate(self.participants[i].model,scale=self.malicious_noise_scale,)
                 self.participants[i].model.load_state_dict(manipulated_state_dict)
                 self.participants[i].hashedModel = self.runRepo.get_hash(self.round, f"let_malicious_users_do_their_work-{self.participants[i].id}", self.participants[i].model.state_dict())
                 loss, accuracy = self.runRepo.test(self.round,f"test-let_malicious_users_do_their_work-usermodel-{self.participants[i].id}", self.participants[i].model, self.test, DEVICE)
-                print("{:<17} {} |  Testing  | Accuracy {:>3.0f} % | Loss ∞\n".format("Account testing:   ",
-                                                                                self.participants[i].address[0:16]+"...",
-                                                                                accuracy*100, loss))
+                print("{:<17} {} ({}) |  Testing  | Accuracy {:>3.0f} % | Loss ∞\n".format(
+                    "Account testing:   ",
+                    self.participants[i].display_label(),
+                    self.participants[i].address[0:16]+"...",
+                    accuracy*100, loss))
                 # TODO: Why is test_loss not used here?
 
     def update_users_attitude(self):
         for user in self.participants:
             if user.attitudeSwitch == self.round \
                 and user.attitude != user.futureAttitude:
-                print(rb("Address {} going to switch attitude to {}".format(user.address[0:16]+"...",
-                                                                            user.futureAttitude)))
+                print(rb("{} ({}) going to switch attitude to {}".format(
+                    user.display_label(),
+                    user.address[0:16]+"...",
+                    user.futureAttitude,
+                )))
                 user.attitude = user.futureAttitude
                 user.update_color(None, user.attitude)
 
@@ -663,7 +676,8 @@ class PytorchModel:
                 #     participant.model.load_state_dict(add_noise(copy.deepcopy(participant.model)))
                 if self.round < self.freerider_start_round:
                     print(yellow(
-                        "Address {} waiting until round {} to start freeriding".format(
+                        "{} ({}) waiting until round {} to start freeriding".format(
+                            participant.display_label(),
                             participant.address[0:16] + "...",
                             self.freerider_start_round,
                         )
@@ -676,9 +690,11 @@ class PytorchModel:
                 participant.model.load_state_dict(new_state_dict)
                 participant.hashedModel = self.runRepo.get_hash(self.round, f"get_hash-let_freerider_users_do_their_work-{participant.id}",participant.model.state_dict())
                 loss, accuracy = self.runRepo.test(self.round,f"test-let_freerider_users_do_their_work-usermodel-{participant.id}", participant.model, self.test, DEVICE)
-                print("{:<17} {} |  Testing  | Accuracy {:>3.0f} % | Loss ∞\n".format("Account testing:   ",
-                                                                                participant.address[0:16]+"...",
-                                                                                accuracy*100, loss))
+                print("{:<17} {} ({}) |  Testing  | Accuracy {:>3.0f} % | Loss ∞\n".format(
+                    "Account testing:   ",
+                    participant.display_label(),
+                    participant.address[0:16]+"...",
+                    accuracy*100, loss))
                 # TODO: Why is loss not used here?
 
 
@@ -689,11 +705,15 @@ class PytorchModel:
             raise ValueError("freerider_noise_scale must be non-negative")
 
         if self.freerider_noise_scale == 0: # Copy global model if noise is zero
-            print(yellow("Address {} resubmitting original model".format(user.address[0:16]+"...")))
+            print(yellow("{} ({}) resubmitting original model".format(
+                user.display_label(),
+                user.address[0:16]+"...",
+            )))
             return copy.deepcopy(user.model).state_dict()
 
         print(red(
-            "Address {} adding noise (scale={}) to global weights".format(
+            "{} ({}) adding noise (scale={}) to global weights".format(
+                user.display_label(),
                 user.address[0:16]+"...",
                 self.freerider_noise_scale,
             )
@@ -713,7 +733,7 @@ class PytorchModel:
         for u in _users:
             ids.append(u.address)
             client_models.append(u.model)
-            print("Account {} participating in merge".format(u.address[0:16]+"..."))
+            print("{} ({}) participating in merge".format(u.display_label(), u.address[0:16]+"..."))
             #print(test(c[1],self.test,DEVICE))
 
         with torch.no_grad():
@@ -762,7 +782,7 @@ class PytorchModel:
             _user.cheater = []
             for user in _user.userToEvaluate:
                 if not self.runRepo.get_hash(self.round, f"get_hash-verify_models-{user.id}", user.model.state_dict()) == on_chain_hashes[user.id]:
-                    print(red(f"Account {_user.number}: Account {user.address[0:16]}... could not provide the registered model"))
+                    print(red(f"{_user.display_label()}: {user.display_label()} ({user.address[0:16]}...) could not provide the registered model"))
                     _user.cheater.append(user)
 
         print("-----------------------------------------------------------------------------------")

@@ -71,11 +71,11 @@ class Participant(User):
         self.txs = []
 
     def get_status(self):
-        user = f"$user${self.number}, {self.currentAcc}, {self.attitude}, {self.futureAttitude}, {self.attitudeSwitch}, {self.address}"
+        user = f"$user${self.number}, {self.partition_name}, {self.currentAcc}, {self.attitude}, {self.futureAttitude}, {self.attitudeSwitch}, {self.address}"
         return user
 
     def from_user(user: User, train, val, model, optimizer, criterion):
-        return Participant(
+        participant = Participant(
             user.number,
             train,
             val,
@@ -91,4 +91,7 @@ class Participant(User):
             user.only_labels,
             user.attitudeSwitch,
             participantId=user.id)
+        participant.partition_name = user.partition_name
+        participant.partition_spec = user.partition_spec
+        return participant
 

@@ -148,8 +148,9 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
         txs = []
         for acc in self.pytorch_model.participants:
             if acc.attitude == "inactive":
-                print("{:<17}   {} | {} | {:>25,.0f} WEI".format("Account inactive:", 
-                                                                         acc.address[0:16] + "...", 
+                print("{:<17}   {} ({}) | {} | {:>25,.0f} WEI".format("Account inactive:",
+                                                                         acc.display_label(),
+                                                                         acc.address[0:16] + "...",
                                                                          "   ...   ",
                                                                          self.get_global_reputation_of_user(acc.address)
                                                                          ))
@@ -165,8 +166,9 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                 signed = globals.w3.eth.account.sign_transaction(hw, private_key=acc.privateKey)
                 txHash = globals.w3.eth.send_raw_transaction(signed.raw_transaction)
             txs.append(txHash)
-            print("{:<17}   {} | {} | {:>25,.0f} WEI".format("Weights provided:", 
-                                                                         acc.address[0:16] + "...", 
+            print("{:<17}   {} ({}) | {} | {:>25,.0f} WEI".format("Weights provided:",
+                                                                         acc.display_label(),
+                                                                         acc.address[0:16] + "...",
                                                                          txHash.hex()[0:6] + "...",
                                                                          self.get_global_reputation_of_user(acc.address)
                                                                          ))
@@ -239,8 +241,8 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
         fb = "Feedback:".format(rep)
         
         print(colored("{:<11} {}   |" \
-            " {}  | {}{:>25,.0f} WEI".format(fb, 
-                                    feedbackGiver.address[0:7]+"... --> "+target.address[0:7]+"...", 
+            " {}  | {}{:>25,.0f} WEI".format(fb,
+                                    f"{feedbackGiver.display_label()} ({feedbackGiver.address[0:7]}...) --> {target.display_label()} ({target.address[0:7]}...)",
                                     txHash.hex()[0:6] + "...",
                                     pre,
                                     self.get_global_reputation_of_user(feedbackGiver.address)), col))
@@ -250,11 +252,12 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
     
     def return_stats(self):
         print("\n==================================================================================\n")
-        print("\n{:<8}{:^32}  {:^32}".format(f"ROUND {self.pytorch_model.round}","GLOBAL REPUTATION", "ROUND REPUTATION"))
+        print("\n{:<24}{:^32}  {:^32}".format(f"ROUND {self.pytorch_model.round}","GLOBAL REPUTATION", "ROUND REPUTATION"))
         for acc in self.pytorch_model.participants:
             gs = self.get_global_reputation_of_user(acc.address)
             rs = self.get_round_reputation_of_user(acc.address)
-            print("{}..: {:>27,.0f}  {:>27,.0f} WEI".format(acc.address[0:7],gs,rs))
+            label = f"{acc.display_label()} ({acc.address[0:7]}..)"
+            print("{:<24}: {:>27,.0f}  {:>27,.0f} WEI".format(label, gs, rs))
         print("\n==================================================================================\n")
     
             
@@ -538,8 +541,9 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
         txs = []
         for acc in self.pytorch_model.participants:
             if acc.attitude == "inactive":
-                print("{:<17}   {} | {} | {:>25,.0f} WEI".format("Account inactive:", 
-                                                                         acc.address[0:16] + "...", 
+                print("{:<17}   {} ({}) | {} | {:>25,.0f} WEI".format("Account inactive:",
+                                                                         acc.display_label(),
+                                                                         acc.address[0:16] + "...",
                                                                          "   ...   ",
                                                                          self.get_global_reputation_of_user(acc.address)
                                                                          ))
@@ -560,8 +564,9 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                 signed = w3.eth.account.sign_transaction(sl, private_key=acc.privateKey)
                 txHash = w3.eth.send_raw_transaction(signed.raw_transaction)
             txs.append(txHash)
-            print("{:<17}   {} | {} | {:>25,.0f} WEI".format("Slot registered: ", 
-                                                                         acc.address[0:16] + "...", 
+            print("{:<17}   {} ({}) | {} | {:>25,.0f} WEI".format("Slot registered: ",
+                                                                         acc.display_label(),
+                                                                         acc.address[0:16] + "...",
                                                                          txHash.hex()[0:6] + "...",
                                                                          self.get_global_reputation_of_user(acc.address)
                                                                          ))

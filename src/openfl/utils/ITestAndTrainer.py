@@ -185,6 +185,8 @@ def convert(value):
     return value
 
 def _serialize(obj):
+    if isinstance(obj, Path):
+        return str(obj)
     if isinstance(obj, Attitude):
         return str(obj)
     if is_dataclass(obj):

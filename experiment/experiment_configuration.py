@@ -8,7 +8,11 @@ import hashlib
 import json
 
 import math
-from openfl.ml.partition_spec import UserPartitionSpec, load_partition_specs
+from openfl.ml.partition_spec import (
+    ANY_DATASET,
+    load_dataset_partition_specs,
+    normalize_dataset_name,
+)
 
 from openfl.utils.types.TrainingSpecsJobListing import TrainingSpecsJobListing
 
@@ -148,12 +152,28 @@ class ExperimentConfiguration:
     def _resolve_per_user_partitions(self, per_user_partitions):
         if per_user_partitions is None:
             return {}
-        return load_partition_specs(per_user_partitions)
+        return load_dataset_partition_specs(per_user_partitions)
+
+    # Lookup specs for a given dataset. Falls back to the wildcard bucket
+    # (legacy single-dataset JSON) when no dataset-specific entry exists.
+    def get_partition_specs(self, dataset_name=None):
+        if not self.per_user_partitions:
+            return {}
+        key = normalize_dataset_name(dataset_name if dataset_name is not None else self.dataset)
+        if key in self.per_user_partitions:
+            return self.per_user_partitions[key]
+        if ANY_DATASET in self.per_user_partitions:
+            return self.per_user_partitions[ANY_DATASET]
+        raise KeyError(
+            f"per_user_partitions has no entry for dataset {key!r}; "
+            f"available: {sorted(self.per_user_partitions.keys())}"
+        )
 
     # Fail-fast validation for the per_user strategy. With fair-share-then-
     # filter semantics, the only invariant left is sum(data_percent) <= 100;
     # per-class allocation can't overflow once that holds, since each user's
-    # fair share is at most pct/100 of every class pool.
+    # fair share is at most pct/100 of every class pool. Validates every
+    # dataset entry independently so a bad profile is caught up front.
     def _validate_per_user_partitions(self):
         if not self.per_user_partitions:
             raise ValueError(
@@ -161,20 +181,28 @@ class ExperimentConfiguration:
             )
 
         expected_indices = set(range(self.number_of_data_users))
-        provided_indices = set(self.per_user_partitions.keys())
-        missing = expected_indices - provided_indices
-        extra = provided_indices - expected_indices
-        if missing:
-            raise ValueError(f"per_user_partitions missing entries for user_index {sorted(missing)}")
-        if extra:
-            raise ValueError(f"per_user_partitions has unexpected entries for user_index {sorted(extra)}")
-
         budget_cap = 100.0
-        total_budget = sum(spec.data_percent for spec in self.per_user_partitions.values())
-        if total_budget > budget_cap + 1e-9:
-            raise ValueError(
-                f"per_user_partitions total data_percent {total_budget:.4f}% exceeds cap {budget_cap:.4f}%"
-            )
+
+        for dataset_key, specs in self.per_user_partitions.items():
+            label = "default" if dataset_key == ANY_DATASET else dataset_key
+            provided_indices = set(specs.keys())
+            missing = expected_indices - provided_indices
+            extra = provided_indices - expected_indices
+            if missing:
+                raise ValueError(
+                    f"per_user_partitions[{label}] missing entries for user_index {sorted(missing)}"
+                )
+            if extra:
+                raise ValueError(
+                    f"per_user_partitions[{label}] has unexpected entries for user_index {sorted(extra)}"
+                )
+
+            total_budget = sum(spec.data_percent for spec in specs.values())
+            if total_budget > budget_cap + 1e-9:
+                raise ValueError(
+                    f"per_user_partitions[{label}] total data_percent "
+                    f"{total_budget:.4f}% exceeds cap {budget_cap:.4f}%"
+                )
 
     def _resolve_user_seeds(self, user_seeds):
         # Optional explicit per-user overrides. Anything not specified
@@ -215,10 +243,13 @@ class ExperimentConfiguration:
             "replication_factor": self.replication_factor,
             "user_seeds": dict(sorted(self.user_seeds.items())),
             "partition_strategy": self.partition_strategy,
-            "per_user_partitions": [
-                spec.fingerprint_dict()
-                for _, spec in sorted(self.per_user_partitions.items())
-            ],
+            "per_user_partitions": {
+                dataset_key: [
+                    spec.fingerprint_dict()
+                    for _, spec in sorted(specs.items())
+                ]
+                for dataset_key, specs in sorted(self.per_user_partitions.items())
+            },
         }
 
         blob = json.dumps(data, sort_keys=True, separators=(",", ":"))
