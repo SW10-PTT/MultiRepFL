@@ -222,8 +222,10 @@ def apply_user_data_and_label_config(user: User, user_index: int, experiment_con
     # Per-user strategy: spec drives data_percent, only_labels, flip_map.
     # Global strategy: legacy data_percentages + label_rules drive them.
     if experiment_config.partition_strategy == "per_user":
-        spec = experiment_config.per_user_partitions[user_index]
+        specs = experiment_config.get_partition_specs(experiment_config.dataset)
+        spec = specs[user_index]
         user.partition_spec = spec
+        user.partition_name = spec.name
         user.data_percent = float(spec.data_percent)
         user.only_labels = list(spec.only_labels) if spec.only_labels is not None else None
         user.flip_map = dict(spec.flip_map)

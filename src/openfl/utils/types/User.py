@@ -65,6 +65,8 @@ class User:
         self.seed: int = 0
         # Optional UserPartitionSpec (only set when ExperimentConfiguration uses partition_strategy="per_user").
         self.partition_spec = None
+        # Human-readable name from the partition spec (e.g. "User 3"). None when not set.
+        self.partition_name: str | None = None
 
     @property
     def finger_print(self):
@@ -103,8 +105,15 @@ class User:
             if not callable(v) and not (k.startswith("_") or k.startswith("NOTHASH") or "loader" in k or "private" in k)
         }
 
+    # Short human-readable label used in console/log output. Falls back to
+    # the user's index when no partition_name was set.
+    def display_label(self) -> str:
+        if self.partition_name:
+            return self.partition_name
+        return f"#{self.number}"
+
     def get_status(self):
-        user = f"$user${self.number}, {self.attitude}, {self.futureAttitude}, {self.attitudeSwitch}, {self.address}"
+        user = f"$user${self.number}, {self.partition_name}, {self.attitude}, {self.futureAttitude}, {self.attitudeSwitch}, {self.address}"
         return user
 
     def get_id_or_address(self):
@@ -148,9 +157,10 @@ class User:
         txHash = receipt["transactionHash"]
         self.txs.append(txHash)
         bal = globals.w3.eth.get_balance(globals.w3.eth.default_account)
-        print("{:<17} {} | {} | {:>25,.0f} WEI".format("Account registered:", 
-                self.address[0:16] + "...", 
-                txHash.hex()[0:6] + "...", 
+        print("{:<17} {} ({}) | {} | {:>25,.0f} WEI".format("Account registered:",
+                self.display_label(),
+                self.address[0:16] + "...",
+                txHash.hex()[0:6] + "...",
                 self.collateral
                 ))
         return self.txs
