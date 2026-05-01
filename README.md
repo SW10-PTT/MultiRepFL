@@ -58,3 +58,96 @@ The file experiments.py runs one such experiment and can be run with:
 # 6. Test Coverage
 To get test coverage, run the following command: \
 `pytest --cov=openfl tests/`
+
+# 7. Data Partitioning
+
+The dataset is split across users by a `DataPartition` strategy, selected via
+`partition_strategy` on `ExperimentConfiguration`.
+
+## Strategies
+
+### `partition_strategy="global"` (default)
+
+Stratified split across users using `data_percentages` (one share per user, must
+sum to 100). Optional `label_rules` applies per-user `only_labels` filter and
+`flip_map` (label-flipping for malicious users).
+
+`allow_overlap=True` + `replication_factor>1.0` lets the same sample land under
+multiple users; within-user dedup guarantees no user trains on the same image
+twice. Disjoint mode (`allow_overlap=False`) is the default.
+
+```python
+ExperimentConfiguration(
+    data_percentages=[30, 10, 15, 15, 10, 20],
+    label_rules={
+        0: {"only_labels": [0, 1, 2, 3, 4]},
+        5: {"flip_map": {4: 9}},
+    },
+    allow_overlap=False,
+)
+```
+
+### `partition_strategy="per_user"`
+
+Each user gets a fully described `UserPartitionSpec`: total budget
+(`data_percent`) plus optional per-class `label_distribution` (relative
+weights), `only_labels` whitelist, and `flip_map`. Specs come from a single
+JSON file (or in-memory dict).
+
+Allocation is **total-budget-then-slice**: `data_percent` defines the user's
+total share of the dataset; `label_distribution` slices that budget across
+classes. Per-class supply check runs upfront — if total demand for any class
+exceeds supply (or `supply * replication_factor` in overlap mode), partitioning
+fails fast with a `ValueError`. Train/val split is stratified per class.
+
+```python
+ExperimentConfiguration(
+    partition_strategy="per_user",
+    per_user_partitions="experiment/partitions/example.json",
+)
+```
+
+JSON format (see `experiment/partitions/example.json`):
+
+```json
+{
+  "users": [
+    {
+      "id": 0,
+      "data_percent": 12.0,
+      "label_distribution": {"0": 0.5, "1": 0.5}
+    },
+    {
+      "id": 1,
+      "data_percent": 18.0,
+      "only_labels": [5, 6, 7]
+    },
+    {
+      "id": 2,
+      "data_percent": 10.0,
+      "only_labels": [4, 9],
+      "flip_map": {"4": 9}
+    }
+  ]
+}
+```
+
+Field reference per user:
+
+| Field                | Required | Description                                                                  |
+|----------------------|----------|------------------------------------------------------------------------------|
+| `id` / `user_index`  | yes      | Zero-based data-user index. Must cover `0..number_of_data_users-1`.          |
+| `data_percent`       | yes      | Total budget as % of dataset. Sum across users ≤ 100 (disjoint).             |
+| `label_distribution` | no       | Per-class relative weights. Slices the total budget across listed classes.   |
+| `only_labels`        | no       | Whitelist. Without `label_distribution`, budget is stratified across these.  |
+| `flip_map`           | no       | Source→target label flip applied at read time (malicious user simulation).   |
+
+Priority for class weighting: `label_distribution` > `only_labels` > full
+stratified across all classes.
+
+## Reproducibility
+
+Both strategies are seeded by `seed` (master) and per-user `user_seeds`. The
+active strategy + spec content is folded into `ExperimentConfiguration.get_finger_print`
+and `User.finger_print`, so changing the partition triggers a fresh replay and
+prevents cache hits against runs with different splits.

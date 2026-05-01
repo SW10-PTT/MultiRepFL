@@ -1,7 +1,18 @@
+from enum import IntFlag, auto
+
+class ReplayMode(IntFlag):
+    Record = auto()
+    PlayBack = auto()
+    HardPlayBack = auto()
+    _actively_replaying = auto() # internal use, do not use
+
 fork = True
 w3 = None
-reuse_runs = False
+reuse_runs: ReplayMode = ReplayMode.Record# | ReplayMode.PlayBack | ReplayMode.HardPlayBack
 gas_used = {}
+repo_dir = "runs"
+
+
 
 def add_gas_usage(gas_type: str, amount: int, user_addr) -> None:
     global gas_used

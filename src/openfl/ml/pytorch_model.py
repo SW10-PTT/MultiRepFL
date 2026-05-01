@@ -1,5 +1,12 @@
+from __future__ import annotations
+
 import copy
 import sys
+import uuid
+from dataclasses import dataclass
+from pathlib import Path
+from typing import TYPE_CHECKING
+
 import torch
 import random
 import numpy as np
@@ -12,19 +19,29 @@ import time
 import math
 from collections import Counter
 from web3 import Web3
-from typing import Tuple
+from typing import Tuple, List
 from collections import OrderedDict
 from torchvision import transforms
 from torchvision.datasets import CIFAR10, MNIST
 from torch.utils.data import DataLoader, Subset, random_split
 
+from openfl.api.globals import ReplayMode
 from openfl.ml.data_partition import DataPartition
 
+# Imported only for type hints; skipped at runtime to avoid import errors when not on sys.path.
+if TYPE_CHECKING:
+    from experiment_configuration import ExperimentConfiguration
 from openfl.ml.Participant import Participant
+from openfl.utils.RunRepo import RunRepo
+from openfl.utils.ITestAndTrainer import ITestAndTrainer, get_filename
+from openfl.utils.PytorchTrainer import PyTorchTrainer
 from openfl.utils.types.EvaluationData import EvaluationData
+from openfl.api import globals
 from openfl.utils.types.Attitude import Attitude
 from openfl.utils.types.Colors import gb, rb, red, yellow, green, b
 from openfl.utils.printer import log
+from openfl.utils.types.ReplayTrainingSpecs import ReplayTrainingSpecs
+from openfl.utils.types.userDict import UserDict
 
 torch._dynamo.config.cache_size_limit = 512
 import logging
@@ -40,6 +57,7 @@ NON_BLOCKING = USE_CUDA
 NUM_WORKERS = min(4, os.cpu_count() // 2) if torch.cuda.is_available() else 0
 PERSISTENT_WORKERS = USE_CUDA and NUM_WORKERS > 0
 AMP = USE_CUDA # Optional: mixed precision on CUDA
+COMPILE = False
 
 # cuDNN autotune for fixed-size inputs (both MNIST 28x28 and CIFAR-10 32x32)
 torch.backends.cudnn.benchmark = USE_CUDA
@@ -80,7 +98,7 @@ class Net_CIFAR(nn.Module):
         x = F.relu(self.fc2(x))
         x = self.fc3(x)
         return x
-    
+
 class Net_MNIST(nn.Module):
     def __init__(self):
         super(Net_MNIST, self).__init__()
@@ -93,7 +111,7 @@ class Net_MNIST(nn.Module):
         # feature map size is 7*7 by pooling
         self.fc1 = nn.Linear(64*7*7, 1024)
         self.fc2 = nn.Linear(1024, 10)
-        
+
     def forward(self, x):
         x = F.max_pool2d(F.relu(self.conv1(x)), 2)
         x = F.max_pool2d(F.relu(self.conv2(x)), 2)
@@ -104,34 +122,42 @@ class Net_MNIST(nn.Module):
         # return F.log_softmax(x)
         return x
 
-
-        
 class PytorchModel:
-    def __init__(self, DATASET, _goodParticipants, _totalParticipants, epochs, batchsize, default_collateral, max_collateral, freerider_noise_scale: float = 1.0, freerider_start_round: int = 3, malicious_start_round: int = 3, malicious_noise_scale: float = 1.0,force_merge_all: bool = False):
-        self.DATASET = DATASET
-        if self.DATASET == "mnist":
+    def __init__(self, config: ExperimentConfiguration, DATASET, _goodParticipants, _totalParticipants, epochs, batchsize, default_collateral, max_collateral, freerider_noise_scale: float = 1.0, freerider_start_round: int = 3, malicious_start_round: int = 3, malicious_noise_scale: float = 1.0, force_merge_all: bool = False):
+        self.replaying = None
+        self.config: ExperimentConfiguration = config
+        if config.dataset == "mnist":
             self.global_model = Net_MNIST().to(DEVICE)
         else:
             self.global_model = Net_CIFAR().to(DEVICE)
+
+        if USE_CUDA and COMPILE:
+            self.global_model = torch.compile(self.global_model, mode="reduce-overhead")
 
 
         self.NUMBER_OF_CONTRIBUTERS = _totalParticipants
         self.NUMBER_OF_BAD_CONTRIBUTORS = 0
         self.NUMBER_OF_FREERIDER_CONTRIBUTORS = 0
         self.NUMBER_OF_INACTIVE_CONTRIBUTORS = 0
+        self.NUMBER_OF_HONEST_CONTRIBUTORS = 0
         self.DATA = None
         self.train_by_user_id = {}
         self.val_by_user_id = {}
         self.mnist_prepared_user_ids = tuple()
         self.participants = []
         self.disqualified = []
-        self.EPOCHS = epochs
-        self.BATCHSIZE = batchsize
+        self.runRepo: ITestAndTrainer = None
+        # self.EPOCHS = epochs
+        # self.BATCHSIZE = batchsize
         self.train, self.val, self.test = self.load_data(self.NUMBER_OF_CONTRIBUTERS, _print=True)
-        self.default_collateral = default_collateral
-        self.max_collateral = max_collateral
-        self.force_merge_all = force_merge_all
+        # self.default_collateral = default_collateral
+        # self.max_collateral = max_collateral
+        # self.force_merge_all = force_merge_all
+        # INTERFACE VARIABLES
+        self.accuracy = []
+        self.loss = []
 
+        self.round = 0
 
         if freerider_noise_scale < 0:
             raise ValueError("freerider_noise_scale must be non-negative")
@@ -149,76 +175,39 @@ class PytorchModel:
             raise ValueError("malicious_noise_scale must be non-negative")
         self.malicious_noise_scale = malicious_noise_scale
 
-        loss, accuracy = test(self.global_model,self.test,DEVICE)
-        
-        # INTERFACE VARIABLES
-        self.accuracy = [accuracy]
-        self.loss = [loss]
-
-        self.round = 1
         log("setup_data", "===================================================================================")
-        log("setup_data","Pytorch Model created:\n")
+        log("setup_data", "Pytorch Model created:\n")
         log("setup_data", str(self.global_model))
-        log("setup_data","\n===================================================================================")
+        log("setup_data", "\n===================================================================================")
 
-
-
-        # for i in range(_goodParticipants):
-        #     if self.DATASET == "mnist":
-        #         _model = Net_MNIST().to(DEVICE)
-        #     else:
-        #         _model = Net_CIFAR().to(DEVICE)
-        #
-        #     optimizer = optim.SGD(_model.parameters(), lr=0.001, momentum=0.9)
-        #     criterion = nn.CrossEntropyLoss()
-        #     _attitude = "good"
-        #
-        #     self.participants.append(Participant(i,
-        #                                   self.train[i],
-        #                                   self.val[i],
-        #                                   _model,
-        #                                   optimizer,
-        #                                   criterion,
-        #                                   _attitude,
-        #                                   self.default_collateral,
-        #                                   self.max_collateral,
-        #                                   None,
-        #                                   len(self.participants)
-        #                                   ))
-        #     print("Participant added: {} {}".format(gb(_attitude.upper()[0]+_attitude[1:]), gb("User")))
-    
-            
     def add_participant(self, user):
         train_loader, val_loader = self.get_user_dataloaders(user)
         
-        if self.DATASET == "mnist":
+        if self.config.dataset == "mnist":
             _model = Net_MNIST().to(DEVICE)
         else:
             _model = Net_CIFAR().to(DEVICE)
-            
+
+        if USE_CUDA and COMPILE:
+            _model = torch.compile(_model, mode="reduce-overhead")
+
         optimizer = optim.SGD(_model.parameters(), lr=0.001, momentum=0.9)
         criterion = nn.CrossEntropyLoss()
-        
-        if user.attitude == Attitude.Malicious:
-            self.NUMBER_OF_BAD_CONTRIBUTORS +=1
-            _attitudeSwitch = self.malicious_start_round
-        if user.attitude == Attitude.FreeRider:
-            self.NUMBER_OF_FREERIDER_CONTRIBUTORS +=1
-            _attitudeSwitch = self.freerider_start_round
-        if user.attitude == Attitude.Inactive:
-            self.NUMBER_OF_INACTIVE_CONTRIBUTORS +=1
+
+        l = len(self.participants)
         self.participants.append(Participant.from_user(
             user,
             train_loader,
             val_loader,
             _model,
             optimizer,
-            criterion,
+            criterion
         ))
-        
+
         log("setup_contracts", "Participant added: {:<9} {}".format(rb(user.attitude.name.upper()[0]+user.attitude.name[1:]), rb("User")))
 
-    def prepare_data_for_users(self, users, dataset_name):
+    # seed/allow_overlap/replication_factor forward to DataPartition for reproducible, optionally overlapping splits.
+    def prepare_data_for_users(self, users, dataset_name, seed=42, allow_overlap=False, replication_factor=1.0):
         users = list(users)
 
         if dataset_name == "mnist":
@@ -238,7 +227,18 @@ class PytorchModel:
             trainset = CIFAR10("./data", train=True, download=True, transform=transform)
             testset = CIFAR10("./data", train=False, download=True, transform=transform_test)
 
-        partitioner = DataPartition(validation_split=0.1, seed=42)
+        per_user_specs = (
+            self.config.per_user_partitions
+            if self.config.partition_strategy == "per_user"
+            else None
+        )
+        partitioner = DataPartition(
+            validation_split=0.1,
+            seed=seed,
+            allow_overlap=allow_overlap,
+            replication_factor=replication_factor,
+            per_user_specs=per_user_specs,
+        )
         user_splits = partitioner.split_by_label(users, trainset.targets)
 
         trainloaders = []
@@ -248,7 +248,7 @@ class PytorchModel:
         actual_splits = {}
 
         for user in users:
-            user_id = self.get_user_id(user)
+            user_id = user.get_id_or_address()
             user_split = user_splits[user_id]
             train_ids = list(user_split["train_ids"])
             val_ids = list(user_split["val_ids"])
@@ -273,8 +273,8 @@ class PytorchModel:
                 train_dataset = partitioner.apply_flip_map(train_dataset, user)
                 val_dataset = partitioner.apply_flip_map(val_dataset, user)
 
-            train_loader = cuda_safe_dataloader(train_dataset, self.BATCHSIZE, shuffle=True)
-            val_loader = cuda_safe_dataloader(val_dataset, self.BATCHSIZE, shuffle=False)
+            train_loader = cuda_safe_dataloader(train_dataset, self.config.batch_size, shuffle=True)
+            val_loader = cuda_safe_dataloader(val_dataset, self.config.batch_size, shuffle=False)
             trainloaders.append(train_loader)
             valloaders.append(val_loader)
             self.train_by_user_id[user_id] = train_loader
@@ -282,23 +282,18 @@ class PytorchModel:
 
         self.print_data_split_summary(users, actual_splits, trainset.targets, dataset_name)
 
-        testloader = cuda_safe_dataloader(testset, self.BATCHSIZE, shuffle=False)
+        testloader = cuda_safe_dataloader(testset, self.config.batch_size, shuffle=False)
         self.DATA = (trainloaders, valloaders, testloader)
         self.train, self.val, self.test = self.DATA
 
     def get_user_dataloaders(self, user):
         if self.train_by_user_id:
-            user_id = self.get_user_id(user)
-            return self.train_by_user_id[user_id], self.val_by_user_id[user_id]
+            user_id = user.get_id_or_address()
+            return self.train_by_user_id[user.address], self.val_by_user_id[user.address]
 
         trainloaders, valloaders, _test = self.load_data(self.NUMBER_OF_CONTRIBUTERS)
         index = len(self.participants)
         return trainloaders[index], valloaders[index]
-
-    def get_user_id(self, user):
-        if hasattr(user, "id"):
-            return user.id
-        return user.number
 
     def print_data_split_summary(self, users, user_splits, labels, dataset_name):
         if hasattr(labels, "tolist"):
@@ -332,7 +327,7 @@ class PytorchModel:
         all_label_classes = sorted(set(labels))
 
         for user in users:
-            user_id = self.get_user_id(user)
+            user_id = user.get_id_or_address()
             split = user_splits[user_id]
             config_percent = float(user.data_percent)
             actual_percent = (100.0 * split["num_samples"] / dataset_size)
@@ -443,8 +438,8 @@ class PytorchModel:
     def load_data(self, NUM_CLIENTS, _print=False):
         if self.DATA:
             return self.DATA
-        
-        if self.DATASET == "cifar-10":
+
+        if self.config.dataset == "cifar-10":
             transform = transforms.Compose([
                 transforms.RandomCrop(32, padding=4),
                 transforms.RandomHorizontalFlip(),
@@ -460,8 +455,8 @@ class PytorchModel:
         else:
             trainset = MNIST("./data", train=True, download=True, transform=transforms.ToTensor())
             testset = MNIST("./data", train=False, download=True, transform=transforms.ToTensor())
-            
-        
+
+
         if _print:
             log("setup_data", "Data Loaded:")
             log("setup_data", "Nr. of images for training: {:,.0f}".format(len(trainset)))
@@ -470,11 +465,11 @@ class PytorchModel:
         # Split training set into partitions to simulate the individual dataset
         partition_size = len(trainset) // NUM_CLIENTS
         lengths = [partition_size] * NUM_CLIENTS
-        
+
         images_needed = partition_size * NUM_CLIENTS
         if images_needed < len(trainset):
             trainset,_ = random_split(trainset, [images_needed, len(trainset)-images_needed])
-        
+
         datasets = random_split(trainset, lengths, torch.Generator().manual_seed(42))
 
         # Split each partition into train/val and create DataLoader
@@ -487,7 +482,7 @@ class PytorchModel:
             ds_train, ds_val = random_split(ds, lengths, torch.Generator().manual_seed(42))
             trainloaders.append(DataLoader(
                 ds_train,
-                batch_size=self.BATCHSIZE,
+                batch_size=self.config.batch_size,
                 shuffle=True,
                 pin_memory=PIN_MEMORY,
                 num_workers=NUM_WORKERS,
@@ -495,7 +490,7 @@ class PytorchModel:
             ))
             valloaders.append(DataLoader(
                 ds_val,
-                batch_size=self.BATCHSIZE,
+                batch_size=self.config.batch_size,
                 shuffle=False,
                 pin_memory=PIN_MEMORY,
                 num_workers=NUM_WORKERS,
@@ -503,7 +498,7 @@ class PytorchModel:
             ))
         testloader = DataLoader(
             testset,
-            batch_size=self.BATCHSIZE,
+            batch_size=self.config.batch_size,
             shuffle=False,
             pin_memory=PIN_MEMORY,
             num_workers=NUM_WORKERS,
@@ -514,14 +509,14 @@ class PytorchModel:
 
 
     def federated_training(self):
-        log("round_training", b("\n================ PARALLEL FEDERATED TRAINING START ================"))
-
-        start_total = time.perf_counter()
-
-        if debugging:
-            log("round_training", yellow("Debugging mode detected → running sequential training"))
+        if debugging or globals.reuse_runs:
+            log("round_training", b("\n================ SEQUENTIAL FEDERATED TRAINING START ================"))
+            start_total = time.perf_counter()
+            log("round_training", yellow(f"{'Debugging mode' if debugging else ''} {'and ' if debugging and globals.reuse_runs else ''}{'reuse_runs ' if globals.reuse_runs else ''}detected → running sequential training"))
             results = self.run_sequential()
         else:
+            log("round_training", b("\n================ PARALLEL FEDERATED TRAINING START ================"))
+            start_total = time.perf_counter()
             results = self.run_multi_processing()
 
         self.apply_training_results(results)
@@ -531,17 +526,17 @@ class PytorchModel:
         log("round_training", green(f"Total federated training time: {total_time:.2f} seconds\n"))
 
     def finalize_paricipant_evaluation(self, participant): # Same as lines 294-296,306 in orgiginal code.
-        loss, acc = test(participant.model, self.test, DEVICE) # TODO: Investigate if this should be user.val instead.
+        loss, acc = self.runRepo.test(self.round,f"test-finalize_paricipant_evaluation-{participant.id}", participant.model, self.test, DEVICE) # TODO: Investigate if this should be user.val instead.
         participant._accuracy.append(acc) # Line 295 in original code # TODO: Investigate if this should be test and not validation accuracy.
         participant._loss.append(loss) # Line 296 in original code # TODO: Investigate if this should be test and not validation loss.
-        participant.hashedModel = self.get_hash(participant.model.state_dict())
+        participant.hashedModel = self.runRepo.get_hash(self.round, f"get_hash-finalize_paricipant_evaluation-{participant.id}", participant.model.state_dict())
 
 
     def apply_training_results(self, results):
         # Apply results back to participants
-        user_map = {u.address: u for u in self.participants}
-        for user_address, state_dict, val_loss, val_acc in results:
-            user = user_map[user_address]
+        participant_map = {x.id: x for x in self.participants}
+        for user_id, state_dict, val_loss, val_acc in results:
+            user = participant_map[user_id]
             user.model.load_state_dict(state_dict)
             user.currentAcc = val_acc # Line 287 in original code
             user.currentLoss = val_loss
@@ -559,15 +554,17 @@ class PytorchModel:
             sd_cpu = {k: v.cpu() for k, v in user.model.state_dict().items()}
 
             if user.attitude == Attitude.Honest:
-                result = train_user_proc(
-                    user.address,
+                result = self.runRepo.train_user_proc(
+                    self.round,
+                     f"train_user_proc-run_sequential-{user.id}-{self.round}",
+                    user.id,
                     sd_cpu,
                     user.train.dataset,
                     user.val.dataset,
-                    self.EPOCHS,
+                    self.config.epochs,
                     device_id,
-                    self.DATASET,
-                    self.BATCHSIZE,
+                    self.config.dataset,
+                    self.config.batch_size,
                     PIN_MEMORY,
                     False
                 )
@@ -600,14 +597,15 @@ class PytorchModel:
                 if user.attitude == Attitude.Honest: # train
                     async_results.append(pool.apply_async(
                         train_user_proc,
-                        (user.address,
+                        (
+                        user.id,
                         sd_cpu,
                         user.train.dataset,
                         user.val.dataset,
-                        self.EPOCHS,
+                        self.config.epochs,
                         device_id,
-                        self.DATASET,
-                        self.BATCHSIZE,
+                        self.config.dataset,
+                        self.config.batch_size,
                         PIN_MEMORY,
                         False)
                     ))
@@ -622,12 +620,12 @@ class PytorchModel:
 
     def let_malicious_users_do_their_work(self):
         for i in range(len(self.participants)):
-            if self.participants[i].attitude == Attitude.Malicious:                
+            if self.participants[i].attitude == Attitude.Malicious:
                 log("agent_behavior", red("Address {} going to provide random weights".format(self.participants[i].address[0:16]+"...")))
                 manipulated_state_dict = manipulate(self.participants[i].model,scale=self.malicious_noise_scale,)
                 self.participants[i].model.load_state_dict(manipulated_state_dict)
-                self.participants[i].hashedModel = self.get_hash(self.participants[i].model.state_dict())
-                loss, accuracy = test(self.participants[i].model, self.test, DEVICE)
+                self.participants[i].hashedModel = self.runRepo.get_hash(self.round, f"let_malicious_users_do_their_work-{self.participants[i].id}", self.participants[i].model.state_dict())
+                loss, accuracy = self.runRepo.test(self.round,f"test-let_malicious_users_do_their_work-usermodel-{self.participants[i].id}", self.participants[i].model, self.test, DEVICE)
                 log("agent_behavior", "{:<17} {} |  Testing  | Accuracy {:>3.0f} % | Loss ∞\n".format("Account testing:   ",
                                                                                 self.participants[i].address[0:16]+"...",
                                                                                 accuracy*100, loss))
@@ -641,12 +639,12 @@ class PytorchModel:
                                                                             user.futureAttitude)))
                 user.attitude = user.futureAttitude
                 user.update_color(None, user.attitude)
-    
+
 
     def let_freerider_users_do_their_work(self):
-        for user in self.participants:
-            if user.attitude == Attitude.FreeRider:
-              
+        for participant in self.participants:
+            if participant.attitude == Attitude.FreeRider:
+
                 # # Freerider has no data and must therefore provide something random
                 # # After first round freerider can copy other participants
                 # if self.round == 1:
@@ -654,33 +652,33 @@ class PytorchModel:
                 #                   + "random weights; starts copycat-ing " \
                 #                   + "next round"))
                 #
-                #     new_state_dict = manipulate(copy.deepcopy(user.model))
+                #     new_state_dict = manipulate(copy.deepcopy(participant.model))
                 # else:
                 #     foreign_model = copy.deepcopy(self.participants[0].previousModel)
                 #     new_state_dict = foreign_model.state_dict()
                 #
-                # user.model.load_state_dict(new_state_dict)
+                # participant.model.load_state_dict(new_state_dict)
                 #
                 # if self.round > 1:
                 #     print(red("Address {} going to add random noise to weights".format(user_idx[0:16]+"...")))
-                #     user.model.load_state_dict(add_noise(copy.deepcopy(user.model)))
+                #     participant.model.load_state_dict(add_noise(copy.deepcopy(participant.model)))
                 if self.round < self.freerider_start_round:
                     log("agent_behavior", yellow(
                         "Address {} waiting until round {} to start freeriding".format(
-                            user.address[0:16] + "...",
+                            participant.address[0:16] + "...",
                             self.freerider_start_round,
                         )
                     ))
-                    new_state_dict = manipulate(copy.deepcopy(user.model))
+                    new_state_dict = manipulate(copy.deepcopy(participant.model))
                 else:
-                    new_state_dict = self._freerider_submit_with_noise(user)
+                    new_state_dict = self._freerider_submit_with_noise(participant)
 
 
-                user.model.load_state_dict(new_state_dict)
-                user.hashedModel = self.get_hash(user.model.state_dict())
-                loss, accuracy = test(user.model, self.test, DEVICE)
+                participant.model.load_state_dict(new_state_dict)
+                participant.hashedModel = self.runRepo.get_hash(self.round, f"get_hash-let_freerider_users_do_their_work-{participant.id}",participant.model.state_dict())
+                loss, accuracy = self.runRepo.test(self.round,f"test-let_freerider_users_do_their_work-usermodel-{participant.id}", participant.model, self.test, DEVICE)
                 log("agent_behavior", "{:<17} {} |  Testing  | Accuracy {:>3.0f} % | Loss ∞\n".format("Account testing:   ",
-                                                                                user.address[0:16]+"...",
+                                                                                participant.address[0:16]+"...",
                                                                                 accuracy*100, loss))
                 # TODO: Why is loss not used here?
 
@@ -732,7 +730,7 @@ class PytorchModel:
                 global_dict[k] = stacked.mean(0)
             self.global_model.load_state_dict(global_dict)
 
-        loss, accuracy = test(self.global_model,self.test,DEVICE)
+        loss, accuracy = self.runRepo.test(self.round,f"test-themerge-globalmodel", self.global_model,self.test,DEVICE)
         self.accuracy.append(accuracy)
         self.loss.append(loss)
         log("round_models", "-----------------------------------------------------------------------------------")
@@ -743,8 +741,9 @@ class PytorchModel:
             u.model.load_state_dict(self.global_model.state_dict()) #the global model
 
         log("round_models", "-----------------------------------------------------------------------------------\n")
-    
-    
+
+
+
 
     def exchange_models(self):
         log("round_models", "Users exchanging models...")
@@ -757,45 +756,26 @@ class PytorchModel:
                     continue
                 user.userToEvaluate.append(j)
         log("round_models", "-----------------------------------------------------------------------------------")
-    
+
+
 
     def verify_models(self, on_chain_hashes):
         log("round_models", "Users verifying models...")
         for _user in self.participants:
             _user.cheater = []
             for user in _user.userToEvaluate:
-                if not self.get_hash(user.model.state_dict()) == on_chain_hashes[user.address]:
+                if not self.runRepo.get_hash(self.round, f"get_hash-verify_models-{user.id}", user.model.state_dict()) == on_chain_hashes[user.id]:
                     log("round_models", red(f"Account {_user.number}: Account {user.address[0:16]}... could not provide the registered model"))
                     _user.cheater.append(user)
 
         log("round_models", "-----------------------------------------------------------------------------------")
 
-
-    def get_hash(self, _state_dict):
-        if not isinstance(_state_dict, dict):
-            _state_dict = dict(_state_dict)
-
-        parts = []
-        for k, v in sorted(_state_dict.items(), key=lambda x: x[0]):
-            t = v.detach()
-            if t.is_cuda:
-                t = t.cpu()
-            t = t.contiguous()
-            parts.append(k.encode("utf-8"))
-            parts.append(b"|")
-            # include shape to avoid accidental collisions
-            parts.append(np.asarray(t.shape, dtype=np.int64).tobytes())
-            parts.append(b"|")
-            parts.append(t.numpy().tobytes())
-            parts.append(b"\n")
-        blob = b"".join(parts)
-        return Web3.keccak(blob)  #remove hex to match old, with improved algo.
-
     def get_global_model_hash(self):
-        return self.get_hash(self.global_model.state_dict())
+        return get_hash(self.global_model.state_dict())
 
     def evaluation(self):
         log("round_models", "Users evaluating models...")
+        start_total = time.perf_counter()
 
         scalar = 100 # Adds more decimals for precision (Adding 0 gives another decimal, vice versa)
         MAX_UINT16_SIZE = 65535
@@ -821,11 +801,11 @@ class PytorchModel:
 
             # For each user, traverse its list of usersToEvaluate and fill the feedback, accuracy and loss matrices
             for ix, user in enumerate(feedbackGiver.userToEvaluate):
-                giver_idx = feedbackGiver.address
-                user_idx = user.address
+                giver_idx = feedbackGiver.id
+                user_idx = user.id
+                prev_loss, prev_acc = self.runRepo.test(self.round,f"test-feedback-globalmodel-{giver_idx}-{user_idx}", self.global_model, valloader, DEVICE)
+                loss, accuracy = self.runRepo.test(self.round,f"test-feedback-usermodel-{giver_idx}-{user_idx}", user.model, valloader, DEVICE)
                 if not bad_att and not free_att:
-                    loss, accuracy = test(user.model, valloader, DEVICE)
-                    prev_loss, prev_acc = test(self.global_model, valloader, DEVICE)
                     prev_acc = round(prev_acc * 100 * scalar)
                     prev_loss = safe_scale(prev_loss, scalar, MAX_UINT16_SIZE)
 
@@ -833,7 +813,6 @@ class PytorchModel:
                     matrices.feedback_matrix[giver_idx, user_idx] = -1
                     matrices.accuracy_matrix[giver_idx, user_idx] = 0
                     matrices.loss_matrix(giver_idx, user_idx, 65535)
-                    prev_loss, prev_acc = test(self.global_model, valloader, DEVICE)
                     matrices.prev_accuracies[giver_idx] = round(prev_acc * 100 * scalar)
                     matrices.prev_losses[giver_idx] = safe_scale(prev_loss, scalar, MAX_UINT16_SIZE)
 
@@ -841,7 +820,7 @@ class PytorchModel:
                 elif free_att:
                     matrices.feedback_matrix[giver_idx, user_idx] = 0
                     if accuracy_last_round == -1:
-                        loss_last_round, accuracy_last_round = test(self.global_model, valloader, DEVICE)
+                        loss_last_round, accuracy_last_round = self.runRepo.test(self.round,f"test-feedback-globalmodel-accuracy_last_round-{giver_idx}-{user_idx}",self.global_model, valloader, DEVICE)
                         accuracy_last_round = round(accuracy_last_round * 100 * scalar)
                         loss_last_round = safe_scale(loss_last_round, scalar, MAX_UINT16_SIZE)
                     matrices.accuracy_matrix[giver_idx, user_idx] = accuracy_last_round
@@ -877,7 +856,7 @@ class PytorchModel:
                     matrices.prev_accuracies[giver_idx] = prev_acc
                     matrices.prev_losses[giver_idx] = prev_loss
 
-                if self.force_merge_all:
+                if self.config.force_merge_all:
                     matrices.feedback_matrix[giver_idx, user_idx] = 0
 
                 # Reset
@@ -898,29 +877,60 @@ class PytorchModel:
         log("round_matrices", "PREVIOUS LOSSES:")
         log("round_matrices", matrices.prev_losses)
         log("round_matrices", "-----------------------------------------------------------------------------------")
-
+        log("round_matrices", f"TOTAL evaluation time: {time.perf_counter() - start_total:.3f}s")
         return matrices
 
-        return feedback_matrix, accuracy_matrix, loss_matrix, prev_accs, prev_losses, addresses
+    def get_participant(self, address_or_id, participants = None):
+        if participants is None:
+            participants = self.participants
+        p = next((x for x in participants if x.id == address_or_id), None)
+        if p:
+            return p
+        return next((x for x in participants if x.address == address_or_id), None)
 
-    def get_participant(self, address):
-        return next((x for x in self.participants if x.address == address), None)
-    
+    def setup_replay(self, filename, config: ExperimentConfiguration, path):
+
+        if ReplayMode.PlayBack in globals.reuse_runs and filename.is_file():
+            self.runRepo: ITestAndTrainer = RunRepo(config, filename)
+            self.replaying = True
+        else:
+            self.runRepo: ITestAndTrainer = PyTorchTrainer(config, filename)
+
+        loss, accuracy = self.runRepo.test(0, f"test-setup_replay-globalmodel", self.global_model, self.test, DEVICE)
+
+        self.accuracy = [accuracy]
+        self.loss = [loss]
+
+        self.round = 1
+        self.runRepo.save(-1, f"save-setup_replay-path", path)
+
+def get_hash(_state_dict):
+    if not isinstance(_state_dict, dict):
+        _state_dict = dict(_state_dict)
+
+    parts = []
+    for k, v in sorted(_state_dict.items(), key=lambda x: x[0]):
+        t = v.detach()
+        if t.is_cuda:
+            t = t.cpu()
+        t = t.contiguous()
+        parts.append(k.encode("utf-8"))
+        parts.append(b"|")
+        # include shape to avoid accidental collisions
+        parts.append(np.asarray(t.shape, dtype=np.int64).tobytes())
+        parts.append(b"|")
+        parts.append(t.numpy().tobytes())
+        parts.append(b"\n")
+    blob = b"".join(parts)
+    return Web3.keccak(blob)  #remove hex to match old, with improved algo.
+
 # PYTORCH FUNCTIONS
 def train(net, trainloader: torch.utils.data.DataLoader, epochs: int, device: torch.device) -> None:
-
-    # Compile ONCE per process (not per batch)
-    if device.type == "cuda":
-        try:
-            net = torch.compile(net)#, mode="reduce-overhead")
-        except Exception:
-            pass
 
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.SGD(net.parameters(), lr=0.001, momentum=0.9)
 
-    use_amp = device.type == "cuda"
-    scaler = torch.amp.GradScaler(enabled=use_amp)
+    scaler = torch.amp.GradScaler(enabled=AMP)
 
     net.train()
 
@@ -931,21 +941,16 @@ def train(net, trainloader: torch.utils.data.DataLoader, epochs: int, device: to
 
             optimizer.zero_grad(set_to_none=True)
 
-            with torch.amp.autocast("cuda", enabled=use_amp):
+            with torch.autocast(device_type=device.type, enabled=AMP):
                 outputs = net(images)
-                loss = criterion(outputs, labels)
+
+            loss = criterion(outputs, labels)
 
             scaler.scale(loss).backward()
             scaler.step(optimizer)
             scaler.update()
 
-
-def test(net, testloader: torch.utils.data.DataLoader, device: torch.device) -> Tuple[float, float]:
-    """
-    Evaluate model on test set: forward pass only (no gradients), with optional AMP on CUDA
-    Accumulate total cross-entropy loss and count correct predictions for accuracy
-    Returns (total_loss, accuracy) over the entire test dataset
-    """
+def test(net, testloader, device):
     criterion = nn.CrossEntropyLoss()
     net.eval()
 
@@ -953,26 +958,28 @@ def test(net, testloader: torch.utils.data.DataLoader, device: torch.device) -> 
     total = 0
     loss = 0.0
 
-    use_amp = device.type == "cuda"
-
     with torch.no_grad():
         for images, labels in testloader:
             images = images.to(device, non_blocking=NON_BLOCKING)
             labels = labels.to(device, non_blocking=NON_BLOCKING)
 
-            with torch.amp.autocast("cuda", enabled=use_amp):
+            with torch.autocast(device_type=device.type, enabled=AMP):
                 outputs = net(images)
-                loss += criterion(outputs, labels).item()
-                _, predicted = torch.max(outputs, 1)
+
+            batch_loss = criterion(outputs, labels)
+            loss += batch_loss.item() * labels.size(0)
+
+            predicted = outputs.argmax(dim=1)
 
             total += labels.size(0)
             correct += (predicted == labels).sum().item()
 
+    loss /= total
     accuracy = correct / total
-    loss = min(sys.float_info.max, loss)
 
     return loss, accuracy
-    
+
+
 def manipulate(model, scale: float = 1.0) -> OrderedDict:
     sd = OrderedDict()
     with torch.no_grad():
@@ -1005,39 +1012,44 @@ def add_noise(model, offset_from_end: int = 5) -> OrderedDict:
             new_sd[k] = t
     return new_sd
 
-def train_user_proc(user_addr, model_state, train_ds, val_ds, epochs, device_id, dataset, batchsize, pin_memory, shuffle):
-        # Multi-GPU Support
-        # Select device
-        use_cuda = torch.cuda.is_available()
-        device = torch.device(f"cuda:{device_id}" if use_cuda else "cpu")
+def train_user_proc(user_addr, model_state, train_ds, val_ds, epochs, device_id, dataset, batchsize, pin_memory,
+                    shuffle):
+    # Multi-GPU Support
+    # Select device
+    use_cuda = torch.cuda.is_available()
+    device = torch.device(f"cuda:{device_id}" if use_cuda else "cpu")
 
-        # Recreate model based on dataset
-        if dataset == "mnist":
-            model = Net_MNIST()
-        else:
-            model = Net_CIFAR()
+    # Recreate model based on dataset
+    if dataset == "mnist":
+        model = Net_MNIST()
+    else:
+        model = Net_CIFAR()
 
-        model.load_state_dict(model_state)
-        model.to(device)
+    if USE_CUDA and COMPILE:
+            model = torch.compile(model, mode="reduce-overhead")
 
-        # Rebuild dataloaders inside the process
-        train_loader = DataLoader(train_ds, batch_size=batchsize, shuffle=shuffle, pin_memory=pin_memory) # TODO: Investigate if this breaks something
-        val_loader = DataLoader(val_ds, batch_size=batchsize, shuffle=False, pin_memory=pin_memory) # TODO: Investigate if this breaks something
+    model.load_state_dict(model_state)
+    model.to(device)
 
-        train(model, train_loader, epochs, device) # Line 285 in original code
-        val_loss, val_acc = test(model, val_loader, device) # Line 286 in original code
+    # Rebuild dataloaders inside the process
+    train_loader = DataLoader(train_ds, batch_size=batchsize, shuffle=shuffle,
+                              pin_memory=pin_memory)  # TODO: Investigate if this breaks something
+    val_loader = DataLoader(val_ds, batch_size=batchsize, shuffle=False,
+                            pin_memory=pin_memory)  # TODO: Investigate if this breaks something
 
-        # del: Mark for GC
-        del train_loader
-        del val_loader
+    train(model, train_loader, epochs, device)  # Line 285 in original code
+    val_loss, val_acc = test(model, val_loader, device)  # Line 286 in original code
 
-        log("round_training", f"[{device_label(device, device_id)}] User {user_addr} done | Acc: {val_acc:.3f}, Loss: {val_loss:.3f}")
-        
-        # Ensure all GPU work is complete before worker exits
-        if device.type == "cuda":
-            torch.cuda.synchronize(device)
-        return user_addr, model.state_dict(), val_loss, val_acc
+    # del: Mark for GC
+    del train_loader
+    del val_loader
 
+    log("round_training", f"[{device_label(device, device_id)}] User {user_addr} done | Acc: {val_acc:.3f}, Loss: {val_loss:.3f}")
+
+    # Ensure all GPU work is complete before worker exits
+    if device.type == "cuda":
+        torch.cuda.synchronize(device)
+    return user_addr, model.state_dict(), val_loss, val_acc
 
 def print_training_mode(num_gpus: int, num_processes: int):
     """Prints a clean status message describing how training will run."""

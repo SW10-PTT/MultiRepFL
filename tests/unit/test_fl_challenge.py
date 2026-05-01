@@ -1062,7 +1062,7 @@ class TestFLChallengeWorkflow:
         with patch('web3.Web3.solidity_keccak') as mock_keccak:
             mock_keccak.return_value = b'\x09' * 32
 
-            fl_challenge.user_register_slot()
+            fl_challenge.users_register_slot()
 
             assert mock_keccak.call_count == 3
             assert fl_challenge.model.functions.registerSlot.call_count == 3

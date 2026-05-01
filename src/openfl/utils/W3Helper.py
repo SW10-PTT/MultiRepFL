@@ -1,9 +1,14 @@
+from __future__ import annotations
+
 from types import SimpleNamespace
+from typing import TYPE_CHECKING
 
 from eth_account import Account
 from web3 import Web3
 
-from experiment_configuration import ExperimentConfiguration
+# Imported only for type hints; skipped at runtime to avoid import errors when not on sys.path.
+if TYPE_CHECKING:
+    from experiment_configuration import ExperimentConfiguration
 from openfl.utils import require_env_var
 from openfl.utils.printer import log
 from openfl.api import globals

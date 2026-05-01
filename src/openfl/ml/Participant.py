@@ -1,4 +1,7 @@
+from __future__ import annotations  # postpone annotation eval; allows forward refs without runtime imports
+
 import copy
+import uuid
 
 import numpy as np
 from web3 import Web3
@@ -10,11 +13,19 @@ from openfl.utils.types.User import User
 
 class Participant(User):
     def __init__(self, number, _train, _val, _model, _optimizer, _criterion, _attitude, _default_collateral,
-                 _max_collateral, address, _attitude_switch=1, number_of_participants=None):
+                 _max_collateral, address, private_key, _data_percent, _only_labels, _attitude_switch=1, number_of_participants=None, participantId=None):
         super().__init__(_attitude, _default_collateral,
-                         _max_collateral, _attitude_switch, number_of_participants)
+                         _max_collateral, address, private_key, _data_percent, _only_labels, _attitude_switch, number_of_participants)
         from openfl.api.ConnectionHelper import ConnectionHelper
         ConnectionHelper.initiate_connection(manual_setup=True)
+
+        if isinstance(participantId, uuid.UUID):
+            self.id = participantId
+        elif isinstance(participantId, str):
+            self.id = uuid.UUID(participantId)
+        else:
+            self.id = uuid.uuid4()
+
         self.number = number
         self.train = _train
         self.val = _val
@@ -32,7 +43,6 @@ class Participant(User):
         self.attitude = Attitude.Honest
         self.hashedModel = None
         self.address = address
-        self.privateKey = None
         self.isRegistered = False
         # Old:  self.collateral = _default_collateral + np.random.randint(0,int(_max_collateral-_default_collateral))
         # ---- collateral (handles huge ranges; avoids int32 cap) ----
@@ -65,4 +75,20 @@ class Participant(User):
         return user
 
     def from_user(user: User, train, val, model, optimizer, criterion):
-        return Participant(user.number, train, val, model, optimizer, criterion, user.attitude, user.min_collateral, user.max_collateral, user.address, user.attitudeSwitch)
+        return Participant(
+            user.number,
+            train,
+            val,
+            model,
+            optimizer,
+            criterion,
+            user.attitude,
+            user.min_collateral,
+            user.max_collateral,
+            user.address,
+            user.private_key,
+            user.data_percent,
+            user.only_labels,
+            user.attitudeSwitch,
+            participantId=user.id)
+

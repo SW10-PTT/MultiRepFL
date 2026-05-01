@@ -1,0 +1,78 @@
+{
+  "_doc": [
+    "Per-user partition spec, one entry per data-user (good + bad + freerider).",
+    "Activate by setting partition_strategy='per_user' + per_user_partitions='<this path>'",
+    "in ExperimentConfiguration.",
+    "",
+    "Semantics: each user takes a fair stratified share of every class equal to",
+    "data_percent of the dataset, then drops samples whose label is not in the",
+    "user's whitelist (only_labels or label_distribution.keys()). data_percent",
+    "stays a stable mental model regardless of skew. A user with pct=10% and",
+    "only_labels=[4,9] effectively trains on ~2% of dataset (2 of 10 classes",
+    "kept) -- bump pct if you want full coverage on those classes.",
+    "",
+    "Fields per user:",
+    "  id                 (int, required)    User Id.",
+    "  data_percent       (float, required)  Fair share of dataset before filtering.",
+    "                                         Sum across users <= 100.",
+    "                                         In overlap mode each fair share is taken",
+    "                                         from the rep-inflated class pools.",
+    "  only_labels        (list[int])        Hard whitelist. Drops every class",
+    "                                         outside the list after fair-share.",
+    "  label_distribution (dict[int->float]) Per-class retention factor in [0, 1]",
+    "                                         applied to the fair share. 1.0 keeps",
+    "                                         all, 0.5 keeps half, 0.0 drops the",
+    "                                         class. Unmentioned classes default",
+    "                                         to 1.0. Combine with only_labels to",
+    "                                         drop some + downsample others.",
+    "  flip_map           (dict[int->int])   Malicious label-flip map applied at",
+    "                                         dataset read time.",
+    "",
+    "No per-class supply check is needed: sum(pct) <= 100 guarantees no class",
+    "is over-allocated. Skewed users just keep less, never conflict.",
+    "",
+    "Example below: 8 data-users on MNIST (10 classes), replication_factor=2.",
+    "User 0 + user 1 carry skew (only_labels), user 2 is malicious (flip_map),",
+    "rest are stratified. Remember to keep number_of_good_contributors + bad +",
+    "freerider in ExperimentConfiguration matching the user count here."
+  ],
+
+  "users": [
+    {
+      "id": 0,
+      "data_percent": 14.0
+    },
+    {
+      "id": 1,
+      "data_percent": 14.0
+    },
+    {
+      "id": 2,
+      "data_percent": 9.0,
+      "only_labels": [0, 1]
+    },
+    {
+      "id": 3,
+      "data_percent": 9.0,
+      "only_labels": [4, 9]
+    },
+    {
+      "id": 4,
+      "data_percent": 12.0,
+      "flip_map": {"3": 8}
+    },
+    {
+      "id": 5,
+      "data_percent": 12.0,
+      "label_distribution":  {"0": 0.9, "1": 0.5, "2": 1.0, "4": 0.7, "9": 0.3}
+    },
+    {
+      "id": 6,
+      "data_percent": 20.0
+    },
+    {
+      "id": 7,
+      "data_percent": 10.0
+    }
+  ]
+}

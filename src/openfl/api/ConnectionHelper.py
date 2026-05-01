@@ -6,6 +6,7 @@ import os
 import time
 import signal
 from web3 import Web3
+import web3
 from web3.contract import Contract
 from termcolor import colored
 from subprocess import Popen, PIPE
@@ -140,7 +141,7 @@ class ConnectionHelper:
             except:
                 latestBlock = 1000000
 
-        return latestBlock;
+        return latestBlock
 
     def initialize_manager(self):
         bytecode_path = Path(__file__).resolve().parents[3] / "artifacts" / "bytecode"
@@ -282,6 +283,7 @@ class ConnectionHelper:
 
         receipt = globals.w3.eth.wait_for_transaction_receipt(txHash, timeout=600, poll_latency=1)
         globals.add_gas_usage(gas_type, receipt["gasUsed"], account_addr)
+        # todo: add gas usage
         if receipt.get("status", 0) != 1:
             raise RuntimeError(
                 f"Transaction: \"{func_name}\" failed (tx={txHash.hex()}, status={receipt.get('status')}). "
@@ -347,6 +349,7 @@ class ConnectionHelper:
 
         # --- RECEIPT ---
         receipt = w3.eth.wait_for_transaction_receipt(tx_hash)
+        # Todo: log gas
 
         if receipt.get("status", 0) != 1:
             raise RuntimeError(f"Deployment failed: {tx_hash.hex()}")
