@@ -42,20 +42,20 @@ class ConnectionHelper:
         
         
         #print("\n==================================================================================\n")
-        log("connection_info", "Connected to Ethereum: {}".format(colored(globals.w3.is_connected(), "green", attrs=['bold'])))
-        log("connection_info", "initiated Ganache-Client @ Block Nr. {:,.0f}\n".format(latestBlock))
-        log("experiment_summary", "Total Contributers:       {}".format(NUMBER_OF_CONTRIBUTORS))
-        log("experiment_summary", "Good Contributers:        {} ({:.0f}%)".format(NUMBER_OF_GOOD_CONTRIBUTORS,
+        log("setup_env", "Connected to Ethereum: {}".format(colored(globals.w3.is_connected(), "green", attrs=['bold'])))
+        log("setup_env", "initiated Ganache-Client @ Block Nr. {:,.0f}\n".format(latestBlock))
+        log("setup_contracts", "Total Contributers:       {}".format(NUMBER_OF_CONTRIBUTORS))
+        log("setup_contracts", "Good Contributers:        {} ({:.0f}%)".format(NUMBER_OF_GOOD_CONTRIBUTORS,
                                                         NUMBER_OF_GOOD_CONTRIBUTORS/NUMBER_OF_CONTRIBUTORS*100))
-        log("experiment_summary", "Malicious Contributers:   {} ({:.0f}%)".format(NUMBER_OF_BAD_CONTRIBUTORS,
+        log("setup_contracts", "Malicious Contributers:   {} ({:.0f}%)".format(NUMBER_OF_BAD_CONTRIBUTORS,
                                                         NUMBER_OF_BAD_CONTRIBUTORS/NUMBER_OF_CONTRIBUTORS*100))
-        log("experiment_summary", "Freeriding Contributers:  {} ({:.0f}%)".format(NUMBER_OF_FREERIDER_CONTRIBUTORS,
+        log("setup_contracts", "Freeriding Contributers:  {} ({:.0f}%)".format(NUMBER_OF_FREERIDER_CONTRIBUTORS,
                                                         NUMBER_OF_FREERIDER_CONTRIBUTORS/NUMBER_OF_CONTRIBUTORS*100))
-        log("experiment_summary", "Inactive Contributers:    {} ({:.0f}%)".format(NUMBER_OF_INACTIVE_CONTRIBUTORS,
+        log("setup_contracts", "Inactive Contributers:    {} ({:.0f}%)".format(NUMBER_OF_INACTIVE_CONTRIBUTORS,
                                                         NUMBER_OF_INACTIVE_CONTRIBUTORS/NUMBER_OF_CONTRIBUTORS*100))
-        log("experiment_summary", "Learning Rounds:          {}".format(MINIMUM_ROUNDS))
+        log("setup_contracts", "Learning Rounds:          {}".format(MINIMUM_ROUNDS))
 
-        log("experiment_summary", "-----------------------------------------------------------------------------------")
+        log("setup_contracts", "-----------------------------------------------------------------------------------")
 
         latestBlock = self.initiate_connection(NUMBER_OF_CONTRIBUTORS, latestBlock, manual_setup)
 
@@ -94,11 +94,11 @@ class ConnectionHelper:
             else:
                 prefix = "MAL."
             bal = globals.w3.eth.get_balance(acc.address)
-            log("account_init", "{:<17} {} with {:<4,.1f} ETH | {} USER".format("Account initiated",
+            log("setup_contracts", "{:<17} {} with {:<4,.1f} ETH | {} USER".format("Account initiated",
                                                            "@ Address "+acc.address[0:25]+"...",
                                                            bal/1e18,
                                                            prefix))
-        log("account_init", "-----------------------------------------------------------------------------------")
+        log("setup_contracts", "-----------------------------------------------------------------------------------")
         return latestBlock
 
     @classmethod
@@ -126,14 +126,14 @@ class ConnectionHelper:
             try:
                 if globals.fork:
                     globals.w3 = Web3(Web3.HTTPProvider(infura_url))
-                    log("connection_info", "Connected:", globals.w3.is_connected())
-                    log("connection_info", "Client:", globals.w3.client_version)
-                    log("connection_info", "Chain ID:", globals.w3.eth.chain_id)
-                    log("connection_info", "Latest block:", globals.w3.eth.block_number)
-                    log("connection_info", "Accounts:", globals.w3.eth.accounts[:3])
-                    log("connection_info", "Default account:", globals.w3.eth.default_account)
+                    log("setup_env", "Connected:", globals.w3.is_connected())
+                    log("setup_env", "Client:", globals.w3.client_version)
+                    log("setup_env", "Chain ID:", globals.w3.eth.chain_id)
+                    log("setup_env", "Latest block:", globals.w3.eth.block_number)
+                    log("setup_env", "Accounts:", globals.w3.eth.accounts[:3])
+                    log("setup_env", "Default account:", globals.w3.eth.default_account)
                     globals.w3.eth.default_account = globals.w3.eth.accounts[0]
-                    log("connection_info", "New Default account:", globals.w3.eth.default_account)
+                    log("setup_env", "New Default account:", globals.w3.eth.default_account)
                 else:
                     globals.w3 = Web3(Web3.HTTPProvider(infura_url))
                 latestBlock = globals.w3.eth.block_number

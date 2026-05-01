@@ -156,10 +156,10 @@ class PytorchModel:
         self.loss = [loss]
 
         self.round = 1
-        log("pytorch_model_created", "===================================================================================")
-        log("pytorch_model_created","Pytorch Model created:\n")
-        log("pytorch_model_created", str(self.global_model))
-        log("pytorch_model_created","\n===================================================================================")
+        log("setup_data", "===================================================================================")
+        log("setup_data","Pytorch Model created:\n")
+        log("setup_data", str(self.global_model))
+        log("setup_data","\n===================================================================================")
 
 
 
@@ -216,7 +216,7 @@ class PytorchModel:
             criterion,
         ))
         
-        log("participant_added", "Participant added: {:<9} {}".format(rb(user.attitude.name.upper()[0]+user.attitude.name[1:]), rb("User")))
+        log("setup_contracts", "Participant added: {:<9} {}".format(rb(user.attitude.name.upper()[0]+user.attitude.name[1:]), rb("User")))
 
     def prepare_data_for_users(self, users, dataset_name):
         users = list(users)
@@ -309,10 +309,10 @@ class PytorchModel:
         dataset_size = len(labels)
         num_classes = len(set(labels))
         per_class = dataset_size // num_classes
-        log("data_split", f"Dataset: {dataset_name} | {dataset_size:,} total samples | {num_classes} classes | ~{per_class:,} per class")
-        log("data_split")
-        log("data_split", "Data split per user:")
-        log("data_split",
+        log("setup_data", f"Dataset: {dataset_name} | {dataset_size:,} total samples | {num_classes} classes | ~{per_class:,} per class")
+        log("setup_data")
+        log("setup_data", "Data split per user:")
+        log("setup_data",
             "{:<4} {:<16} {:>10} {:>10} {:>9}   {}".format(
                 "Idx",
                 "Address",
@@ -322,7 +322,7 @@ class PytorchModel:
                 "Rule",
             )
         )
-        log("data_split", "-" * 75)
+        log("setup_data", "-" * 75)
 
         total_config_percent = 0.0
         total_actual_percent = 0.0
@@ -340,7 +340,7 @@ class PytorchModel:
             total_actual_percent += actual_percent
             total_samples += int(split["num_samples"])
 
-            log("data_split",
+            log("setup_data",
                 "{:<4} {:<16} {:>9.2f}% {:>9.2f}% {:>9,}   {}".format(
                     getattr(user, "number", user_id),
                     user.address[0:14] + "...",
@@ -374,33 +374,33 @@ class PytorchModel:
         lost_samples = dataset_size - total_samples
         lost_percent = 100.0 * lost_samples / dataset_size
 
-        log("data_split", "-" * 75)
-        log("data_split", "Configured total: {:.2f}%".format(total_config_percent))
-        log("data_split", "Assigned: {:>7,} / {:,} samples  ({:.2f}%)".format(total_samples, dataset_size, total_actual_percent))
+        log("setup_data", "-" * 75)
+        log("setup_data", "Configured total: {:.2f}%".format(total_config_percent))
+        log("setup_data", "Assigned: {:>7,} / {:,} samples  ({:.2f}%)".format(total_samples, dataset_size, total_actual_percent))
         if lost_samples > 0:
-            log("data_split", "Lost:     {:>7,} / {:,} samples  ({:.2f}%)  <- dropped due to only_labels".format(lost_samples, dataset_size, lost_percent))
-        log("data_split")
+            log("setup_data", "Lost:     {:>7,} / {:,} samples  ({:.2f}%)  <- dropped due to only_labels".format(lost_samples, dataset_size, lost_percent))
+        log("setup_data")
 
         col_w = 6
         header = "{:<4} " + " ".join(f"{'L' + str(l):>{col_w}}" for l in all_label_classes)
-        log("data_split_labels", header.format("Idx"))
-        log("data_split_labels", "-" * (5 + col_w * len(all_label_classes)))
+        log("setup_data", header.format("Idx"))
+        log("setup_data", "-" * (5 + col_w * len(all_label_classes)))
         for user_idx, label_counts in label_dist_rows:
             row = "{:<4} " + " ".join(f"{label_counts.get(l, 0):>{col_w},}" for l in all_label_classes)
-            log("data_split_labels", row.format(user_idx))
+            log("setup_data", row.format(user_idx))
 
         if not label_flip_rows:
             return
 
-        log("data_split_labels")
-        log("data_split_labels", "Label flips (samples changed per user):")
-        log("data_split_labels", "{:<4} {:<5}   {:<24} {:>8} {:>11}".format("Idx", "Set", "Flip counts", "Changed", "% of set"))
-        log("data_split_labels", "-" * 60)
+        log("setup_data")
+        log("setup_data", "Label flips (samples changed per user):")
+        log("setup_data", "{:<4} {:<5}   {:<24} {:>8} {:>11}".format("Idx", "Set", "Flip counts", "Changed", "% of set"))
+        log("setup_data", "-" * 60)
         for user_idx, set_name, flip_counts, changed_total, changed_percent in label_flip_rows:
-            log("data_split_labels", "{:<4} {:<5}   {:<24} {:>8} {:>10.2f}%".format(
+            log("setup_data", "{:<4} {:<5}   {:<24} {:>8} {:>10.2f}%".format(
                 user_idx, set_name, flip_counts, changed_total, changed_percent,
             ))
-        log("data_split_labels", "-" * 60)
+        log("setup_data", "-" * 60)
 
     def count_labels(self, labels, ids):
         counts = Counter(labels[i] for i in ids)
@@ -463,9 +463,9 @@ class PytorchModel:
             
         
         if _print:
-            log("data_loaded", "Data Loaded:")
-            log("data_loaded", "Nr. of images for training: {:,.0f}".format(len(trainset)))
-            log("data_loaded", "Nr. of images for testing:  {:,.0f}\n".format(len(testset)))
+            log("setup_data", "Data Loaded:")
+            log("setup_data", "Nr. of images for training: {:,.0f}".format(len(trainset)))
+            log("setup_data", "Nr. of images for testing:  {:,.0f}\n".format(len(testset)))
 
         # Split training set into partitions to simulate the individual dataset
         partition_size = len(trainset) // NUM_CLIENTS
@@ -514,12 +514,12 @@ class PytorchModel:
 
 
     def federated_training(self):
-        log("training_banner", b("\n================ PARALLEL FEDERATED TRAINING START ================"))
+        log("round_training", b("\n================ PARALLEL FEDERATED TRAINING START ================"))
 
         start_total = time.perf_counter()
 
         if debugging:
-            log("training_banner", yellow("Debugging mode detected → running sequential training"))
+            log("round_training", yellow("Debugging mode detected → running sequential training"))
             results = self.run_sequential()
         else:
             results = self.run_multi_processing()
@@ -527,8 +527,8 @@ class PytorchModel:
         self.apply_training_results(results)
         total_time = time.perf_counter() - start_total
 
-        log("training_banner", b("=================== PARALLEL TRAINING END ===================\n"))
-        log("training_banner", green(f"Total federated training time: {total_time:.2f} seconds\n"))
+        log("round_training", b("=================== PARALLEL TRAINING END ===================\n"))
+        log("round_training", green(f"Total federated training time: {total_time:.2f} seconds\n"))
 
     def finalize_paricipant_evaluation(self, participant): # Same as lines 294-296,306 in orgiginal code.
         loss, acc = test(participant.model, self.test, DEVICE) # TODO: Investigate if this should be user.val instead.
@@ -616,19 +616,19 @@ class PytorchModel:
                     self.finalize_paricipant_evaluation(user)
 
             results = [r.get() for r in async_results] # Gather results from Multi-Processing
-        log("training_banner", green(f"Parallel execution time: {time.perf_counter() - start_pool:.2f} seconds"))
+        log("round_training", green(f"Parallel execution time: {time.perf_counter() - start_pool:.2f} seconds"))
         return results
 
 
     def let_malicious_users_do_their_work(self):
         for i in range(len(self.participants)):
             if self.participants[i].attitude == Attitude.Malicious:                
-                log("malicious_behavior", red("Address {} going to provide random weights".format(self.participants[i].address[0:16]+"...")))
+                log("agent_behavior", red("Address {} going to provide random weights".format(self.participants[i].address[0:16]+"...")))
                 manipulated_state_dict = manipulate(self.participants[i].model,scale=self.malicious_noise_scale,)
                 self.participants[i].model.load_state_dict(manipulated_state_dict)
                 self.participants[i].hashedModel = self.get_hash(self.participants[i].model.state_dict())
                 loss, accuracy = test(self.participants[i].model, self.test, DEVICE)
-                log("malicious_behavior", "{:<17} {} |  Testing  | Accuracy {:>3.0f} % | Loss ∞\n".format("Account testing:   ",
+                log("agent_behavior", "{:<17} {} |  Testing  | Accuracy {:>3.0f} % | Loss ∞\n".format("Account testing:   ",
                                                                                 self.participants[i].address[0:16]+"...",
                                                                                 accuracy*100, loss))
                 # TODO: Why is test_loss not used here?
@@ -637,7 +637,7 @@ class PytorchModel:
         for user in self.participants:
             if user.attitudeSwitch == self.round \
                 and user.attitude != user.futureAttitude:
-                log("attitude_switch", rb("Address {} going to switch attitude to {}".format(user.address[0:16]+"...",
+                log("agent_behavior", rb("Address {} going to switch attitude to {}".format(user.address[0:16]+"...",
                                                                             user.futureAttitude)))
                 user.attitude = user.futureAttitude
                 user.update_color(None, user.attitude)
@@ -665,7 +665,7 @@ class PytorchModel:
                 #     print(red("Address {} going to add random noise to weights".format(user_idx[0:16]+"...")))
                 #     user.model.load_state_dict(add_noise(copy.deepcopy(user.model)))
                 if self.round < self.freerider_start_round:
-                    log("freerider_behavior", yellow(
+                    log("agent_behavior", yellow(
                         "Address {} waiting until round {} to start freeriding".format(
                             user.address[0:16] + "...",
                             self.freerider_start_round,
@@ -679,7 +679,7 @@ class PytorchModel:
                 user.model.load_state_dict(new_state_dict)
                 user.hashedModel = self.get_hash(user.model.state_dict())
                 loss, accuracy = test(user.model, self.test, DEVICE)
-                log("freerider_behavior", "{:<17} {} |  Testing  | Accuracy {:>3.0f} % | Loss ∞\n".format("Account testing:   ",
+                log("agent_behavior", "{:<17} {} |  Testing  | Accuracy {:>3.0f} % | Loss ∞\n".format("Account testing:   ",
                                                                                 user.address[0:16]+"...",
                                                                                 accuracy*100, loss))
                 # TODO: Why is loss not used here?
@@ -692,10 +692,10 @@ class PytorchModel:
             raise ValueError("freerider_noise_scale must be non-negative")
 
         if self.freerider_noise_scale == 0: # Copy global model if noise is zero
-            log("freerider_behavior", yellow("Address {} resubmitting original model".format(user.address[0:16]+"...")))
+            log("agent_behavior", yellow("Address {} resubmitting original model".format(user.address[0:16]+"...")))
             return copy.deepcopy(user.model).state_dict()
 
-        log("freerider_behavior", red(
+        log("agent_behavior", red(
             "Address {} adding noise (scale={}) to global weights".format(
                 user.address[0:16]+"...",
                 self.freerider_noise_scale,
@@ -707,17 +707,17 @@ class PytorchModel:
     def the_merge(self, _users):
         # No qualified users → skip merge this round
         if not _users:
-            log("merge_result", "-----------------------------------------------------------------------------------")
-            log("merge_result", red("No participants qualified for merge this round – skipping aggregation"))
-            log("merge_result", "-----------------------------------------------------------------------------------\n")
+            log("round_models", "-----------------------------------------------------------------------------------")
+            log("round_models", red("No participants qualified for merge this round – skipping aggregation"))
+            log("round_models", "-----------------------------------------------------------------------------------\n")
             return
 
         ids, client_models = [], []
         for u in _users:
             ids.append(u.address)
             client_models.append(u.model)
-            log("merge_result", "Account {} participating in merge".format(u.address[0:16]+"..."))
-            #log("merge_result", test(c[1],self.test,DEVICE))
+            log("round_models", "Account {} participating in merge".format(u.address[0:16]+"..."))
+            #log("round_models", test(c[1],self.test,DEVICE))
 
         with torch.no_grad():
             global_dict = self.global_model.state_dict()
@@ -735,19 +735,19 @@ class PytorchModel:
         loss, accuracy = test(self.global_model,self.test,DEVICE)
         self.accuracy.append(accuracy)
         self.loss.append(loss)
-        log("merge_result", "-----------------------------------------------------------------------------------")
-        log("merge_result", b("Merged Model: Accuracy {:>3.0f} % | Loss {:>6,.2f}".format(accuracy*100,loss)))
+        log("round_models", "-----------------------------------------------------------------------------------")
+        log("round_models", b("Merged Model: Accuracy {:>3.0f} % | Loss {:>6,.2f}".format(accuracy*100,loss)))
 
         for u in self.participants:
             u.previousModel = copy.deepcopy(u.model) #the model from this round
             u.model.load_state_dict(self.global_model.state_dict()) #the global model
 
-        log("merge_result", "-----------------------------------------------------------------------------------\n")
+        log("round_models", "-----------------------------------------------------------------------------------\n")
     
     
 
     def exchange_models(self):
-        log("model_exchange", "Users exchanging models...")
+        log("round_models", "Users exchanging models...")
         for user in self.participants:
             user.userToEvaluate = []
             for j in self.participants:
@@ -756,19 +756,19 @@ class PytorchModel:
                 if j.model in user.userToEvaluate:
                     continue
                 user.userToEvaluate.append(j)
-        log("model_exchange", "-----------------------------------------------------------------------------------")
+        log("round_models", "-----------------------------------------------------------------------------------")
     
 
     def verify_models(self, on_chain_hashes):
-        log("model_verify", "Users verifying models...")
+        log("round_models", "Users verifying models...")
         for _user in self.participants:
             _user.cheater = []
             for user in _user.userToEvaluate:
                 if not self.get_hash(user.model.state_dict()) == on_chain_hashes[user.address]:
-                    log("model_verify", red(f"Account {_user.number}: Account {user.address[0:16]}... could not provide the registered model"))
+                    log("round_models", red(f"Account {_user.number}: Account {user.address[0:16]}... could not provide the registered model"))
                     _user.cheater.append(user)
 
-        log("model_verify", "-----------------------------------------------------------------------------------")
+        log("round_models", "-----------------------------------------------------------------------------------")
 
 
     def get_hash(self, _state_dict):
@@ -795,7 +795,7 @@ class PytorchModel:
         return self.get_hash(self.global_model.state_dict())
 
     def evaluation(self):
-        log("evaluation", "Users evaluating models...")
+        log("round_models", "Users evaluating models...")
 
         scalar = 100 # Adds more decimals for precision (Adding 0 gives another decimal, vice versa)
         MAX_UINT16_SIZE = 65535
@@ -1031,7 +1031,7 @@ def train_user_proc(user_addr, model_state, train_ds, val_ds, epochs, device_id,
         del train_loader
         del val_loader
 
-        log("user_training", f"[{device_label(device, device_id)}] User {user_addr} done | Acc: {val_acc:.3f}, Loss: {val_loss:.3f}")
+        log("round_training", f"[{device_label(device, device_id)}] User {user_addr} done | Acc: {val_acc:.3f}, Loss: {val_loss:.3f}")
         
         # Ensure all GPU work is complete before worker exits
         if device.type == "cuda":
@@ -1042,23 +1042,23 @@ def train_user_proc(user_addr, model_state, train_ds, val_ds, epochs, device_id,
 def print_training_mode(num_gpus: int, num_processes: int):
     """Prints a clean status message describing how training will run."""
     if num_gpus >= 2:
-        log("training_mode", green(f"Detected {num_gpus} GPU(s) → Parallel multi-GPU training"))
+        log("round_training", green(f"Detected {num_gpus} GPU(s) → Parallel multi-GPU training"))
 
     elif num_gpus == 1:
         if num_processes > 1:
-            log("training_mode", yellow(
+            log("round_training", yellow(
                 f"Detected 1 GPU → Parallel training on one GPU (shared across {num_processes} workers)"
             ))
         else:
-            log("training_mode", green("Detected 1 GPU → Sequential GPU training"))
+            log("round_training", green("Detected 1 GPU → Sequential GPU training"))
 
     else:  # CPU-only
         if num_processes > 1:
-            log("training_mode", yellow(
+            log("round_training", yellow(
                 f"Detected 0 GPU(s) → Parallel CPU training ({num_processes} workers)"
             ))
         else:
-            log("training_mode", red("Detected 0 GPU(s) → Sequential CPU mode"))
+            log("round_training", red("Detected 0 GPU(s) → Sequential CPU mode"))
 
 
 

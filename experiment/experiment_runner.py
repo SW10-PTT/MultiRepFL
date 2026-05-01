@@ -113,7 +113,7 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
           if "AWO" in str(e):
               globals.w3.provider.make_request("evm_increaseTime", [30])
               globals.w3.provider.make_request("evm_mine", [])
-              log("round_lifecycle", "Application window still open, trying again in 10 seconds")
+              log("round_boundary", "Application window still open, trying again in 10 seconds")
               time.sleep(10)
           else:
               raise
@@ -130,7 +130,7 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
         newChallenge.transact("registrationProcess", user, trainingSpecsChallenge.min_collateral, [], "challenge.register")
       except ContractLogicError as e:
           if "SUO" in str(e):
-              log("slot_registration", "Participant tried joining but was not selected")
+              log("round_models", "Participant tried joining but was not selected")
 
   # This happens after deciding on users
   newChallenge.simulate(rounds=experiment_config.minimum_rounds)
@@ -218,7 +218,7 @@ def setup_connection(experiment_config):
             for acc in loaded_accounts
         ]
 
-        log("connection_info", f"Loaded {len(PRIVKEYS)} private keys.")
+        log("setup_env", f"Loaded {len(PRIVKEYS)} private keys.")
     else:
         PRIVKEYS = None
 

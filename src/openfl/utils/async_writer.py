@@ -23,7 +23,7 @@ class AsyncWriter:
     def __init__(self, path: Path, header: List[str], queue_size, config, author):
         # path.parent.mkdir()
         path.parent.mkdir(parents=True, exist_ok=True)
-        log("writer_info", f"Writing to {path.absolute()}")
+        log("writer", f"Writing to {path.absolute()}")
         self.csv_path = path
         self.header = header
         self.queue = Queue(maxsize=queue_size)
@@ -45,7 +45,7 @@ class AsyncWriter:
                     f.flush()
                     os.fsync(f.fileno())
                     self.queue.task_done()
-                    log("writer_debug", "stopping write queue")
+                    log("writer", "stopping write queue")
                     break
 
                 if isComment:
@@ -59,7 +59,7 @@ class AsyncWriter:
                 if self.queue.empty():
                     f.flush()
                     os.fsync(f.fileno())
-        log("writer_debug", "Stopping Writer")
+        log("writer", "Stopping Writer")
 
     def _writeMetaAndHeaderIfEmpty(self):
         empty = (not os.path.exists(self.csv_path)) or os.path.getsize(self.csv_path) == 0
@@ -81,16 +81,16 @@ class AsyncWriter:
         self.queue.put((comment, True), block=False)
 
     def finish(self):
-        log("writer_debug", "finish1")
+        log("writer", "finish1")
         # Tell the writer thread to stop
         self.queue.put((None, False))
-        log("writer_debug", "finish2")
+        log("writer", "finish2")
         # Wait for all queued tasks (including stop) to be marked done
         self.queue.join()
-        log("writer_debug", "finish3")
+        log("writer", "finish3")
         # Now wait for the thread to exit
         self.thread.join()
-        log("writer_debug", "finish4")
+        log("writer", "finish4")
 
     def _write_config(self, file: TextIOWrapper):
       cfg = self.config

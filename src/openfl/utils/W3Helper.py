@@ -34,7 +34,7 @@ def get_PRIVKEYS(experiment_config: ExperimentConfiguration):
             for acc in loaded_accounts
         ]
 
-        log("connection_info", f"Loaded {len(PRIVKEYS)} private keys.")
+        log("setup_env", f"Loaded {len(PRIVKEYS)} private keys.")
     else:
         PRIVKEYS = None
 

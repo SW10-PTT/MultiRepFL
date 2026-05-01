@@ -64,12 +64,12 @@ class FLManager(ConnectionHelper):
         self.gas_deploy.append(receipt["gasUsed"])
         self.txHashes.append(("buildManager", receipt["transactionHash"].hex(), receipt["gasUsed"]))
 
-        log("contract_deploy", "\n{:<17} {} | {}\n".format(
+        log("setup_contracts", "\n{:<17} {} | {}\n".format(
             "Manager deployed",
             "@ Address " + self.contract.address,
             receipt["transactionHash"].hex()[0:6] + "..."
         ))
-        log("contract_deploy", "-----------------------------------------------------------------------------------")
+        log("setup_contracts", "-----------------------------------------------------------------------------------")
 
 
     def get_model_of(self, participant, addr):
@@ -119,8 +119,8 @@ class FLManager(ConnectionHelper):
         code = w3.eth.get_code(contract.address)
         self.job_template_hash = Web3.keccak(code)
 
-        log("contract_deploy", "Job Listing template deployed at:", contract.address)
-        log("contract_deploy", "Job Listing template hash:", self.job_template_hash.hex())
+        log("setup_contracts", "Job Listing template deployed at:", contract.address)
+        log("setup_contracts", "Job Listing template hash:", self.job_template_hash.hex())
 
     def deploy_challenge_template(self, deployer: User):
         w3 = globals.w3
@@ -143,5 +143,5 @@ class FLManager(ConnectionHelper):
         code = w3.eth.get_code(contract.address)
         self.challenge_templete_hash = Web3.keccak(code)
 
-        log("contract_deploy", "Challenge template deployed at:", contract.address)
-        log("contract_deploy", "Challenge template hash:", self.job_template_hash.hex())
+        log("setup_contracts", "Challenge template deployed at:", contract.address)
+        log("setup_contracts", "Challenge template hash:", self.job_template_hash.hex())

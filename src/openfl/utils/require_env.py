@@ -20,13 +20,13 @@ def require_env_var(name: str) -> str:
     return value
 
 def load_env():
-    log("env_info", "Loading environment")
+    log("setup_env", "Loading environment")
     # Choose env file dynamically
     env = os.getenv("ENV", "ganache")  # defaults to dev if ENV not set
     env_file = Path(__file__).parents[3] / ".env" / f".env.{env}"
 
-    log("env_info", env_file)
+    log("setup_env", env_file)
 
     load_dotenv(env_file)
 
-    log("env_info", f"Loaded environment: {env_file}")
+    log("setup_env", f"Loaded environment: {env_file}")

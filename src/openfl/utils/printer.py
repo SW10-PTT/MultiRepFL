@@ -16,7 +16,7 @@ def log(tag, *args, **kwargs):
     if tag in ENABLED_TAGS:
         print(*args, **kwargs)
 
-print(config.ONLY_PRINT_ROUND_SUMMARY)
+#print(config.ONLY_PRINT_ROUND_SUMMARY)
 def _print(string, end= ""):
     if config.ONLY_PRINT_ROUND_SUMMARY:
         try:
