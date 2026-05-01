@@ -47,9 +47,18 @@ def test_spec_rejects_empty_label_distribution():
         UserPartitionSpec(user_index=0, data_percent=10, label_distribution={})
 
 
-def test_spec_rejects_non_positive_weight():
-    with pytest.raises(ValueError, match="weights must be > 0"):
-        UserPartitionSpec(user_index=0, data_percent=10, label_distribution={0: 0.0})
+def test_spec_rejects_weight_outside_zero_one():
+    with pytest.raises(ValueError, match=r"weights must be in \[0, 1\]"):
+        UserPartitionSpec(user_index=0, data_percent=10, label_distribution={0: -0.1})
+    with pytest.raises(ValueError, match=r"weights must be in \[0, 1\]"):
+        UserPartitionSpec(user_index=0, data_percent=10, label_distribution={0: 1.5})
+
+
+def test_spec_accepts_zero_weight_as_drop():
+    # 0 means "drop this class entirely" — equivalent to excluding it via
+    # only_labels but reachable from inside label_distribution alone.
+    spec = UserPartitionSpec(user_index=0, data_percent=10, label_distribution={3: 0.0})
+    assert spec.label_distribution == {3: 0.0}
 
 
 def test_spec_rejects_distribution_outside_only_labels():
@@ -94,13 +103,16 @@ def test_load_partition_specs_from_dict_keys():
 
 # ---- PerUserSpecStrategy partitioning ----
 
-def test_per_user_distribution_matches_weights():
-    # 1000 samples (100 per class). Budgets sized so per-class demand stays within supply:
-    #   user 0: 10% = 100 samples, 70/30 over L4/L9 -> 70 of L4, 30 of L9
-    #   user 1: 10% = 100 samples, 30/70 over L4/L9 -> 30 of L4, 70 of L9
-    #   user 2: 20% = 200 samples, stratified across non-{4,9} (8 classes, ~25 each)
-    spec0 = UserPartitionSpec(user_index=0, data_percent=10.0, label_distribution={4: 0.7, 9: 0.3})
-    spec1 = UserPartitionSpec(user_index=1, data_percent=10.0, label_distribution={4: 0.3, 9: 0.7})
+def test_per_user_fair_share_then_filter():
+    # Fair share: each user takes pct% of every class. only_labels drops
+    # classes outside the list; label_distribution applies a per-class
+    # retention factor in [0, 1] to the fair share.
+    #   user 0: 10% pct, only_labels=[4,9] -> ~10 of L4, ~10 of L9
+    #   user 1: 10% pct, label_distribution={4:0.5, 9:0.0} -> ~5 of L4, 0 of L9,
+    #           full ~10 of every other class (unmentioned defaults to 1.0)
+    #   user 2: 20% pct, only_labels=[0,1,2,3,5,6,7,8] -> ~20 per kept class
+    spec0 = UserPartitionSpec(user_index=0, data_percent=10.0, only_labels=[4, 9])
+    spec1 = UserPartitionSpec(user_index=1, data_percent=10.0, label_distribution={4: 0.5, 9: 0.0})
     spec2 = UserPartitionSpec(user_index=2, data_percent=20.0, only_labels=[0, 1, 2, 3, 5, 6, 7, 8])
     users = [
         FakeUser(0, 10.0, spec0),
@@ -116,16 +128,22 @@ def test_per_user_distribution_matches_weights():
     counts1 = class_counts(labels, collect_ids(splits, users[1]))
     counts2 = class_counts(labels, collect_ids(splits, users[2]))
 
-    assert sum(counts0.values()) == 100
-    assert sum(counts1.values()) == 100
-    assert sum(counts2.values()) == 200
+    # User 0: only_labels limits to {4, 9}, ~10 each.
+    assert set(counts0.keys()) <= {4, 9}
+    assert abs(counts0[4] - 10) <= 1
+    assert abs(counts0[9] - 10) <= 1
 
-    # User 0 ~ 70% L4, 30% L9 (allow 1-sample rounding slack).
-    assert abs(counts0[4] - 70) <= 1
-    assert abs(counts0[9] - 30) <= 1
-    # User 2 has 0 of restricted labels.
+    # User 1: retention 0.5 on L4, 0.0 on L9, 1.0 on the rest.
+    assert abs(counts1[4] - 5) <= 1
+    assert counts1[9] == 0
+    for cls in (0, 1, 2, 3, 5, 6, 7, 8):
+        assert abs(counts1[cls] - 10) <= 1
+
+    # User 2: only_labels filters L4 and L9 out, ~20 per kept class.
     assert counts2[4] == 0
     assert counts2[9] == 0
+    for cls in (0, 1, 2, 3, 5, 6, 7, 8):
+        assert abs(counts2[cls] - 20) <= 1
 
 
 def test_per_user_disjoint_no_overlap():
@@ -142,16 +160,23 @@ def test_per_user_disjoint_no_overlap():
     assert a.isdisjoint(b)
 
 
-def test_per_user_class_supply_conflict():
-    # Total dataset has 100 samples of label 4. Two users each demand 80 of L4.
-    spec0 = UserPartitionSpec(user_index=0, data_percent=8.0, label_distribution={4: 1.0})
-    spec1 = UserPartitionSpec(user_index=1, data_percent=8.0, label_distribution={4: 1.0})
+def test_per_user_no_class_supply_conflict_under_fair_share():
+    # Fair-share-then-filter never raises a per-class conflict: each user's
+    # per-class demand is at most pct/100 of the class pool, so sum(pct)<=100
+    # is the only constraint. Two users restricted to L4 each keep 8 of L4.
+    spec0 = UserPartitionSpec(user_index=0, data_percent=8.0, only_labels=[4])
+    spec1 = UserPartitionSpec(user_index=1, data_percent=8.0, only_labels=[4])
     users = [FakeUser(0, 8.0, spec0), FakeUser(1, 8.0, spec1)]
     labels = make_labels(n_per_class=100, n_classes=10)
 
     partitioner = DataPartition(seed=1, per_user_specs={0: spec0, 1: spec1})
-    with pytest.raises(ValueError, match="per-class budget conflict"):
-        partitioner.split_by_label(users, labels)
+    splits = partitioner.split_by_label(users, labels)
+    counts0 = class_counts(labels, collect_ids(splits, users[0]))
+    counts1 = class_counts(labels, collect_ids(splits, users[1]))
+    assert set(counts0.keys()) <= {4}
+    assert set(counts1.keys()) <= {4}
+    assert counts0[4] == 8
+    assert counts1[4] == 8
 
 
 def test_per_user_determinism():
@@ -179,13 +204,13 @@ def test_per_user_seed_changes_split():
 
 
 def test_per_user_stratified_val_split():
-    # 60% of dataset, evenly split across L0/L1/L2. Each class slice should
-    # be split per the val_split ratio independently, so val keeps the
-    # same class distribution as train.
+    # 60% of dataset across all 3 classes (whitelist covers everything).
+    # Each class slice should be split per the val_split ratio independently,
+    # so val keeps the same class distribution as train.
     spec = UserPartitionSpec(
         user_index=0,
         data_percent=60.0,
-        label_distribution={0: 1.0, 1: 1.0, 2: 1.0},
+        only_labels=[0, 1, 2],
     )
     users = [FakeUser(0, 60.0, spec)]
     labels = make_labels(n_per_class=100, n_classes=3)
@@ -205,14 +230,15 @@ def test_per_user_stratified_val_split():
     assert max(val_counts.values()) - min(val_counts.values()) <= 1
 
 
-def test_per_user_overlap_mode_allows_double_subscription():
-    # Per-user budget scales by replication_factor in overlap mode, mirroring
-    # global-strategy semantics. Each user's data_percent=4% becomes
-    # 4% * 2 = 8% -> 80 of L4. Combined demand 160 fits within rep-inflated
-    # supply 200, but exceeds the 100-sample base supply, so users MUST share.
-    spec0 = UserPartitionSpec(user_index=0, data_percent=4.0, label_distribution={4: 1.0})
-    spec1 = UserPartitionSpec(user_index=1, data_percent=4.0, label_distribution={4: 1.0})
-    users = [FakeUser(0, 4.0, spec0), FakeUser(1, 4.0, spec1)]
+def test_per_user_overlap_mode_shares_samples():
+    # Overlap mode pulls fair-share allocations from the rep-inflated class
+    # pool, so two users on the same class can land on the same sample_id.
+    # 50% pcts pulling only L4 from a rep=2 pool of 200 = 2 concatenated
+    # shuffles of 100. Each user's 100-sample chunk is one full shuffle, so
+    # they end up with overlapping base ids.
+    spec0 = UserPartitionSpec(user_index=0, data_percent=50.0, only_labels=[4])
+    spec1 = UserPartitionSpec(user_index=1, data_percent=50.0, only_labels=[4])
+    users = [FakeUser(0, 50.0, spec0), FakeUser(1, 50.0, spec1)]
     labels = make_labels(n_per_class=100, n_classes=10)
 
     partitioner = DataPartition(
@@ -224,8 +250,9 @@ def test_per_user_overlap_mode_allows_double_subscription():
     splits = partitioner.split_by_label(users, labels)
     counts0 = class_counts(labels, collect_ids(splits, users[0]))
     counts1 = class_counts(labels, collect_ids(splits, users[1]))
-    assert counts0[4] > 0 and counts1[4] > 0
-    # Combined demand 160 with base supply 100 forces at least 60 shared.
+    assert set(counts0.keys()) <= {4}
+    assert set(counts1.keys()) <= {4}
+    # Combined demand 120 of L4 with only 100 distinct base ids forces overlap.
     shared = set(collect_ids(splits, users[0])) & set(collect_ids(splits, users[1]))
     assert len(shared) > 0
 

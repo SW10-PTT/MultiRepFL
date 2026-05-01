@@ -26,9 +26,12 @@ class UserPartitionSpec:
                 raise ValueError(
                     f"user {self.user_index}: label_distribution cannot be empty when provided"
                 )
-            if any(weight <= 0 for weight in self.label_distribution.values()):
+            # Retention factors: 0 drops the class, 1 keeps the full fair-share
+            # allocation, values in between subsample. Anything outside [0, 1]
+            # is meaningless under the fair-share-then-filter semantics.
+            if any(not 0.0 <= float(weight) <= 1.0 for weight in self.label_distribution.values()):
                 raise ValueError(
-                    f"user {self.user_index}: label_distribution weights must be > 0"
+                    f"user {self.user_index}: label_distribution weights must be in [0, 1]"
                 )
             if self.only_labels is not None:
                 missing = set(self.label_distribution) - set(self.only_labels)

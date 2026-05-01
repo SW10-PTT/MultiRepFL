@@ -250,14 +250,21 @@ class StratifiedGlobalStrategy(PartitionStrategy):
 
 
 class PerUserSpecStrategy(PartitionStrategy):
-    # Per-user strategy: each user has a UserPartitionSpec describing
-    # total budget (data_percent of dataset) and optional per-class slicing
-    # (label_distribution and/or only_labels).
+    # Per-user strategy: each user takes a fair stratified share of every
+    # class equal to data_percent of the (rep-inflated) class pool, then:
+    #   1. only_labels (if set) acts as a hard whitelist; classes outside
+    #      are dropped entirely.
+    #   2. label_distribution (if set) acts as a per-class retention factor
+    #      in [0, 1]: weight 1.0 keeps the full fair share, 0.5 keeps half,
+    #      0.0 drops the class. Classes not mentioned default to 1.0 (full).
     #
-    # Allocation order: build the demand matrix [user][class] = sample count
-    # FIRST (deterministic, order-independent), then disburse from each
-    # class bucket. This avoids "early users eat the bucket" bugs and lets
-    # us validate per-class supply once before any data movement.
+    # data_percent stays the same mental model regardless of skew; a user
+    # with only_labels=[4,9] and pct=10% effectively trains on ~2% of the
+    # dataset. label_distribution lets a user further sub-sample within
+    # their kept classes without affecting other users' allocations.
+    #
+    # No per-class supply check is needed: sum(pct) <= 100 guarantees the
+    # per-class cursor never exceeds the inflated pool.
     def split_by_label(self, users, labels):
         rng = random.Random(self.partition.seed)
         specs = self.partition.per_user_specs or {}
@@ -273,26 +280,14 @@ class PerUserSpecStrategy(PartitionStrategy):
         for sample_id, label in enumerate(labels):
             ids_by_label.setdefault(int(label), []).append(sample_id)
 
-        dataset_size = len(labels)
         all_classes = sorted(ids_by_label.keys())
 
-        # Build per-class supply (with replication factor if overlap).
-        class_supply = {
-            cls: int(math.floor(len(ids_by_label[cls]) * self.partition.replication_factor))
-            if self.partition.allow_overlap
-            else len(ids_by_label[cls])
-            for cls in all_classes
-        }
+        # Per-class shuffled pool (with replication if overlap). Cursor
+        # advances as users take their fair share; users iterate in
+        # deterministic spec.user_index order.
+        pools = {cls: self._build_class_pool(ids_by_label[cls], rng) for cls in all_classes}
+        cursors = {cls: 0 for cls in all_classes}
 
-        # Compute demand matrix: demand[user_id][class] = target sample count.
-        demand = self._build_demand_matrix(users, user_to_spec, ids_by_label, dataset_size)
-
-        # Per-class supply check — fail fast with a detailed message.
-        self._validate_class_supply(demand, class_supply, all_classes)
-
-        # Allocate: shuffle each class pool once, then carve contiguous
-        # chunks to each user according to demand. User iteration order is
-        # sorted by user_index for determinism (independent of users list order).
         ordered_users = sorted(
             users,
             key=lambda u: user_to_spec[u.get_id_or_address()].user_index,
@@ -302,20 +297,40 @@ class PerUserSpecStrategy(PartitionStrategy):
             user.get_id_or_address(): {cls: [] for cls in all_classes} for user in users
         }
 
-        for cls in all_classes:
-            pool = self._build_class_pool(ids_by_label[cls], rng)
-            cursor = 0
-            for user in ordered_users:
-                user_id = user.get_id_or_address()
-                count = demand[user_id].get(cls, 0)
-                if count == 0:
+        for user in ordered_users:
+            user_id = user.get_id_or_address()
+            spec = user_to_spec[user_id]
+            whitelist = self._resolve_whitelist(spec, all_classes)
+            retention = self._resolve_retention(spec)
+            pct = spec.data_percent / 100.0
+
+            for cls in all_classes:
+                count = int(round(len(pools[cls]) * pct))
+                chunk = pools[cls][cursors[cls]:cursors[cls] + count]
+                cursors[cls] += count
+                if cls not in whitelist:
                     continue
-                chunk = pool[cursor:cursor + count]
-                cursor += count
-                assigned_by_class[user_id][cls] = chunk
+                keep = int(round(len(chunk) * retention.get(cls, 1.0)))
+                if keep <= 0:
+                    continue
+                assigned_by_class[user_id][cls] = chunk[:keep]
 
         # Stratified train/val split per class, then concatenate + shuffle.
         return self._build_splits_stratified(users, user_to_spec, assigned_by_class, all_classes, rng)
+
+    # only_labels is the hard whitelist. Without it, every class is allowed
+    # through (label_distribution still trims via retention factors).
+    def _resolve_whitelist(self, spec: UserPartitionSpec, all_classes) -> set:
+        if spec.only_labels is not None:
+            return {int(cls) for cls in spec.only_labels}
+        return set(all_classes)
+
+    # Retention factor per class (0..1). Classes not in label_distribution
+    # default to 1.0 (keep full fair share).
+    def _resolve_retention(self, spec: UserPartitionSpec) -> Dict[int, float]:
+        if spec.label_distribution is None:
+            return {}
+        return {int(cls): float(weight) for cls, weight in spec.label_distribution.items()}
 
     # Picks the spec for a given user. Prefers a spec already attached to
     # the User by the runner (`user.partition_spec`); otherwise falls back
@@ -347,84 +362,6 @@ class PerUserSpecStrategy(PartitionStrategy):
         pool = pool[:target_size]
         rng.shuffle(pool)
         return pool
-
-    # Build demand[user_id][class] = integer sample count using
-    # total-budget-then-slice semantics. Largest-remainder rounding so the
-    # per-user totals stay close to budget without exceeding class supply.
-    # In overlap mode budgets scale by replication_factor so total assigned
-    # across users approaches rep * dataset_size, mirroring global-strategy
-    # behavior (per-user dedup may shrink it slightly).
-    def _build_demand_matrix(self, users, user_to_spec, ids_by_label, dataset_size):
-        demand: Dict[str, Dict[int, int]] = {}
-        budget_scale = (
-            self.partition.replication_factor if self.partition.allow_overlap else 1.0
-        )
-
-        for user in users:
-            user_id = user.get_id_or_address()
-            spec = user_to_spec[user_id]
-            budget = int(round(dataset_size * spec.data_percent * budget_scale / 100.0))
-
-            class_weights = self._resolve_class_weights(spec, ids_by_label)
-            counts = self._distribute_budget(budget, class_weights)
-            demand[user_id] = counts
-
-        return demand
-
-    # Resolve per-class weights for one user.
-    # Priority:
-    #   1. label_distribution (explicit) -> use as weights
-    #   2. only_labels        -> uniform over allowed classes weighted by class supply (stratified within allowed)
-    #   3. nothing            -> uniform over all classes weighted by class supply (full stratified)
-    def _resolve_class_weights(self, spec: UserPartitionSpec, ids_by_label) -> Dict[int, float]:
-        if spec.label_distribution is not None:
-            return {int(cls): float(weight) for cls, weight in spec.label_distribution.items()}
-
-        if spec.only_labels is not None:
-            allowed = [cls for cls in spec.only_labels if cls in ids_by_label]
-            return {cls: float(len(ids_by_label[cls])) for cls in allowed}
-
-        return {cls: float(len(samples)) for cls, samples in ids_by_label.items()}
-
-    # Distribute an integer budget across classes using largest-remainder.
-    # Filters out zero-weight classes so they get exactly zero samples.
-    def _distribute_budget(self, budget: int, class_weights: Dict[int, float]) -> Dict[int, int]:
-        if budget <= 0 or not class_weights:
-            return {cls: 0 for cls in class_weights}
-
-        weight_sum = sum(class_weights.values())
-        if weight_sum <= 0:
-            return {cls: 0 for cls in class_weights}
-
-        raw = {cls: budget * weight / weight_sum for cls, weight in class_weights.items()}
-        floor_counts = {cls: int(math.floor(value)) for cls, value in raw.items()}
-        leftover = budget - sum(floor_counts.values())
-        remainders = sorted(
-            ((raw[cls] - floor_counts[cls], cls) for cls in class_weights),
-            reverse=True,
-        )
-        for _, cls in remainders[:leftover]:
-            floor_counts[cls] += 1
-        return floor_counts
-
-    def _validate_class_supply(self, demand, class_supply, all_classes):
-        per_class_total: Dict[int, int] = {cls: 0 for cls in all_classes}
-        for user_counts in demand.values():
-            for cls, count in user_counts.items():
-                per_class_total[cls] = per_class_total.get(cls, 0) + count
-
-        conflicts = []
-        for cls, total in per_class_total.items():
-            supply = class_supply.get(cls, 0)
-            if total > supply:
-                conflicts.append(
-                    f"label {cls}: demand {total} > supply {supply}"
-                )
-        if conflicts:
-            raise ValueError(
-                "PerUserSpecStrategy: per-class budget conflict\n  - "
-                + "\n  - ".join(conflicts)
-            )
 
     # Stratified train/val split: split per class, then concat. Guarantees
     # the val split keeps the same class distribution as train within a user.

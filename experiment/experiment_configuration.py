@@ -152,10 +152,10 @@ class ExperimentConfiguration:
             return {}
         return load_partition_specs(per_user_partitions)
 
-    # Fail-fast validation for the per_user strategy. Catches missing/extra
-    # users, total-budget overflow, and (when disjoint) per-class budget
-    # overflow approximations. Per-class supply checks against the actual
-    # dataset happen later in PerUserSpecStrategy where the labels are known.
+    # Fail-fast validation for the per_user strategy. With fair-share-then-
+    # filter semantics, the only invariant left is sum(data_percent) <= 100;
+    # per-class allocation can't overflow once that holds, since each user's
+    # fair share is at most pct/100 of every class pool.
     def _validate_per_user_partitions(self):
         if not self.per_user_partitions:
             raise ValueError(
@@ -171,36 +171,12 @@ class ExperimentConfiguration:
         if extra:
             raise ValueError(f"per_user_partitions has unexpected entries for user_index {sorted(extra)}")
 
-        # Per-user data_percent is interpreted as fraction of dataset; in
-        # overlap mode the runtime multiplies it by replication_factor to
-        # decide actual budgets. Sum across users must stay <= 100.
         budget_cap = 100.0
         total_budget = sum(spec.data_percent for spec in self.per_user_partitions.values())
         if total_budget > budget_cap + 1e-9:
             raise ValueError(
                 f"per_user_partitions total data_percent {total_budget:.4f}% exceeds cap {budget_cap:.4f}%"
             )
-
-        # Per-class demand check using label_distribution alone — actual
-        # supply check happens against the dataset in PerUserSpecStrategy.
-        # Here we only catch sums that are impossible regardless of dataset.
-        class_demand: dict[int, float] = {}
-        for spec in self.per_user_partitions.values():
-            if spec.label_distribution is None:
-                continue
-            weight_sum = sum(spec.label_distribution.values())
-            for label, weight in spec.label_distribution.items():
-                share = spec.data_percent * (weight / weight_sum)
-                class_demand[label] = class_demand.get(label, 0.0) + share
-
-        # Per-class share can't exceed 100% of dataset; the dataset-aware
-        # supply check happens at partition time with rep multiplier.
-        for label, demand in class_demand.items():
-            if demand > budget_cap + 1e-9:
-                raise ValueError(
-                    f"per_user_partitions over-subscribes label {label}: "
-                    f"demand {demand:.4f}% > cap {budget_cap:.4f}%"
-                )
 
     def _resolve_user_seeds(self, user_seeds):
         # Optional explicit per-user overrides. Anything not specified
