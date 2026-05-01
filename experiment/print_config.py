@@ -1,18 +1,18 @@
 PRINTS_SILENT = set()
 
-PRINTS_MINIMAL = {
+PRINTS_EVEN_LESSER = {
     "round_boundary",
     "experiment_end",
 }
 
-PRINTS_NORMAL = {
+PRINTS_LESS = {
     "round_boundary",
     "round_models",
     "round_rewards",
     "experiment_end",
 }
 
-PRINTS_DEBUG = {
+PRINTS_ALL = {
     "setup_env",
     "setup_data",
     "setup_contracts",
