@@ -6,9 +6,11 @@
     "",
     "Fields per user:",
     "  id         (int, required)        User Id",
-    "  data_percent       (float, required)      Total budget as % of dataset.",
-    "                                             Sum across users <= 100 (disjoint)",
-    "                                             or <= 100*replication_factor (overlap).",
+    "  data_percent       (float, required)      Per-user budget as % of dataset.",
+    "                                             Sum across users <= 100.",
+    "                                             In overlap mode the per-user budget",
+    "                                             is multiplied by replication_factor",
+    "                                             (so total assigned ~ rep * dataset).",
     "  label_distribution (dict[int->float])     Optional per-class weights (relative;",
     "                                             normalized internally). Slices the",
     "                                             total budget across the listed labels.",
@@ -21,41 +23,53 @@
     "Per-class supply check is order-independent: total demand for each class",
     "(summed across users) must not exceed dataset's class size (or class size *",
     "replication_factor in overlap mode). Conflicts raise ValueError up front.",
+    "Skewed users (label_distribution / only_labels) eat extra share of their classes;",
+    "stratified users (no rules) consume each class proportionally to its size,",
+    "so heavy skew + sum=100 + rep>1 typically over-subscribes. Leave headroom by",
+    "lowering pcts on skewed users or reducing total sum below 100.",
     "",
-    "Example below: 6 data-users on a balanced 10-class dataset (e.g. MNIST/CIFAR10)."
+    "Example below: 8 data-users on MNIST (10 classes) tuned for replication_factor=2.",
+    "Sum=80 leaves headroom for the two skewed users; user 2 carries the malicious",
+    "flip_map. Verified per-class demand <= class_size * 2 across all 10 labels.", 
+    "Remember to set number_of_good_contributors + number_of_bad_contributors +",
+    "number_of_freerider_contributors after adding or removing users in ExperimentConfiguration."
   ],
 
   "users": [
     {
       "id": 0,
-      "data_percent": 12.0,
+      "data_percent": 4.0,
       "label_distribution": {"0": 0.5, "1": 0.5}
     },
     {
       "id": 1,
-      "data_percent": 12.0,
-      "label_distribution": {"2": 0.5, "3": 0.5}
+      "data_percent": 4.0,
+      "only_labels": [4, 9]
     },
     {
       "id": 2,
       "data_percent": 12.0,
-      "label_distribution": {"4": 0.7, "9": 0.3}
+      "flip_map": {"3": 8}
     },
     {
       "id": 3,
-      "data_percent": 18.0,
-      "only_labels": [5, 6, 7]
+      "data_percent": 12.0
     },
     {
       "id": 4,
-      "data_percent": 16.0,
-      "only_labels": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+      "data_percent": 18.0
     },
     {
       "id": 5,
-      "data_percent": 10.0,
-      "only_labels": [4, 9],
-      "flip_map": {"4": 9}
+      "data_percent": 10.0
+    },
+    {
+      "id": 6,
+      "data_percent": 14.0
+    },
+    {
+      "id": 7,
+      "data_percent": 6.0
     }
   ]
 }

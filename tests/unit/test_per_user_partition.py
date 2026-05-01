@@ -206,11 +206,13 @@ def test_per_user_stratified_val_split():
 
 
 def test_per_user_overlap_mode_allows_double_subscription():
-    # Without overlap this raises (label 4 demand=120 > supply=100). With
-    # overlap and replication_factor=2.0, supply doubles so it's allowed.
-    spec0 = UserPartitionSpec(user_index=0, data_percent=6.0, label_distribution={4: 1.0})
-    spec1 = UserPartitionSpec(user_index=1, data_percent=6.0, label_distribution={4: 1.0})
-    users = [FakeUser(0, 6.0, spec0), FakeUser(1, 6.0, spec1)]
+    # Per-user budget scales by replication_factor in overlap mode, mirroring
+    # global-strategy semantics. Each user's data_percent=4% becomes
+    # 4% * 2 = 8% -> 80 of L4. Combined demand 160 fits within rep-inflated
+    # supply 200, but exceeds the 100-sample base supply, so users MUST share.
+    spec0 = UserPartitionSpec(user_index=0, data_percent=4.0, label_distribution={4: 1.0})
+    spec1 = UserPartitionSpec(user_index=1, data_percent=4.0, label_distribution={4: 1.0})
+    users = [FakeUser(0, 4.0, spec0), FakeUser(1, 4.0, spec1)]
     labels = make_labels(n_per_class=100, n_classes=10)
 
     partitioner = DataPartition(
@@ -220,14 +222,10 @@ def test_per_user_overlap_mode_allows_double_subscription():
         per_user_specs={0: spec0, 1: spec1},
     )
     splits = partitioner.split_by_label(users, labels)
-    # Both users get a non-empty L4 slice. Exact totals may shrink slightly
-    # vs. the 60-sample demand because within-user dedup drops duplicates
-    # from the inflated pool — that is the documented overlap-mode behavior.
     counts0 = class_counts(labels, collect_ids(splits, users[0]))
     counts1 = class_counts(labels, collect_ids(splits, users[1]))
     assert counts0[4] > 0 and counts1[4] > 0
-    # Combined demand of 120 across two users with supply 100 means there
-    # MUST be at least 20 shared samples across users (overlap).
+    # Combined demand 160 with base supply 100 forces at least 60 shared.
     shared = set(collect_ids(splits, users[0])) & set(collect_ids(splits, users[1]))
     assert len(shared) > 0
 

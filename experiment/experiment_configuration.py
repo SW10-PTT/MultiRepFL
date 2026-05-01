@@ -22,7 +22,7 @@ class ExperimentConfiguration:
     def __init__(self,
                  name=None,
                  dataset="MNIST",
-                 number_of_good_contributors=4,
+                 number_of_good_contributors=6,
                  number_of_bad_contributors=1,
                  number_of_freerider_contributors=1,
                  number_of_inactive_contributors=0,
@@ -51,8 +51,8 @@ class ExperimentConfiguration:
                  user_seeds=None,
                  allow_overlap=True,
                  replication_factor=2.0,
-                 partition_strategy="global",
-                 per_user_partitions=None): # Sets all entries in fbb to zeroes
+                 partition_strategy="per_user", # Options: global, per_user
+                 per_user_partitions="experiment/partitions/example.json"): # Path to JSON file with per-user partition specs; see example.json for format. Or None
 
         self.name = name
         self.dataset = dataset
@@ -171,7 +171,10 @@ class ExperimentConfiguration:
         if extra:
             raise ValueError(f"per_user_partitions has unexpected entries for user_index {sorted(extra)}")
 
-        budget_cap = 100.0 * self.replication_factor if self.allow_overlap else 100.0
+        # Per-user data_percent is interpreted as fraction of dataset; in
+        # overlap mode the runtime multiplies it by replication_factor to
+        # decide actual budgets. Sum across users must stay <= 100.
+        budget_cap = 100.0
         total_budget = sum(spec.data_percent for spec in self.per_user_partitions.values())
         if total_budget > budget_cap + 1e-9:
             raise ValueError(
@@ -190,9 +193,8 @@ class ExperimentConfiguration:
                 share = spec.data_percent * (weight / weight_sum)
                 class_demand[label] = class_demand.get(label, 0.0) + share
 
-        # Per-class budget can't exceed cap of one class — but classes are
-        # equal-sized only in balanced datasets. We check the loose ceiling:
-        # demand on a single class can never exceed budget_cap of dataset.
+        # Per-class share can't exceed 100% of dataset; the dataset-aware
+        # supply check happens at partition time with rep multiplier.
         for label, demand in class_demand.items():
             if demand > budget_cap + 1e-9:
                 raise ValueError(

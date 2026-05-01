@@ -351,13 +351,19 @@ class PerUserSpecStrategy(PartitionStrategy):
     # Build demand[user_id][class] = integer sample count using
     # total-budget-then-slice semantics. Largest-remainder rounding so the
     # per-user totals stay close to budget without exceeding class supply.
+    # In overlap mode budgets scale by replication_factor so total assigned
+    # across users approaches rep * dataset_size, mirroring global-strategy
+    # behavior (per-user dedup may shrink it slightly).
     def _build_demand_matrix(self, users, user_to_spec, ids_by_label, dataset_size):
         demand: Dict[str, Dict[int, int]] = {}
+        budget_scale = (
+            self.partition.replication_factor if self.partition.allow_overlap else 1.0
+        )
 
         for user in users:
             user_id = user.get_id_or_address()
             spec = user_to_spec[user_id]
-            budget = int(round(dataset_size * spec.data_percent / 100.0))
+            budget = int(round(dataset_size * spec.data_percent * budget_scale / 100.0))
 
             class_weights = self._resolve_class_weights(spec, ids_by_label)
             counts = self._distribute_budget(budget, class_weights)
