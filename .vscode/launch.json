@@ -14,7 +14,7 @@
         "--skipFolder",
         "experiment/data",
         "--author",
-        "Nykjaer"
+        "Måske Nykjaer"
       ],
       "console": "integratedTerminal",
       "cwd": "${workspaceFolder}",
@@ -44,7 +44,7 @@
         "--skipFolder",
         "experiment/data",
         "--author",
-        "Nykjaer"
+        "Måske Nykjaer"
       ],
       "console": "integratedTerminal",
       "preLaunchTask": "compile-contracts",
@@ -62,7 +62,7 @@
         "--skipFolder",
         "experiment/data",
         "--author",
-        "Nykjaer"
+        "Måske Nykjaer"
       ],
       "console": "integratedTerminal",
       "preLaunchTask": "compile-contracts",

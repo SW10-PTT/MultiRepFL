@@ -7,7 +7,7 @@ import torch
 # Imported only for type hints; skipped at runtime to avoid import errors when not on sys.path.
 if TYPE_CHECKING:
     from web3.contract import Contract
-from experiment.experiment_configuration import ExperimentConfiguration
+from experiment_configuration import ExperimentConfiguration
 from openfl.api.globals import ReplayMode, reuse_runs
 from openfl.utils.ITestAndTrainer import ITestAndTrainer
 import openfl.api.globals

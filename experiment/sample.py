@@ -2,10 +2,10 @@ from datetime import datetime
 import sys
 import multiprocessing as mp
 from pathlib import Path
-import experiment.experiment_runner as ExperimentRunner
-from experiment.experiment_configuration import ExperimentConfiguration
+import experiment_runner as ExperimentRunner
+from experiment_configuration import ExperimentConfiguration
 from openfl.utils.async_writer import AsyncWriter
-from experiment.helper import getPath
+from helper import getPath
 from openfl.api import globals
 
 # Add the repo root to sys.path so `analysis` package is importable from here

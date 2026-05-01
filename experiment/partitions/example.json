@@ -40,39 +40,39 @@
   "users": [
     {
       "id": 0,
+      "data_percent": 14.0
+    },
+    {
+      "id": 1,
+      "data_percent": 14.0
+    },
+    {
+      "id": 2,
       "data_percent": 9.0,
       "only_labels": [0, 1]
     },
     {
-      "id": 1,
+      "id": 3,
       "data_percent": 9.0,
       "only_labels": [4, 9]
     },
     {
-      "id": 2,
+      "id": 4,
       "data_percent": 12.0,
       "flip_map": {"3": 8}
     },
     {
-      "id": 3,
+      "id": 5,
       "data_percent": 12.0,
       "label_distribution":  {"0": 0.9, "1": 0.5, "2": 1.0, "4": 0.7, "9": 0.3}
     },
     {
-      "id": 4,
+      "id": 6,
       "data_percent": 20.0
     },
     {
-      "id": 5,
-      "data_percent": 10.0
-    },
-    {
-      "id": 6,
-      "data_percent": 14.0
-    },
-    {
       "id": 7,
-      "data_percent": 14.0
+      "data_percent": 10.0
     }
   ]
 }

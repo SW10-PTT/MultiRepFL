@@ -183,12 +183,12 @@ class ExperimentConfiguration:
             return {}
         return {int(user_index): int(seed) for user_index, seed in user_seeds.items()}
 
-    def get_finger_print(self, challenge: "FLChallenge"):
+    def get_finger_print(self, participants):
         # Sort participant fingerprints so config fingerprint is order-invariant.
         # `list.sort()` returns None, so use `sorted()` to actually capture the result.
         participants = sorted(
             participant.finger_print
-            for participant in challenge.pytorch_model.participants
+            for participant in participants
         )
 
         data = {

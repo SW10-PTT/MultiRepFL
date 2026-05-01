@@ -66,7 +66,6 @@ class DataPartition:
 
     # Public entry point. Delegates to the active strategy. Backward
     # compatible with prior signature (users, labels) -> {user_id: {...}}.
-    def split_by_label(self, users: List["User"], labels):
 
     def split_by_label(self, users: List[User], labels):
         labels = self.normalize_labels(labels)

@@ -317,7 +317,7 @@ class ConnectionHelper:
 
         return results
     
-    def deploy(factory, constructor_args, sender, value=0) -> tuple[web3.contract.contract.Contract, web3.contract.contract.Receipt]:
+    def deploy(factory, constructor_args, sender, value=0):
         w3 = globals.w3
 
         # --- FORK / LOCAL NODE (no private key needed) ---

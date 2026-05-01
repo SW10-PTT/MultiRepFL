@@ -7,7 +7,7 @@ from pathlib import Path
 
 from web3.exceptions import ContractLogicError
 from typing import List
-from experiment.experiment_configuration import ExperimentConfiguration
+from experiment_configuration import ExperimentConfiguration
 from openfl.contracts.JobListing import JobListing
 from openfl.ml import pytorch_model as PM
 from openfl.contracts import FLChallenge as Challenge, FLManager as Manager

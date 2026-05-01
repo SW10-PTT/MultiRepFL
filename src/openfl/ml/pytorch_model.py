@@ -30,7 +30,7 @@ from openfl.ml.data_partition import DataPartition
 
 # Imported only for type hints; skipped at runtime to avoid import errors when not on sys.path.
 if TYPE_CHECKING:
-    from experiment.experiment_configuration import ExperimentConfiguration
+    from experiment_configuration import ExperimentConfiguration
 from openfl.ml.Participant import Participant
 from openfl.utils.RunRepo import RunRepo
 from openfl.utils.ITestAndTrainer import ITestAndTrainer, get_filename
@@ -41,7 +41,6 @@ from openfl.utils.types.Attitude import Attitude
 from openfl.utils.types.Colors import gb, rb, red, yellow, green, b
 from openfl.utils.types.ReplayTrainingSpecs import ReplayTrainingSpecs
 from openfl.utils.types.userDict import UserDict
-from parser.types import participant
 
 torch._dynamo.config.cache_size_limit = 512
 import logging

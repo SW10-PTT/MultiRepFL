@@ -10,7 +10,7 @@ from web3.contract import Contract
 
 # Imported only for type hints; skipped at runtime to avoid import errors when not on sys.path.
 if TYPE_CHECKING:
-    from experiment.experiment_configuration import ExperimentConfiguration
+    from experiment_configuration import ExperimentConfiguration
 from openfl.utils.types.ReplayTrainingSpecs import ReplayTrainingSpecs
 from openfl.utils.ITestAndTrainer import ITestAndTrainer
 
