@@ -25,6 +25,7 @@ from torchvision import transforms
 from torchvision.datasets import CIFAR10, MNIST
 from torch.utils.data import DataLoader, Subset, random_split
 
+from openfl.api.globals import ReplayMode
 from openfl.ml.data_partition import DataPartition
 
 # Imported only for type hints; skipped at runtime to avoid import errors when not on sys.path.
@@ -40,6 +41,8 @@ from openfl.utils.types.Attitude import Attitude
 from openfl.utils.types.Colors import gb, rb, red, yellow, green, b
 from openfl.utils.types.ReplayTrainingSpecs import ReplayTrainingSpecs
 from openfl.utils.types.userDict import UserDict
+from parser.types import participant
+
 torch._dynamo.config.cache_size_limit = 512
 import logging
 debugging = sys.gettrace() is not None
@@ -54,6 +57,7 @@ NON_BLOCKING = USE_CUDA
 NUM_WORKERS = min(4, os.cpu_count() // 2) if torch.cuda.is_available() else 0
 PERSISTENT_WORKERS = USE_CUDA and NUM_WORKERS > 0
 AMP = USE_CUDA # Optional: mixed precision on CUDA
+COMPILE = False
 
 # cuDNN autotune for fixed-size inputs (both MNIST 28x28 and CIFAR-10 32x32)
 torch.backends.cudnn.benchmark = USE_CUDA
@@ -127,6 +131,9 @@ class PytorchModel:
         else:
             self.global_model = Net_CIFAR().to(DEVICE)
 
+        if USE_CUDA and COMPILE:
+            self.global_model = torch.compile(self.global_model, mode="reduce-overhead")
+
 
         self.NUMBER_OF_CONTRIBUTERS = _totalParticipants
         self.NUMBER_OF_BAD_CONTRIBUTORS = 0
@@ -180,6 +187,9 @@ class PytorchModel:
             _model = Net_MNIST().to(DEVICE)
         else:
             _model = Net_CIFAR().to(DEVICE)
+
+        if USE_CUDA and COMPILE:
+            _model = torch.compile(_model, mode="reduce-overhead")
 
         optimizer = optim.SGD(_model.parameters(), lr=0.001, momentum=0.9)
         criterion = nn.CrossEntropyLoss()
@@ -519,7 +529,7 @@ class PytorchModel:
         loss, acc = self.runRepo.test(self.round,f"test-finalize_paricipant_evaluation-{participant.id}", participant.model, self.test, DEVICE) # TODO: Investigate if this should be user.val instead.
         participant._accuracy.append(acc) # Line 295 in original code # TODO: Investigate if this should be test and not validation accuracy.
         participant._loss.append(loss) # Line 296 in original code # TODO: Investigate if this should be test and not validation loss.
-        participant.hashedModel = self.runRepo.get_hash(self.round, f"finalize_paricipant_evaluation-{participant.id}", participant.model.state_dict())
+        participant.hashedModel = self.runRepo.get_hash(self.round, f"get_hash-finalize_paricipant_evaluation-{participant.id}", participant.model.state_dict())
 
 
     def apply_training_results(self, results):
@@ -763,6 +773,7 @@ class PytorchModel:
 
     def evaluation(self):
         print("Users evaluating models...")
+        start_total = time.perf_counter()
 
         scalar = 100 # Adds more decimals for precision (Adding 0 gives another decimal, vice versa)
         MAX_UINT16_SIZE = 65535
@@ -864,26 +875,24 @@ class PytorchModel:
         print("PREVIOUS LOSSES:")
         print(matrices.prev_losses)
         print("-----------------------------------------------------------------------------------")
-
+        print(f"TOTAL evaluation time: {time.perf_counter() - start_total:.3f}s")
         return matrices
 
-        return feedback_matrix, accuracy_matrix, loss_matrix, prev_accs, prev_losses, addresses
-
-    def get_participant(self, address_or_id):
-        p = next((x for x in self.participants if x.id == address_or_id), None)
+    def get_participant(self, address_or_id, participants = None):
+        if participants is None:
+            participants = self.participants
+        p = next((x for x in participants if x.id == address_or_id), None)
         if p:
             return p
-        return next((x for x in self.participants if x.address == address_or_id), None)
+        return next((x for x in participants if x.address == address_or_id), None)
 
-    def setup_replay(self, experiment_finger_print, config: ExperimentConfiguration):
+    def setup_replay(self, filename, config: ExperimentConfiguration, path):
 
-        fileName = get_filename(experiment_finger_print, config)
-
-        if globals.reuse_runs and fileName.is_file():
-            self.runRepo: ITestAndTrainer = RunRepo(config, fileName)  # Hash config to compare?
+        if ReplayMode.PlayBack in globals.reuse_runs and filename.is_file():
+            self.runRepo: ITestAndTrainer = RunRepo(config, filename)
             self.replaying = True
         else:
-            self.runRepo: ITestAndTrainer = PyTorchTrainer(config, fileName)  # Hash config to compare?
+            self.runRepo: ITestAndTrainer = PyTorchTrainer(config, filename)
 
         loss, accuracy = self.runRepo.test(0, f"test-setup_replay-globalmodel", self.global_model, self.test, DEVICE)
 
@@ -891,6 +900,7 @@ class PytorchModel:
         self.loss = [loss]
 
         self.round = 1
+        self.runRepo.save(-1, f"save-setup_replay-path", path)
 
 def get_hash(_state_dict):
     if not isinstance(_state_dict, dict):
@@ -915,18 +925,10 @@ def get_hash(_state_dict):
 # PYTORCH FUNCTIONS
 def train(net, trainloader: torch.utils.data.DataLoader, epochs: int, device: torch.device) -> None:
 
-    # Compile ONCE per process (not per batch)
-    if device.type == "cuda":
-        try:
-            net = torch.compile(net)#, mode="reduce-overhead")
-        except Exception:
-            pass
-
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.SGD(net.parameters(), lr=0.001, momentum=0.9)
 
-    use_amp = device.type == "cuda"
-    scaler = torch.amp.GradScaler(enabled=use_amp)
+    scaler = torch.amp.GradScaler(enabled=AMP)
 
     net.train()
 
@@ -937,20 +939,16 @@ def train(net, trainloader: torch.utils.data.DataLoader, epochs: int, device: to
 
             optimizer.zero_grad(set_to_none=True)
 
-            with torch.amp.autocast("cuda", enabled=use_amp):
+            with torch.autocast(device_type=device.type, enabled=AMP):
                 outputs = net(images)
-                loss = criterion(outputs, labels)
+
+            loss = criterion(outputs, labels)
 
             scaler.scale(loss).backward()
             scaler.step(optimizer)
             scaler.update()
 
-def test(net, testloader: torch.utils.data.DataLoader, device: torch.device) -> Tuple[float, float]:
-    """
-    Evaluate model on test set: forward pass only (no gradients), with optional AMP on CUDA
-    Accumulate total cross-entropy loss and count correct predictions for accuracy
-    Returns (total_loss, accuracy) over the entire test dataset
-    """
+def test(net, testloader, device):
     criterion = nn.CrossEntropyLoss()
     net.eval()
 
@@ -958,23 +956,24 @@ def test(net, testloader: torch.utils.data.DataLoader, device: torch.device) -> 
     total = 0
     loss = 0.0
 
-    use_amp = device.type == "cuda"
-
     with torch.no_grad():
         for images, labels in testloader:
             images = images.to(device, non_blocking=NON_BLOCKING)
             labels = labels.to(device, non_blocking=NON_BLOCKING)
 
-            with torch.amp.autocast("cuda", enabled=use_amp):
+            with torch.autocast(device_type=device.type, enabled=AMP):
                 outputs = net(images)
-                loss += criterion(outputs, labels).item()
-                _, predicted = torch.max(outputs, 1)
+
+            batch_loss = criterion(outputs, labels)
+            loss += batch_loss.item() * labels.size(0)
+
+            predicted = outputs.argmax(dim=1)
 
             total += labels.size(0)
             correct += (predicted == labels).sum().item()
 
+    loss /= total
     accuracy = correct / total
-    loss = min(sys.float_info.max, loss)
 
     return loss, accuracy
 
@@ -1023,6 +1022,9 @@ def train_user_proc(user_addr, model_state, train_ds, val_ds, epochs, device_id,
         model = Net_MNIST()
     else:
         model = Net_CIFAR()
+
+    if USE_CUDA and COMPILE:
+            model = torch.compile(model, mode="reduce-overhead")
 
     model.load_state_dict(model_state)
     model.to(device)

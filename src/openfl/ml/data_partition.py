@@ -1,4 +1,10 @@
 from __future__ import annotations
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from openfl.utils.types.User import User
+
+from typing import List
 
 import math
 import random
@@ -7,8 +13,8 @@ from typing import Dict, List, Optional
 
 from torch.utils.data import Dataset
 
+
 from openfl.ml.partition_spec import UserPartitionSpec
-from openfl.utils.types import User
 
 
 # Wraps a Subset and rewrites labels on read via user.flip_map.
@@ -61,6 +67,8 @@ class DataPartition:
     # Public entry point. Delegates to the active strategy. Backward
     # compatible with prior signature (users, labels) -> {user_id: {...}}.
     def split_by_label(self, users: List["User"], labels):
+
+    def split_by_label(self, users: List[User], labels):
         labels = self.normalize_labels(labels)
         return self.strategy.split_by_label(users, labels)
 

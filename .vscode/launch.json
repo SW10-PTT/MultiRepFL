@@ -6,6 +6,21 @@
   "inputs": [],
   "configurations": [
     {
+      "name": "Compile - Debug: Sample",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "experiment.sample",
+      "args": [
+        "--skipFolder",
+        "experiment/data",
+        "--author",
+        "Nykjaer"
+      ],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "compile-contracts"
+    },
+    {
       "name": "Create graphs",
       "type": "debugpy",
       "request": "launch",

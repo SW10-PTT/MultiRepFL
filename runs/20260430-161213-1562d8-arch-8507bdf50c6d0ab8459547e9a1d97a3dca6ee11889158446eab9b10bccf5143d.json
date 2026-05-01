@@ -1,0 +1,119 @@
+{
+  "participants": [
+    {
+      "finger_print": "6b271cbb23c17118f40899b0c7a2d6693c96d388c10396c3b061d3c564deccbf",
+      "id": "6fbdc324-1719-4d7f-b494-7cb60911edc5"
+    },
+    {
+      "finger_print": "6b271cbb23c17118f40899b0c7a2d6693c96d388c10396c3b061d3c564deccbf",
+      "id": "2f4b0de8-ad05-46ed-b3c3-06ec8aa6f4d9"
+    }
+  ],
+  "config": {
+    "name": null,
+    "dataset": "mnist",
+    "fork": true,
+    "number_of_participants": 2,
+    "number_of_good_contributors": 4,
+    "number_of_bad_contributors": 1,
+    "number_of_freerider_contributors": 1,
+    "number_of_inactive_contributors": 0,
+    "reward": 1000000000000000000,
+    "minimum_rounds": 1,
+    "min_buy_in": 1000000000000000000,
+    "max_buy_in": 1000000000000000000,
+    "standard_buy_in": 1000000000000000000,
+    "epochs": 1,
+    "batch_size": 32,
+    "punish_factor": 3,
+    "punish_factor_contrib": 3,
+    "first_round_fee": 50,
+    "contribution_score_strategy": "accuracy_loss",
+    "use_outlier_detection": true,
+    "freerider_noise_scale": 0.5,
+    "freerider_start_round": 1,
+    "malicious_start_round": 1,
+    "malicious_noise_scale": 0.5,
+    "force_merge_all": false,
+    "data_percentages": [
+      16.666666666666668,
+      16.666666666666668,
+      16.666666666666668,
+      16.666666666666668,
+      16.666666666666668,
+      16.666666666666668
+    ],
+    "label_rules": {}
+  },
+  "rounds": {
+    "0": {
+      "test-setup_replay-globalmodel": [
+        2.302021875,
+        0.1587
+      ]
+    },
+    "-1": {
+      "save-setup_replay-path": "/mnt/bigSpeed/dev/MultiRepFL/experiment/data/sample/30-04-26--16_12_12/mnist-accuracy_loss-1-0.5-1-0.5-True-{0d5addf2-b42d-4d31-bef7-57caa4ec49de}.csv",
+      "get_task_rep_delta_and_GRS-simulate": [
+        [
+          "6fbdc324-1719-4d7f-b494-7cb60911edc5",
+          496673969245232327,
+          1496673969245232327
+        ],
+        [
+          "2f4b0de8-ad05-46ed-b3c3-06ec8aa6f4d9",
+          503326030754767672,
+          1503326030754767672
+        ]
+      ]
+    },
+    "1": {
+      "train_user_proc-run_sequential-6fbdc324-1719-4d7f-b494-7cb60911edc5-1": [
+        "6fbdc324-1719-4d7f-b494-7cb60911edc5",
+        2.048265625,
+        0.582
+      ],
+      "train_user_proc-run_sequential-2f4b0de8-ad05-46ed-b3c3-06ec8aa6f4d9-1": [
+        "2f4b0de8-ad05-46ed-b3c3-06ec8aa6f4d9",
+        1.8011640625,
+        0.646
+      ],
+      "test-finalize_paricipant_evaluation-6fbdc324-1719-4d7f-b494-7cb60911edc5": [
+        2.047253125,
+        0.5835
+      ],
+      "get_hash-finalize_paricipant_evaluation-6fbdc324-1719-4d7f-b494-7cb60911edc5": "0xc9b554beaeb66d382497d6227b807047b7e52dd3bb4e9f83d61e135bc9287089",
+      "test-finalize_paricipant_evaluation-2f4b0de8-ad05-46ed-b3c3-06ec8aa6f4d9": [
+        1.78409375,
+        0.6801
+      ],
+      "get_hash-finalize_paricipant_evaluation-2f4b0de8-ad05-46ed-b3c3-06ec8aa6f4d9": "0x7c6ea2b1cea1fe20f30c5e4bc6ba5ae6d8c8a38230e67a94e0b1c93e951d3ff6",
+      "on_chain_hashed_weights-simulate": {
+        "6fbdc324-1719-4d7f-b494-7cb60911edc5": "c9b554beaeb66d382497d6227b807047b7e52dd3bb4e9f83d61e135bc9287089",
+        "2f4b0de8-ad05-46ed-b3c3-06ec8aa6f4d9": "7c6ea2b1cea1fe20f30c5e4bc6ba5ae6d8c8a38230e67a94e0b1c93e951d3ff6"
+      },
+      "get_hash-verify_models-2f4b0de8-ad05-46ed-b3c3-06ec8aa6f4d9": "0x7c6ea2b1cea1fe20f30c5e4bc6ba5ae6d8c8a38230e67a94e0b1c93e951d3ff6",
+      "get_hash-verify_models-6fbdc324-1719-4d7f-b494-7cb60911edc5": "0xc9b554beaeb66d382497d6227b807047b7e52dd3bb4e9f83d61e135bc9287089",
+      "test-feedback-globalmodel-6fbdc324-1719-4d7f-b494-7cb60911edc5-2f4b0de8-ad05-46ed-b3c3-06ec8aa6f4d9": [
+        2.30296875,
+        0.156
+      ],
+      "test-feedback-usermodel-6fbdc324-1719-4d7f-b494-7cb60911edc5-2f4b0de8-ad05-46ed-b3c3-06ec8aa6f4d9": [
+        1.777875,
+        0.674
+      ],
+      "test-feedback-globalmodel-2f4b0de8-ad05-46ed-b3c3-06ec8aa6f4d9-6fbdc324-1719-4d7f-b494-7cb60911edc5": [
+        2.302328125,
+        0.182
+      ],
+      "test-feedback-usermodel-2f4b0de8-ad05-46ed-b3c3-06ec8aa6f4d9-6fbdc324-1719-4d7f-b494-7cb60911edc5": [
+        2.055171875,
+        0.567
+      ],
+      "test-themerge-globalmodel": [
+        2.255053125,
+        0.5049
+      ]
+    }
+  }
+}

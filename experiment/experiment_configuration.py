@@ -1,18 +1,16 @@
 from __future__ import annotations
+from typing import TYPE_CHECKING
 
+if TYPE_CHECKING:
+    from openfl.utils.types.User import User
+    from openfl.contracts.FLChallenge import FLChallenge
 import hashlib
 import json
 
 import math
-from typing import TYPE_CHECKING
-
 from openfl.ml.partition_spec import UserPartitionSpec, load_partition_specs
-from openfl.utils.types.TrainingSpecsJobListing import TrainingSpecsJobListing
 
-# Imported only for type hints; skipped at runtime to avoid circular imports
-# (FLChallenge transitively imports things that depend on this module).
-if TYPE_CHECKING:
-    from openfl.contracts.FLChallenge import FLChallenge
+from openfl.utils.types.TrainingSpecsJobListing import TrainingSpecsJobListing
 
 
 VALID_PARTITION_STRATEGIES = ("global", "per_user")

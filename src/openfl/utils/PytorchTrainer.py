@@ -6,10 +6,11 @@ import torch
 
 # Imported only for type hints; skipped at runtime to avoid import errors when not on sys.path.
 if TYPE_CHECKING:
-    from experiment.experiment_configuration import ExperimentConfiguration
+    from web3.contract import Contract
+from experiment.experiment_configuration import ExperimentConfiguration
+from openfl.api.globals import ReplayMode, reuse_runs
 from openfl.utils.ITestAndTrainer import ITestAndTrainer
-from openfl.utils.types.ReplayTrainingSpecs import ReplayTrainingSpecs
-
+import openfl.api.globals
 
 class PyTorchTrainer(ITestAndTrainer):
     def __init__(self, config: ExperimentConfiguration, path="training_trace.json"):
@@ -22,9 +23,11 @@ class PyTorchTrainer(ITestAndTrainer):
 
     def test(self, round, tag, net, testloader: torch.utils.data.DataLoader, device: torch.device) -> Tuple[
             float, float]:
+        print(f"Test device: {device}")
         from openfl.ml.pytorch_model import test
         data = test(net, testloader, device)
-        self.save(round, tag, data)
+        if ReplayMode.Record in reuse_runs:
+            self.save(round, tag, data)
         return data
 
     def get_hash(
@@ -34,17 +37,23 @@ class PyTorchTrainer(ITestAndTrainer):
             model_state):
         from openfl.ml.pytorch_model import get_hash
         result = get_hash(model_state)
-        self.save(round, tag, result)
+        if ReplayMode.Record in reuse_runs:
+            self.save(round, tag, result)
         return result
 
     def on_chain_hashed_weights(self, round, tag, FLChallenge):
-        resultSave = {
-            str(u.id): "0x" + FLChallenge.get_hashed_weights_of(u).hex()
-            for u in FLChallenge.pytorch_model.participants
-        }
         result = {u.id: FLChallenge.get_hashed_weights_of(u) for u in FLChallenge.pytorch_model.participants}
-        self.save(round, tag, resultSave)
+        saveData = {str(key): value.hex() for (key, value) in result.items()}
+        if ReplayMode.Record in reuse_runs:
+            self.save(round, tag, saveData)
         return result
+
+    def get_task_rep_delta_and_GRS(self, round, tag, contract: Contract, get_participant_func):
+        data = contract.functions.getTaskRepDeltaAndGRS.call()
+        formatted_data = [(str((get_participant_func(u[0]).id)), u[1], u[2]) for u in data ]
+        if ReplayMode.Record in reuse_runs:
+            self.save(round, tag, formatted_data)
+        return data
 
     # NOT TO BE USED WITH MP
     def train_user_proc(
@@ -57,5 +66,6 @@ class PyTorchTrainer(ITestAndTrainer):
         result = train_user_proc(user_id, model_state, train_ds, val_ds, epochs, device_id, dataset, batchsize, pin_memory,
                                  shuffle)
         stripped_result = (result[0], result[2], result[3])
-        self.save(round, tag, stripped_result)
+        if ReplayMode.Record in reuse_runs:
+            self.save(round, tag, stripped_result)
         return result
