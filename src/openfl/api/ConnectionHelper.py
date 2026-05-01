@@ -5,17 +5,15 @@ import re
 import os
 import time
 import signal
-from typing import Type
-import numpy as np
-import pandas as pd
 from web3 import Web3
+import web3
 from web3.contract import Contract
 from termcolor import colored
 from subprocess import Popen, PIPE
 
+from openfl.ml.Participant import Participant
 from openfl.utils.types.Attitude import Attitude
 from openfl.utils.types.Colors import gb, rb, b, green, red
-#from openfl.utils.types.Participant import Participant
 from openfl.utils import require_env_var
 from openfl.api import globals
 
@@ -142,7 +140,7 @@ class ConnectionHelper:
             except:
                 latestBlock = 1000000
 
-        return latestBlock;
+        return latestBlock
 
     def initialize_manager(self):
         bytecode_path = Path(__file__).resolve().parents[3] / "artifacts" / "bytecode"
@@ -247,8 +245,8 @@ class ConnectionHelper:
             'nonce': nonce,
             'value': value
         }
-    
-    def transact(self, func_name: str, account: Participant, collateral: int,  event_names: list[str], *args):
+
+    def transact(self, func_name: str, account: Participant, collateral: int,  event_names: list[str], gas_type: str, *args):
         """
         Returns (receipt, event returns as tuple)
         funcname: contract function name
@@ -256,9 +254,9 @@ class ConnectionHelper:
         event_names: names of the 
         *args: arguments forwarded to the contract function
         """
-        return self.transact_raw_addreses(func_name, account.address, account.privateKey, collateral, event_names, *args)
+        return self.transact_raw_addreses(func_name, account.address, account.privateKey, collateral, event_names, gas_type, *args)
 
-    def transact_raw_addreses(self, func_name: str, account_addr: str, account_private_key: str, collateral: int, event_names: list[str], *args):
+    def transact_raw_addreses(self, func_name: str, account_addr: str, account_private_key: str, collateral: int, event_names: list[str], gas_type: str, *args):
         """
         Returns (receipt, event returns as tuple)
         funcname: contract function name
@@ -266,6 +264,8 @@ class ConnectionHelper:
         event_names: names of the
         *args: arguments forwarded to the contract function
         """
+        if not isinstance(gas_type, str):
+            raise Exception(f"Gas type {gas_type} not supported")
 
         func = getattr(self.contract.functions, func_name)
 
@@ -281,10 +281,13 @@ class ConnectionHelper:
             txHash = globals.w3.eth.send_raw_transaction(signed.raw_transaction)
 
         receipt = globals.w3.eth.wait_for_transaction_receipt(txHash, timeout=600, poll_latency=1)
+        globals.add_gas_usage(gas_type, receipt["gasUsed"], account_addr)
+        # todo: add gas usage
         if receipt.get("status", 0) != 1:
             raise RuntimeError(
                 f"Transaction: \"{func_name}\" failed (tx={txHash.hex()}, status={receipt.get('status')}). "
             )
+
 
         return (receipt, self.get_events(receipt, event_names))
 
@@ -345,6 +348,7 @@ class ConnectionHelper:
 
         # --- RECEIPT ---
         receipt = w3.eth.wait_for_transaction_receipt(tx_hash)
+        # Todo: log gas
 
         if receipt.get("status", 0) != 1:
             raise RuntimeError(f"Deployment failed: {tx_hash.hex()}")

@@ -1,3 +1,4 @@
+import hashlib
 import os
 import platform
 import psutil
@@ -11,6 +12,7 @@ from openfl.contracts.JobListing import JobListing
 from openfl.ml import pytorch_model as PM
 from openfl.contracts import FLChallenge as Challenge, FLManager as Manager
 from openfl.utils import require_env_var
+from openfl.utils.ITestAndTrainer import get_filename
 from openfl.utils.W3Helper import get_PRIVKEYS, get_RPC_Endpoint, get_account_RPC
 from openfl.utils.types.Attitude import Attitude
 from types import SimpleNamespace
@@ -21,7 +23,7 @@ from openfl.utils.async_writer import AsyncWriter
 from openfl.utils.types.User import User
 
 
-def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration, writer: AsyncWriter=None, logger=None):
+def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration, writer: AsyncWriter=None, logger=None, path=None):
 
   dataset_name = dataset_name.replace(".", "-")
   experiment_config.dataset = dataset_name
@@ -33,18 +35,20 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
 
   users: List[User] = []
 
-  pytorch_model = PM.PytorchModel(dataset_name, 
-                              experiment_config.number_of_good_contributors, 
-                              experiment_config.number_of_contributors, 
-                              experiment_config.epochs, 
-                              experiment_config.batch_size, 
-                              experiment_config.standard_buy_in,
-                              experiment_config.max_buy_in,
-                              experiment_config.freerider_noise_scale,
-                              experiment_config.freerider_start_round,
-                              experiment_config.malicious_start_round,
-                              experiment_config.malicious_noise_scale,
-                              experiment_config.force_merge_all)
+  pytorch_model = PM.PytorchModel(
+      experiment_config,
+      dataset_name,
+      experiment_config.number_of_good_contributors,
+      experiment_config.number_of_contributors,
+      experiment_config.epochs,
+      experiment_config.batch_size,
+      experiment_config.standard_buy_in,
+      experiment_config.max_buy_in,
+      experiment_config.freerider_noise_scale,
+      experiment_config.freerider_start_round,
+      experiment_config.malicious_start_round,
+      experiment_config.malicious_noise_scale,
+      experiment_config.force_merge_all)
 
   for attitude, count in [
       (Attitude.Honest, experiment_config.number_of_good_contributors),
@@ -52,17 +56,24 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
       (Attitude.FreeRider, experiment_config.number_of_freerider_contributors),
   ]:
       for _ in range(count):
-          addr, private_key = get_account_RPC(len(users), experiment_config.fork)
-          users.append(
-              User.from_experiment_config(
-                  attitude,
-                  experiment_config,
-                  addr,
-                  private_key
-              )
+          user_index = len(users)
+          addr, private_key = get_account_RPC(user_index, experiment_config.fork)
+          user = User.from_experiment_config(
+              attitude,
+              experiment_config,
+              addr,
+              private_key
           )
-      #pytorch_model.add_participant("freerider",experiment_config.freerider_start_round) //TODO FOR LATER
+          apply_user_data_and_label_config(user, user_index, experiment_config)
+          users.append(user)
 
+  pytorch_model.prepare_data_for_users(
+      users,
+      dataset_name,
+      seed=experiment_config.seed,
+      allow_overlap=experiment_config.allow_overlap,
+      replication_factor=experiment_config.replication_factor,
+  )
   publisher: User = users[0]
 
   RPC_ENDPOINT = get_RPC_Endpoint()
@@ -77,11 +88,11 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
                                               PRIVKEYS)
 
 
-  trainingSpecs = experiment_config.get_training_specs(manager.contract.address, pytorch_model.get_global_model_hash())
+  training_specs = experiment_config.get_training_specs(manager.contract.address, pytorch_model.get_global_model_hash())
   
-  newJobListing: JobListing = publisher.deploy_joblisting_contract(trainingSpecs, manager)
+  new_job_listing: JobListing = publisher.deploy_joblisting_contract(training_specs, manager)
 
-  writer.writeComment(f"$startingUserConfig${[p.get_status() for p in pytorch_model.participants]}")
+  writer.write_comment(f"$startingUserConfig${[p.get_status() for p in pytorch_model.participants]}")
 
   extra_configs = {}
   if experiment_config.contribution_score_strategy is not None:
@@ -90,18 +101,20 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
       ) # WTF is this????
 
 
-  for participants in users:
-     participants.register_for_job(newJobListing)
+  for user in users:
+     user.register_for_job(new_job_listing)
 
   while True:
       try:
-          (receipt, events) = newJobListing.transact(
+          (receipt, events) = new_job_listing.transact(
               "decideOnParticpants",
               publisher,
               0,
               ["SelectionComplete"],
-              2
+              "JobListing.decideOnParticpants",
+              experiment_config.number_of_participants
           )
+          participants_addresses = events["SelectionComplete"][0]["participants"]
           break
       except ContractLogicError as e:
           if "AWO" in str(e):
@@ -112,14 +125,33 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
           else:
               raise
 
-  trainingSpecsChallenge = trainingSpecs.to_challenge(experiment_config.contribution_score_strategy, experiment_config.use_outlier_detection, newJobListing.contract.address)
+  trainingSpecsChallenge = training_specs.to_challenge(experiment_config.contribution_score_strategy, experiment_config.use_outlier_detection, new_job_listing.contract.address)
 
-  newChallenge: Challenge = publisher.deploy_challenge_contract(trainingSpecsChallenge, newJobListing, pytorch_model)
+  participating_users = get_users_from_addresses(users, participants_addresses)
 
-  newChallenge.make_participants_from_users(users)
-  for participants in newChallenge.pytorch_model.participants:
+  experiment_finger_print = experiment_config.get_finger_print(participating_users)
+  
+  filename = get_filename(experiment_finger_print, experiment_config) # also sets globals.reuse_runs | _actively_replaying
+  pytorch_model.setup_replay(filename, experiment_config, path)
+  ############
+  ## REPLAY ##
+  ############
+  flags = globals.ReplayMode._actively_replaying | globals.ReplayMode.HardPlayBack
+  if (globals.reuse_runs & flags) == flags:
+    print("We replaying, baby!")
+    # replay
+    users_by_address = {u.address: u for u in users}
+
+    users = [users_by_address.get(par_addr) for par_addr in users_by_address]
+    combinedUsers = pytorch_model.runRepo.get_participants(users)
+    return pytorch_model.runRepo.get_task_rep_delta_and_GRS(-1, "get_task_rep_delta_and_GRS-simulate", None, lambda x: pytorch_model.get_participant(x, combinedUsers))
+
+  newChallenge: Challenge = publisher.deploy_challenge_contract(trainingSpecsChallenge, new_job_listing, pytorch_model, writer, logger)
+
+  newChallenge.make_participants_from_users(participating_users)
+  for user in newChallenge.pytorch_model.participants:
       try:
-        newChallenge.transact("registrationProcess", participants, trainingSpecsChallenge.min_collateral, [])
+        newChallenge.transact("registrationProcess", user, trainingSpecsChallenge.min_collateral, [], "challenge.register")
       except ContractLogicError as e:
           if "SUO" in str(e):
               print("Participant tried joining but was not selected")
@@ -131,7 +163,7 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
 
   print("\n" + "="*75)
   print(f"TOTAL EXPERIMENT TIME: {total_experiment_time:.2f} seconds")
-  writer.writeComment(f"TOTAL EXPERIMENT TIME: {total_experiment_time:.2f} seconds")
+  writer.write_comment(f"TOTAL EXPERIMENT TIME: {total_experiment_time:.2f} seconds")
   print("="*75 + "\n")
 
   if logger is not None:
@@ -174,11 +206,45 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
           "malicious_start_round":             cfg.malicious_start_round,
           "malicious_noise_scale":             cfg.malicious_noise_scale,
           "force_merge_all":                   cfg.force_merge_all,
+          "seed":                              cfg.seed,
+          "allow_overlap":                     cfg.allow_overlap,
+          "replication_factor":                cfg.replication_factor,
+          "user_seeds":                        {u.number: u.seed for u in users},
+          "data_percentages":                  {u.number: u.data_percent for u in users},
       }
 
       logger.log_setup(total_experiment_time, hardware, config)
 
   return Experiment(newChallenge, manager)
+
+
+def apply_user_data_and_label_config(user: User, user_index: int, experiment_config: ExperimentConfiguration):
+    # Per-user strategy: spec drives data_percent, only_labels, flip_map.
+    # Global strategy: legacy data_percentages + label_rules drive them.
+    if experiment_config.partition_strategy == "per_user":
+        spec = experiment_config.per_user_partitions[user_index]
+        user.partition_spec = spec
+        user.data_percent = float(spec.data_percent)
+        user.only_labels = list(spec.only_labels) if spec.only_labels is not None else None
+        user.flip_map = dict(spec.flip_map)
+    else:
+        user.data_percent = float(experiment_config.data_percentages[user_index])
+        user_rule = experiment_config.label_rules.get(user_index, {})
+        user.only_labels = user_rule.get("only_labels")
+        user.flip_map = user_rule.get("flip_map", {})
+
+    user.seed = derive_user_seed(experiment_config, user_index)
+
+
+# Independent per-user RNG stream. Hashing master+user_id keeps streams
+# uncorrelated and stable when users are added/removed (unlike `master+i`).
+# Explicit overrides in experiment_config.user_seeds win for debug runs.
+def derive_user_seed(experiment_config: ExperimentConfiguration, user_index: int) -> int:
+    if user_index in experiment_config.user_seeds:
+        return int(experiment_config.user_seeds[user_index])
+    payload = f"{experiment_config.seed}:{user_index}".encode()
+    digest = hashlib.sha256(payload).digest()
+    return int.from_bytes(digest[:4], "big")
 
 
 def setup_connection(experiment_config):
@@ -209,7 +275,13 @@ def setup_connection(experiment_config):
 def visualizeModel(model):
   model.visualize_simulation("figures")
 
-
+def get_users_from_addresses(users, addresses):
+    found_users = []
+    for user in users:
+        for address in addresses:
+            if user.address == address:
+                found_users.append(user)
+    return found_users
 
 def print_transactions(experiment):
   model = experiment.model
@@ -271,7 +343,6 @@ def table_with_gas_and_transactions_latex(experiment):
   print("\\hline\n\\hline")
   print("complete round & {:,.0f} & {:.5f} \\ ".format(tot, tot * 20e9 / 1e18))
   print("\\hline\n\\end{tabular}")
-    
 
 class Experiment:
   def __init__(self, model, manager):

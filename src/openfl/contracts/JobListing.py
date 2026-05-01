@@ -1,11 +1,6 @@
-from typing import List
-
-from web3 import Web3
 from openfl.api import ConnectionHelper, globals
-from openfl.utils.TrainingSpecsJobListing import TrainingSpecsChallenge
-from openfl.utils.types.Colors import b
+from openfl.utils.types.TrainingSpecsJobListing import TrainingSpecsChallenge
 from openfl.utils.types.User import User
-from openfl.utils import TrainingSpecsJobListing
 
 
 class JobListing(ConnectionHelper):
@@ -51,7 +46,7 @@ class JobListing(ConnectionHelper):
         self.contract = contract
 
     def register_challenge_contract(self, publisher, challenge_addr):
-        (receipt, events) = self.transact("registerChallenge", publisher, 0, ["ChallengeRegistered"],
+        (receipt, events) = self.transact("registerChallenge", publisher, 0, ["ChallengeRegistered"], "JobListing.RegisterChallengeContract",
                                           challenge_addr)
 
         is_valid = events["ChallengeRegistered"][0]["success"]

@@ -1,9 +1,7 @@
 from enum import IntEnum
 
-from openfl.api.ConnectionHelper import ConnectionHelper
 from openfl.contracts import JobListing
-from openfl.utils import TrainingSpecsJobListing
-
+from openfl.utils.types.TrainingSpecsJobListing import TrainingSpecsChallenge
 
 
 class Attitude(IntEnum):
@@ -63,7 +61,7 @@ class Participant:
     
     def deploy_joblisting_contract(
         self,
-        trainingSpecs: ChallengeTrainingSpecs
+        trainingSpecs: TrainingSpecsChallenge
         ):
         newJobListing = JobListing(self, trainingSpecs)
         return newJobListing

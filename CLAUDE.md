@@ -76,4 +76,4 @@ Ganache requires a workspace (not quickstart) with: gas limit set significantly 
 
 ### Python Version
 
-Only Python 3.10 is supported/tested.
+Python 3.10 and 3.13 are supported/tested.

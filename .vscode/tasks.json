@@ -4,7 +4,20 @@
     {
       "label": "compile-contracts",
       "type": "shell",
-      "command": ".venv/bin/python scripts/compile_contracts.py",
+      "command": "${command:python.interpreterPath}",
+      "args": ["scripts/compile_contracts.py"],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "windows": {
+        "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe"
+      },
+      "linux": {
+        "command": "${workspaceFolder}/.venv/bin/python"
+      },
+      "osx": {
+        "command": "${workspaceFolder}/.venv/bin/python"
+      },
       "problemMatcher": []
     }
   ]

@@ -1,11 +1,7 @@
-from eth_typing import ChecksumAddress
-from hexbytes import HexBytes
 from web3 import Web3
-from web3.contract import Contract
 from openfl.contracts.JobListing import JobListing
 from openfl.ml.pytorch_model import PytorchModel
-from openfl.utils.TrainingSpecsJobListing import TrainingSpecsChallenge
-from openfl.utils.types.Colors import b
+from openfl.utils.types.TrainingSpecsJobListing import TrainingSpecsChallenge
 from openfl.utils.types.User import User
 from openfl.api import ConnectionHelper, globals
 
@@ -47,8 +43,8 @@ class FLManager(ConnectionHelper):
         self.deploy_job_template(self.publisher)
         self.deploy_challenge_template(self.publisher)
 
-        self.transact("setJobListingCodeHash", self.publisher, 0, [], self.job_template_hash)
-        self.transact("setChallengeCodeHash", self.publisher, 0, [], self.challenge_templete_hash)
+        self.transact("setJobListingCodeHash", self.publisher, 0, [], "Manager.Template.JobListing.SetHash", self.job_template_hash)
+        self.transact("setChallengeCodeHash", self.publisher, 0, [], "JobListing.Template.Challenge.SetHash",self.challenge_templete_hash)
         return self
     
     
@@ -80,7 +76,7 @@ class FLManager(ConnectionHelper):
                                                                   "from": participant.address})
     
     def register_joblisting_contract(self, new_joblisting: JobListing) -> bool:#-> tuple[Contract, ChecksumAddress, JobListing, ...]:
-        (receipt, events) = self.transact("registerJob", new_joblisting.publisher, 0, ["JobListingValid"], new_joblisting.contract.address)
+        (receipt, events) = self.transact("registerJob", new_joblisting.publisher, 0, ["JobListingValid"], "Manager.registerJob", new_joblisting.contract.address)
 
         is_valid = events["JobListingValid"][0]["isValid"]
 

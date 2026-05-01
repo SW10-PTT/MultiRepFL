@@ -9,9 +9,6 @@ from typing import List
 import platform
 import psutil
 
-from openfl.utils.types.User import User
-
-
 def _time_handler(item):
     return datetime.now().strftime("%H:%M:%S.%f")[:-3]
 
@@ -79,7 +76,7 @@ class AsyncWriter:
         except Full:
             raise RuntimeError("writer queue overflow")
 
-    def writeComment(self, comment: str):
+    def write_comment(self, comment: str):
         self.queue.put((comment, True), block=False)
 
     def finish(self):

@@ -2,7 +2,7 @@ import types
 from types import SimpleNamespace
 
 import experiment.experiment_runner as runner
-from experiment.experiment_configuration import ExperimentConfiguration
+from experiment_configuration import ExperimentConfiguration
 
 
 class FakePytorchModel:
