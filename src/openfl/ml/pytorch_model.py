@@ -15,6 +15,7 @@ import torch.optim as optim
 import torch.nn.functional as F
 import torch.multiprocessing as mp
 import os
+import platform
 import time
 import math
 from collections import Counter
@@ -53,7 +54,11 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 USE_CUDA = (DEVICE.type == "cuda")
 PIN_MEMORY = USE_CUDA
 NON_BLOCKING = USE_CUDA
-NUM_WORKERS = min(4, os.cpu_count() // 2) if torch.cuda.is_available() else 0
+# On Windows, DataLoader worker processes carry high overhead with CUDA/ROCm and
+# can exhaust system RAM (36+ background processes for 8 participants × 4 workers).
+# Use 0 workers on Windows; forked workers on Linux are much cheaper.
+_IS_WINDOWS = platform.system() == "Windows"
+NUM_WORKERS = 0 if _IS_WINDOWS else (min(4, os.cpu_count() // 2) if torch.cuda.is_available() else 0)
 PERSISTENT_WORKERS = USE_CUDA and NUM_WORKERS > 0
 AMP = USE_CUDA # Optional: mixed precision on CUDA
 COMPILE = False
@@ -524,6 +529,8 @@ class PytorchModel:
             results = self.run_multi_processing()
 
         self.apply_training_results(results)
+        if USE_CUDA:
+            torch.cuda.empty_cache()
         total_time = time.perf_counter() - start_total
 
         print(b("=================== PARALLEL TRAINING END ===================\n"))
@@ -589,6 +596,11 @@ class PytorchModel:
         )
 
         print_training_mode(num_gpus, num_processes)
+
+        # With only 1 worker there's no parallelism benefit from a Pool; the spawn
+        # overhead just wastes time and memory (especially on Windows/ROCm).
+        if num_processes == 1:
+            return self.run_sequential()
 
         with ctx.Pool(processes=num_processes) as pool:
             start_pool = time.perf_counter()
@@ -829,7 +841,7 @@ class PytorchModel:
                 if bad_att:
                     matrices.feedback_matrix[giver_idx, user_idx] = -1
                     matrices.accuracy_matrix[giver_idx, user_idx] = 0
-                    matrices.loss_matrix(giver_idx, user_idx, 65535)
+                    matrices.loss_matrix[giver_idx, user_idx] = 65535
                     matrices.prev_accuracies[giver_idx] = round(prev_acc * 100 * scalar)
                     matrices.prev_losses[giver_idx] = safe_scale(prev_loss, scalar, MAX_UINT16_SIZE)
 

@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from experiment_configuration import ExperimentConfiguration
+from experiment.experiment_configuration import ExperimentConfiguration
 
 
 # get_finger_print only reads challenge.pytorch_model.participants[*].finger_print.

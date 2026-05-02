@@ -11,7 +11,7 @@ from urllib3.util import retry
 
 # Imported only for type hints; skipped at runtime to avoid import errors and circular imports.
 if TYPE_CHECKING:
-    from experiment_configuration import ExperimentConfiguration
+    from experiment.experiment_configuration import ExperimentConfiguration
     from openfl.contracts import FLManager
 from openfl.utils.async_writer import AsyncWriter
 from openfl.utils.types.Attitude import Attitude

@@ -8,7 +8,7 @@ from web3 import Web3
 
 # Imported only for type hints; skipped at runtime to avoid import errors when not on sys.path.
 if TYPE_CHECKING:
-    from experiment_configuration import ExperimentConfiguration
+    from experiment.experiment_configuration import ExperimentConfiguration
 from openfl.utils import require_env_var
 from openfl.api import globals
 

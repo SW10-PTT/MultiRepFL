@@ -27,13 +27,53 @@ PRIVATE_KEYS="<Private keys from your accounts colon separated (for non-locally 
 ```
 
 ## 3. Requirements
-- Nvidia or cpu:
-``pip install -e ".[dev]"``
-- AMD (Only works on linux):
-``pip install -e ".[dev]" --extra-index-url https://download.pytorch.org/whl/rocm7.1``
 
-Build the abi and bytecode files from the smart contracts 
-``python3 scripts/compile_contracts.py``
+> **Python 3.12 is required** for all platforms.
+
+**CPU / NVIDIA:**
+```bash
+pip install -e ".[dev]"
+```
+For NVIDIA GPU acceleration, install the CUDA build of PyTorch first:
+```bash
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu130
+pip install -e ".[dev]"
+```
+
+**AMD GPU (Linux):**
+```bash
+pip install torch torchvision --index-url https://download.pytorch.org/whl/rocm7.1
+pip install -e ".[dev]"
+```
+
+**AMD GPU (Windows) — requires AMD driver 26.2.2:**
+
+Step 1 — install the ROCm SDK (PowerShell):
+```powershell
+pip install --no-cache-dir `
+    https://repo.radeon.com/rocm/windows/rocm-rel-7.2.1/rocm_sdk_core-7.2.1-py3-none-win_amd64.whl `
+    https://repo.radeon.com/rocm/windows/rocm-rel-7.2.1/rocm_sdk_devel-7.2.1-py3-none-win_amd64.whl `
+    https://repo.radeon.com/rocm/windows/rocm-rel-7.2.1/rocm_sdk_libraries_custom-7.2.1-py3-none-win_amd64.whl `
+    https://repo.radeon.com/rocm/windows/rocm-rel-7.2.1/rocm-7.2.1.tar.gz
+```
+
+Step 2 — install PyTorch (PowerShell):
+```powershell
+pip install --no-cache-dir `
+    https://repo.radeon.com/rocm/windows/rocm-rel-7.2.1/torch-2.9.1%2Brocm7.2.1-cp312-cp312-win_amd64.whl `
+    https://repo.radeon.com/rocm/windows/rocm-rel-7.2.1/torchaudio-2.9.1%2Brocm7.2.1-cp312-cp312-win_amd64.whl `
+    https://repo.radeon.com/rocm/windows/rocm-rel-7.2.1/torchvision-0.24.1%2Brocm7.2.1-cp312-cp312-win_amd64.whl
+```
+
+Step 3 — install the project:
+```bash
+pip install -e ".[dev]"
+```
+
+Build the abi and bytecode files from the smart contracts:
+```bash
+python3 scripts/compile_contracts.py
+```
 
 ## 4. Running an Experiment
 The Experiment folder contains files for running experiments on different datasets.
@@ -43,6 +83,7 @@ To change the dataset, modify the experiments.py file.
 The file experiments.py runs one such experiment and can be run with:
 ``ENV=ganache python ./experiment/experiment_runner.py``
 
+The project can also be run from VS code, using one of the configuration profiles defined in the .vscode folder. E.g. ``Compile - Debug: Sample (1)``, to run the sample experiment.
 
 ## 5. Solidity testing
 - Download Foundry in a Unix-like shell (WSL or Linux): 

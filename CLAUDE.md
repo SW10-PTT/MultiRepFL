@@ -15,12 +15,16 @@ OpenFL 2.0 is a federated learning research platform that integrates PyTorch-bas
 
 ### Setup
 ```bash
+# CPU / NVIDIA (install GPU torch first if using NVIDIA):
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu130    # NVIDIA
 pip install -e ".[dev]"
 python3 scripts/compile_contracts.py   # Build ABI + bytecode from Solidity contracts
 
-# GPU (choose one):
-pip3 install torch torchvision --index-url https://download.pytorch.org/whl/rocm7.1  # AMD
-pip3 install torch torchvision --index-url https://download.pytorch.org/whl/cu130    # NVIDIA
+# AMD Linux:
+pip install torch torchvision --index-url https://download.pytorch.org/whl/rocm7.1
+pip install -e ".[dev]"
+
+# AMD Windows: see README section 3 for multi-step ROCm SDK + wheel install
 ```
 
 ### Running Experiments
@@ -81,4 +85,4 @@ Ganache requires a workspace (not quickstart) with: gas limit set significantly 
 
 ### Python Version
 
-Python 3.13 is supported/tested.
+Python 3.12 is required (3.12.x). AMD GPU on Windows requires exactly Python 3.12 due to wheel availability.

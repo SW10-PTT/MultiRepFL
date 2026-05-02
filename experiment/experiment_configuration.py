@@ -33,29 +33,29 @@ class ExperimentConfiguration:
                  min_buy_in=int(1e18),
                  max_buy_in=int(1e18),
                  standard_buy_in=int(1e18),
-                 epochs=1,
+                 epochs=10,
                  batch_size=32,
                  punish_factor=3,
                  punish_factor_contrib=3,
                  first_round_fee=50, # Percentage of buy-in to charge as fee in first round
                  fork=True,
                  use_outlier_detection = True,
-                 contribution_score_strategy="loss_tolerance_aware", # Options: dotproduct, naive, accuracy_loss, accuracy_only, loss_only, loss_tolerance_aware, loss_tolerance_snap
+                 contribution_score_strategy="loss_only", # Options: dotproduct, naive, accuracy_loss, accuracy_only, loss_only, loss_tolerance_aware, loss_tolerance_snap
                  loss_tolerance_pct=0.05, # ε = pct * avg_prev_loss; only used by loss_tolerance_* strategies
-                 freerider_noise_scale=1.0,
+                 freerider_noise_scale=0.1,
                  freerider_start_round=3,
                  malicious_noise_scale=1.0,
                  malicious_start_round=3,
-                 number_of_participants=2,
+                 number_of_participants=8,
                  force_merge_all=False,
                  data_percentages=None,
                  label_rules=None,
                  seed=42,
                  user_seeds=None,
-                 allow_overlap=True,
-                 replication_factor=2.0,
-                 partition_strategy="per_user", # Options: global, per_user
-                 per_user_partitions="experiment/partitions/example.json"): # Path to JSON file with per-user partition specs; see example.json for format. Or None
+                 allow_overlap=False,
+                 replication_factor=1.0,
+                 partition_strategy="global", # Options: global, per_user
+                 per_user_partitions=None): # Path to JSON file with per-user partition specs; see example.json for format. Or None. Example: "experiment/partitions/example.json"
 
         self.name = name
         self.dataset = dataset

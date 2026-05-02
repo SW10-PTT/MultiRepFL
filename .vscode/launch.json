@@ -6,21 +6,6 @@
   "inputs": [],
   "configurations": [
     {
-      "name": "Compile - Debug: Sample",
-      "type": "debugpy",
-      "request": "launch",
-      "module": "experiment.sample",
-      "args": [
-        "--skipFolder",
-        "experiment/data",
-        "--author",
-        "Måske Nykjaer"
-      ],
-      "console": "integratedTerminal",
-      "cwd": "${workspaceFolder}",
-      "preLaunchTask": "compile-contracts"
-    },
-    {
       "name": "Create graphs",
       "type": "debugpy",
       "request": "launch",
@@ -57,14 +42,9 @@
       "name": "Compile - Debug: Sample",
       "type": "debugpy",
       "request": "launch",
-      "program": "experiment/sample.py",
-      "args": [
-        "--skipFolder",
-        "experiment/data",
-        "--author",
-        "Måske Nykjaer"
-      ],
+      "module": "experiment.sample",
       "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
       "preLaunchTask": "compile-contracts",
       "python": "${command:python.interpreterPath}",
       "windows": { "python": "${workspaceFolder}\\.venv\\Scripts\\python.exe" },
