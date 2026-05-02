@@ -161,6 +161,7 @@ artifacts/bytecode/**
 #Data
 data/**
 experiment/data/**
+experiment_data/
 experiment/figures/**
 experiment/experiment/figures/**
 
