@@ -24,7 +24,7 @@ class ExperimentConfiguration:
     def __init__(self,
                  name=None,
                  dataset="MNIST",
-                 number_of_good_contributors=6,
+                 number_of_good_contributors=4,
                  number_of_bad_contributors=1,
                  number_of_freerider_contributors=1,
                  number_of_inactive_contributors=0,
@@ -33,8 +33,8 @@ class ExperimentConfiguration:
                  min_buy_in=int(1e18),
                  max_buy_in=int(1e18),
                  standard_buy_in=int(1e18),
-                 epochs=10,
-                 batch_size=32,
+                 epochs=1,
+                 batch_size=32, #  Try increase perhaps
                  punish_factor=3,
                  punish_factor_contrib=3,
                  first_round_fee=50, # Percentage of buy-in to charge as fee in first round

@@ -52,20 +52,26 @@ logging.getLogger("torch._dynamo").setLevel(logging.ERROR)
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 USE_CUDA = (DEVICE.type == "cuda")
-PIN_MEMORY = USE_CUDA
-NON_BLOCKING = USE_CUDA
+# torch.version.hip is set on ROCm builds (AMD); absent or None on NVIDIA CUDA builds
+_IS_AMD_GPU = USE_CUDA and (getattr(torch.version, "hip", None) is not None)
+_IS_NVIDIA_GPU = USE_CUDA and not _IS_AMD_GPU
 # On Windows, DataLoader worker processes carry high overhead with CUDA/ROCm and
 # can exhaust system RAM (36+ background processes for 8 participants × 4 workers).
 # Use 0 workers on Windows; forked workers on Linux are much cheaper.
 _IS_WINDOWS = platform.system() == "Windows"
+_IS_AMD_WINDOWS = _IS_AMD_GPU and _IS_WINDOWS
+# pin_memory and non_blocking benefit NVIDIA but add overhead with no gain on AMD Windows
+PIN_MEMORY = USE_CUDA and not _IS_AMD_WINDOWS
+NON_BLOCKING = USE_CUDA and not _IS_AMD_WINDOWS
 NUM_WORKERS = 0 if _IS_WINDOWS else (min(4, os.cpu_count() // 2) if torch.cuda.is_available() else 0)
 PERSISTENT_WORKERS = USE_CUDA and NUM_WORKERS > 0
-AMP = USE_CUDA # Optional: mixed precision on CUDA
+# AMP is well-supported on NVIDIA and AMD Linux (ROCm); skip on AMD Windows where support is unreliable
+AMP = USE_CUDA and not _IS_AMD_WINDOWS
 COMPILE = False
 
-# cuDNN autotune for fixed-size inputs (both MNIST 28x28 and CIFAR-10 32x32)
-torch.backends.cudnn.benchmark = USE_CUDA
-if DEVICE.type == "cuda":
+# cuDNN autotune is NVIDIA-specific; MIOpen (AMD ROCm) ignores this flag
+torch.backends.cudnn.benchmark = _IS_NVIDIA_GPU
+if _IS_NVIDIA_GPU:
     torch.set_float32_matmul_precision("high")
 
 def model_to_device(net: nn.Module) -> nn.Module:
@@ -151,6 +157,7 @@ class PytorchModel:
         self.participants = []
         self.disqualified = []
         self.runRepo: ITestAndTrainer = None
+        self.test_tensors = None  # GPU-preloaded (images, labels) for the global test set
         # self.EPOCHS = epochs
         # self.BATCHSIZE = batchsize
         self.train, self.val, self.test = self.load_data(self.NUMBER_OF_CONTRIBUTERS, _print=True)
@@ -199,14 +206,9 @@ class PytorchModel:
         criterion = nn.CrossEntropyLoss()
 
         l = len(self.participants)
-        self.participants.append(Participant.from_user(
-            user,
-            train_loader,
-            val_loader,
-            _model,
-            optimizer,
-            criterion
-        ))
+        p = Participant.from_user(user, train_loader, val_loader, _model, optimizer, criterion)
+        p.val_tensors = preload_to_gpu(val_loader, DEVICE) if USE_CUDA else None
+        self.participants.append(p)
 
         print("Participant added: {:<9} {}".format(rb(user.attitude.name.upper()[0]+user.attitude.name[1:]), rb(user.display_label())))
 
@@ -289,6 +291,8 @@ class PytorchModel:
         testloader = cuda_safe_dataloader(testset, self.config.batch_size, shuffle=False)
         self.DATA = (trainloaders, valloaders, testloader)
         self.train, self.val, self.test = self.DATA
+        if USE_CUDA:
+            self.test_tensors = preload_to_gpu(testloader, DEVICE)
 
     def get_user_dataloaders(self, user):
         if self.train_by_user_id:
@@ -514,6 +518,8 @@ class PytorchModel:
             persistent_workers=PERSISTENT_WORKERS,
         )
         self.DATA = (trainloaders, valloaders, testloader)
+        if USE_CUDA and self.test_tensors is None:
+            self.test_tensors = preload_to_gpu(testloader, DEVICE)
         return trainloaders, valloaders, testloader
 
 
@@ -537,7 +543,7 @@ class PytorchModel:
         print(green(f"Total federated training time: {total_time:.2f} seconds\n"))
 
     def finalize_paricipant_evaluation(self, participant): # Same as lines 294-296,306 in orgiginal code.
-        loss, acc = self.runRepo.test(self.round,f"test-finalize_paricipant_evaluation-{participant.id}", participant.model, self.test, DEVICE) # TODO: Investigate if this should be user.val instead.
+        loss, acc = self.runRepo.test(self.round,f"test-finalize_paricipant_evaluation-{participant.id}", participant.model, self._test_data, DEVICE) # TODO: Investigate if this should be user.val instead.
         participant._accuracy.append(acc) # Line 295 in original code # TODO: Investigate if this should be test and not validation accuracy.
         participant._loss.append(loss) # Line 296 in original code # TODO: Investigate if this should be test and not validation loss.
         participant.hashedModel = self.runRepo.get_hash(self.round, f"get_hash-finalize_paricipant_evaluation-{participant.id}", participant.model.state_dict())
@@ -644,7 +650,7 @@ class PytorchModel:
                 manipulated_state_dict = manipulate(self.participants[i].model,scale=self.malicious_noise_scale,)
                 self.participants[i].model.load_state_dict(manipulated_state_dict)
                 self.participants[i].hashedModel = self.runRepo.get_hash(self.round, f"let_malicious_users_do_their_work-{self.participants[i].id}", self.participants[i].model.state_dict())
-                loss, accuracy = self.runRepo.test(self.round,f"test-let_malicious_users_do_their_work-usermodel-{self.participants[i].id}", self.participants[i].model, self.test, DEVICE)
+                loss, accuracy = self.runRepo.test(self.round,f"test-let_malicious_users_do_their_work-usermodel-{self.participants[i].id}", self.participants[i].model, self._test_data, DEVICE)
                 print("{:<17} {} ({}) |  Testing  | Accuracy {:>3.0f} % | Loss ∞\n".format(
                     "Account testing:   ",
                     self.participants[i].display_label(),
@@ -694,14 +700,14 @@ class PytorchModel:
                             self.freerider_start_round,
                         )
                     ))
-                    new_state_dict = manipulate(copy.deepcopy(participant.model))
+                    new_state_dict = manipulate(participant.model)
                 else:
                     new_state_dict = self._freerider_submit_with_noise(participant)
 
 
                 participant.model.load_state_dict(new_state_dict)
                 participant.hashedModel = self.runRepo.get_hash(self.round, f"get_hash-let_freerider_users_do_their_work-{participant.id}",participant.model.state_dict())
-                loss, accuracy = self.runRepo.test(self.round,f"test-let_freerider_users_do_their_work-usermodel-{participant.id}", participant.model, self.test, DEVICE)
+                loss, accuracy = self.runRepo.test(self.round,f"test-let_freerider_users_do_their_work-usermodel-{participant.id}", participant.model, self._test_data, DEVICE)
                 print("{:<17} {} ({}) |  Testing  | Accuracy {:>3.0f} % | Loss ∞\n".format(
                     "Account testing:   ",
                     participant.display_label(),
@@ -721,7 +727,7 @@ class PytorchModel:
                 user.display_label(),
                 user.address[0:16]+"...",
             )))
-            return copy.deepcopy(user.model).state_dict()
+            return {k: v.clone() for k, v in user.model.state_dict().items()}
 
         print(red(
             "{} ({}) adding noise (scale={}) to global weights".format(
@@ -730,7 +736,7 @@ class PytorchModel:
                 self.freerider_noise_scale,
             )
         ))
-        return manipulate(copy.deepcopy(user.model), scale=self.freerider_noise_scale)
+        return manipulate(user.model, scale=self.freerider_noise_scale)
 
 
     def the_merge(self, _users):
@@ -750,9 +756,10 @@ class PytorchModel:
 
         with torch.no_grad():
             global_dict = self.global_model.state_dict()
+            client_state_dicts = [m.state_dict() for m in client_models]
             for k in global_dict.keys():
                 stacked = torch.stack([
-                    client_models[i].state_dict()[k].to(
+                    client_state_dicts[i][k].to(
                         device=global_dict[k].device,
                         dtype=global_dict[k].dtype
                     )
@@ -761,15 +768,15 @@ class PytorchModel:
                 global_dict[k] = stacked.mean(0)
             self.global_model.load_state_dict(global_dict)
 
-        loss, accuracy = self.runRepo.test(self.round,f"test-themerge-globalmodel", self.global_model,self.test,DEVICE)
+        loss, accuracy = self.runRepo.test(self.round,f"test-themerge-globalmodel", self.global_model, self._test_data, DEVICE)
         self.accuracy.append(accuracy)
         self.loss.append(loss)
         print("-----------------------------------------------------------------------------------")
         print(b("Merged Model: Accuracy {:>3.0f} % | Loss {:>6,.2f}".format(accuracy*100,loss)))
 
         for u in self.participants:
-            u.previousModel = copy.deepcopy(u.model) #the model from this round
-            u.model.load_state_dict(self.global_model.state_dict()) #the global model
+            u.previousModel.load_state_dict(u.model.state_dict())
+            u.model.load_state_dict(self.global_model.state_dict())
 
         print("-----------------------------------------------------------------------------------\n")
 
@@ -821,7 +828,8 @@ class PytorchModel:
         # prev_losses = [0 for _ in range(n)]
 
         for feedbackGiver in self.participants:
-            valloader = feedbackGiver.val
+            val_tensors = getattr(feedbackGiver, 'val_tensors', None)
+            valloader = val_tensors if val_tensors is not None else feedbackGiver.val
             bad_att = feedbackGiver.attitude == Attitude.Malicious
             free_att = feedbackGiver.attitude == Attitude.FreeRider
             accuracy_last_round = -1
@@ -917,6 +925,11 @@ class PytorchModel:
             return p
         return next((x for x in participants if x.address == address_or_id), None)
 
+    @property
+    def _test_data(self):
+        """Return pre-loaded GPU tensors when available, otherwise the DataLoader."""
+        return self.test_tensors if self.test_tensors is not None else self.test
+
     def setup_replay(self, filename, config: ExperimentConfiguration, path):
 
         if ReplayMode.PlayBack in globals.reuse_runs and filename.is_file():
@@ -925,7 +938,7 @@ class PytorchModel:
         else:
             self.runRepo: ITestAndTrainer = PyTorchTrainer(config, filename)
 
-        loss, accuracy = self.runRepo.test(0, f"test-setup_replay-globalmodel", self.global_model, self.test, DEVICE)
+        loss, accuracy = self.runRepo.test(0, f"test-setup_replay-globalmodel", self.global_model, self._test_data, DEVICE)
 
         self.accuracy = [accuracy]
         self.loss = [loss]
@@ -952,6 +965,19 @@ def get_hash(_state_dict):
         parts.append(b"\n")
     blob = b"".join(parts)
     return Web3.keccak(blob)  #remove hex to match old, with improved algo.
+
+def preload_to_gpu(dataloader, device):
+    """Load an entire DataLoader into GPU memory as a single (images, labels) tensor pair."""
+    images_list, labels_list = [], []
+    with torch.no_grad():
+        for imgs, lbls in dataloader:
+            images_list.append(imgs)
+            labels_list.append(lbls)
+    return (
+        torch.cat(images_list).to(device, non_blocking=NON_BLOCKING),
+        torch.cat(labels_list).to(device, non_blocking=NON_BLOCKING),
+    )
+
 
 # PYTORCH FUNCTIONS
 def train(net, trainloader: torch.utils.data.DataLoader, epochs: int, device: torch.device) -> None:
@@ -983,11 +1009,19 @@ def test(net, testloader, device):
     criterion = nn.CrossEntropyLoss()
     net.eval()
 
-    correct = 0
-    total = 0
-    loss = 0.0
-
     with torch.no_grad():
+        # Fast path: pre-loaded GPU tensors — one forward pass, no per-batch CPU↔GPU transfers
+        if isinstance(testloader, tuple):
+            images, labels = testloader
+            with torch.autocast(device_type=device.type, enabled=AMP):
+                outputs = net(images)
+            loss = criterion(outputs, labels).item()
+            accuracy = (outputs.argmax(dim=1) == labels).float().mean().item()
+            return loss, accuracy
+
+        correct = 0
+        total = 0
+        loss = 0.0
         for images, labels in testloader:
             images = images.to(device, non_blocking=NON_BLOCKING)
             labels = labels.to(device, non_blocking=NON_BLOCKING)

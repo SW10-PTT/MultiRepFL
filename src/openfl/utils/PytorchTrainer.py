@@ -49,7 +49,11 @@ class PyTorchTrainer(ITestAndTrainer):
 
     def get_task_rep_delta_and_GRS(self, round, tag, contract: Contract, get_participant_func):
         data = contract.functions.getTaskRepDeltaAndGRS.call()
-        formatted_data = [(str((get_participant_func(u[0]).id)), u[1], u[2]) for u in data ]
+        formatted_data = [
+            (str(get_participant_func(u[0]).id), u[1], u[2])
+            for u in data
+            if get_participant_func(u[0]) is not None
+        ]
         if ReplayMode.Record in reuse_runs:
             self.save(round, tag, formatted_data)
         return data

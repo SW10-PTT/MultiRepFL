@@ -19,6 +19,10 @@ config = ExperimentConfiguration(
     loss_tolerance_pct=0.05, # ε = pct * avg_prev_loss; only used by loss_tolerance_* strategies
     use_outlier_detection=True,
     minimum_rounds=25,
+    epochs=1,
+    number_of_good_contributors=4,
+    number_of_bad_contributors=1,
+    number_of_freerider_contributors=1,
     force_merge_all=False,
     freerider_noise_scale=0.1,
     malicious_noise_scale=1.0,
@@ -26,7 +30,7 @@ config = ExperimentConfiguration(
     punish_factor_contrib=3,
     freerider_start_round=3,
     malicious_start_round=3,
-    number_of_participants=8,
+    number_of_participants=6,
     #data_percentages=[30, 10, 15, 15, 10, 20],
     # 0: {"only_labels": [0, 1, 2, 3, 4]}
     # 0: {"flip_map": {4: 9}}

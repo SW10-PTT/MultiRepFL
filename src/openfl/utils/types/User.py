@@ -94,10 +94,23 @@ class User:
                                address, private_key,
                                number_of_participants=None):
         if _attitude == Attitude.Malicious:
-            return User(_attitude, experiment_config.min_buy_in, experiment_config.max_buy_in,
-                address, private_key, experiment_config.malicious_start_round, number_of_participants)
-        return User(_attitude, experiment_config.min_buy_in, experiment_config.max_buy_in,
-                address, private_key, experiment_config.freerider_start_round, number_of_participants)
+            attitude_switch = experiment_config.malicious_start_round
+        elif _attitude == Attitude.FreeRider:
+            attitude_switch = experiment_config.freerider_start_round
+        else:
+            attitude_switch = 1  # Honest: futureAttitude == attitude, so switch is a no-op
+
+        return User(
+            _attitude,
+            experiment_config.min_buy_in,
+            experiment_config.max_buy_in,
+            address,
+            private_key,
+            0.0,    # _data_percent: placeholder, overwritten by apply_user_data_and_label_config
+            None,   # _only_labels: placeholder, overwritten by apply_user_data_and_label_config
+            attitude_switch,
+            number_of_participants,
+        )
 
     def to_dict(self):
         return {

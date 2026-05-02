@@ -348,6 +348,9 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
 
                 votee = self.pytorch_model.get_participant(matrices.get_user_id(idx))
 
+                if votee is None:
+                    continue
+
                 addrs.append(votee.address)
                 votes.append(int(vote))
 
