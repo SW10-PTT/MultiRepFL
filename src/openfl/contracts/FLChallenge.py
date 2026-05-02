@@ -57,6 +57,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
         self.FREERIDER_FACTOR = training_specs.freeriderPenalty
         
         self.contribution_score_strategy = training_specs.contribution_score_strategy
+        self.loss_tolerance_pct = getattr(training_specs, "loss_tolerance_pct", 0.05)
         self.use_outlier_detection = training_specs.outlier_detection
         self.scores = []
         self.gas_feedback = [] 
@@ -83,6 +84,8 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
             "accuracy_loss": self._calculate_scores_accuracy_loss,
             "accuracy_only": self._calculate_scores_accuracy_only,
             "loss_only": self._calculate_scores_loss_only,
+            "loss_tolerance_aware": self._calculate_scores_loss_tolerance_aware,
+            "loss_tolerance_snap": self._calculate_scores_loss_tolerance_snap,
         }
 
         self.disqualifiedUserEvents = []
@@ -406,7 +409,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                     )
                 txs.append(tx_hash)
 
-            elif self.contribution_score_strategy == "loss_only":
+            elif self.contribution_score_strategy in ("loss_only", "loss_tolerance_aware", "loss_tolerance_snap"):
                 prev_loss = int(min(matrices.prev_losses[user_id], UINT16_MAX))
 
                 if globals.fork:
@@ -983,6 +986,132 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
 
         return scores
 
+
+    def _calculate_scores_loss_tolerance_aware(self, users, mad_threshold=1.1):
+        # Loss-based scoring with shifted reward threshold.
+        # Reward zone moves from `loss < avg_prev_loss` to `loss < avg_prev_loss + ε`,
+        # where ε = loss_tolerance_pct * avg_prev_loss. Small worsenings still receive
+        # a small positive contribution; improvements remain ranked above them.
+        _, prev_losses = self.contract.functions.getAllPreviousAccuraciesAndLosses().call()
+
+        prev_info = {}
+        mad_prev_losses = remove_outliers_mad(prev_losses, mad_threshold, collector=prev_info, label="previous")
+        avg_prev_loss = float(np.mean(mad_prev_losses))
+
+        epsilon = self.loss_tolerance_pct * avg_prev_loss
+        shifted_baseline = avg_prev_loss + epsilon
+
+        avg_losses = []
+        per_user_outlier_info = []
+
+        for u in users:
+            _, losses = self.contract.functions.getAllLossesAbout(u.address).call()
+            try:
+                info = {}
+                mad_losses = remove_outliers_mad(losses, mad_threshold, collector=info, label="current")
+                avg_loss = float(np.mean(mad_losses))
+                avg_losses.append(avg_loss)
+                raw_diff = avg_loss - avg_prev_loss
+                in_band = 0.0 < raw_diff <= epsilon
+                per_user_outlier_info.append({
+                    **prev_info,
+                    **info,
+                    "tolerance_strategy": "loss_tolerance_aware",
+                    "tolerance_epsilon": epsilon,
+                    "tolerance_baseline_shifted": shifted_baseline,
+                    "tolerance_raw_diff": raw_diff,
+                    "tolerance_in_band": in_band,
+                })
+            except ValueError:
+                print("An error occured")
+                per_user_outlier_info.append({})
+
+        print(f"loss_tolerance_aware: pct={self.loss_tolerance_pct} ε={epsilon:.6f} baseline={avg_prev_loss:.6f} shifted={shifted_baseline:.6f}")
+
+        norm_losses = normalize_contribution_scores_new(avg_losses, shifted_baseline, 'loss')
+        print(f"normalized losses: {norm_losses}")
+
+        sum_nl = sum(norm_losses)
+        print(f"sum_nl: {sum_nl}")
+
+        diffs = [-(v - shifted_baseline) for v in avg_losses]
+        success, errors = check_shapley_compliance(diffs, norm_losses)
+
+        if not success:
+            msg = f"[Round {self.pytorch_model.round}] Axiom Violation: {errors}"
+            runtime_warnings.append(msg)
+            print(colored(f"{msg}", "yellow"))
+            self._log_warning(msg)
+
+        scores = [int(Decimal(v) * Decimal('1e18')) for v in norm_losses]
+        print(f"scores = {scores}")
+
+        self._log_contribution_scores(users, scores, avg_losses, per_user_outlier_info, shifted_baseline)
+        return scores
+
+
+    def _calculate_scores_loss_tolerance_snap(self, users, mad_threshold=1.1):
+        # Loss-based scoring with snap-to-baseline for small worsenings.
+        # If a user's avg_loss is within ε above avg_prev_loss, snap it to avg_prev_loss
+        # so the diff is zero (treated as neutral). Improvements untouched.
+        # Big worsenings beyond ε still penalized.
+        _, prev_losses = self.contract.functions.getAllPreviousAccuraciesAndLosses().call()
+
+        prev_info = {}
+        mad_prev_losses = remove_outliers_mad(prev_losses, mad_threshold, collector=prev_info, label="previous")
+        avg_prev_loss = float(np.mean(mad_prev_losses))
+
+        epsilon = self.loss_tolerance_pct * avg_prev_loss
+
+        avg_losses = []
+        per_user_outlier_info = []
+
+        for u in users:
+            _, losses = self.contract.functions.getAllLossesAbout(u.address).call()
+            try:
+                info = {}
+                mad_losses = remove_outliers_mad(losses, mad_threshold, collector=info, label="current")
+                raw_avg_loss = float(np.mean(mad_losses))
+                raw_diff = raw_avg_loss - avg_prev_loss
+                in_band = 0.0 < raw_diff <= epsilon
+                snapped_avg_loss = avg_prev_loss if in_band else raw_avg_loss
+                avg_losses.append(snapped_avg_loss)
+                per_user_outlier_info.append({
+                    **prev_info,
+                    **info,
+                    "tolerance_strategy": "loss_tolerance_snap",
+                    "tolerance_epsilon": epsilon,
+                    "tolerance_raw_avg_loss": raw_avg_loss,
+                    "tolerance_raw_diff": raw_diff,
+                    "tolerance_in_band": in_band,
+                    "tolerance_snapped": in_band,
+                })
+            except ValueError:
+                print("An error occured")
+                per_user_outlier_info.append({})
+
+        print(f"loss_tolerance_snap: pct={self.loss_tolerance_pct} ε={epsilon:.6f} baseline={avg_prev_loss:.6f}")
+
+        norm_losses = normalize_contribution_scores_new(avg_losses, avg_prev_loss, 'loss')
+        print(f"normalized losses: {norm_losses}")
+
+        sum_nl = sum(norm_losses)
+        print(f"sum_nl: {sum_nl}")
+
+        diffs = [-(v - avg_prev_loss) for v in avg_losses]
+        success, errors = check_shapley_compliance(diffs, norm_losses)
+
+        if not success:
+            msg = f"[Round {self.pytorch_model.round}] Axiom Violation: {errors}"
+            runtime_warnings.append(msg)
+            print(colored(f"{msg}", "yellow"))
+            self._log_warning(msg)
+
+        scores = [int(Decimal(v) * Decimal('1e18')) for v in norm_losses]
+        print(f"scores = {scores}")
+
+        self._log_contribution_scores(users, scores, avg_losses, per_user_outlier_info, avg_prev_loss)
+        return scores
 
 
     def trim_global_update_using_mad(self,
