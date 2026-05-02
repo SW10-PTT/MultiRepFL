@@ -6,6 +6,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 OpenFL 2.0 is a federated learning research platform that integrates PyTorch-based distributed ML training with Ethereum smart contracts. It simulates Byzantine-resilient federated learning with on-chain reputation and incentive mechanisms.
 
+## Rules
+
+- Never run `git push` or push code to any remote. Always leave pushing to the user.
+
 ## Commands
 
 ### Setup
