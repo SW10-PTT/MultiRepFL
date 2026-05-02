@@ -40,7 +40,7 @@ class ExperimentConfiguration:
                  first_round_fee=50, # Percentage of buy-in to charge as fee in first round
                  fork=True,
                  use_outlier_detection = True,
-                 contribution_score_strategy="accuracy_only", # Options: dotproduct, naive, accuracy_loss, accuracy_only, loss_only, loss_tolerance_aware, loss_tolerance_snap
+                 contribution_score_strategy="loss_tolerance_aware", # Options: dotproduct, naive, accuracy_loss, accuracy_only, loss_only, loss_tolerance_aware, loss_tolerance_snap
                  loss_tolerance_pct=0.05, # ε = pct * avg_prev_loss; only used by loss_tolerance_* strategies
                  freerider_noise_scale=1.0,
                  freerider_start_round=3,
