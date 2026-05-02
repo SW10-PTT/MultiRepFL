@@ -210,7 +210,7 @@ class PytorchModel:
         p.val_tensors = preload_to_gpu(val_loader, DEVICE) if USE_CUDA else None
         self.participants.append(p)
 
-        print("Participant added: {:<9} {}".format(rb(user.attitude.name.upper()[0]+user.attitude.name[1:]), rb(user.display_label())))
+        print("Participant added: {:<9} {}".format(rb(user.futureAttitude.name.upper()[0]+user.futureAttitude.name[1:]), rb(user.display_label())))
 
     # seed/allow_overlap/replication_factor forward to DataPartition for reproducible, optionally overlapping splits.
     def prepare_data_for_users(self, users, dataset_name, seed=42, allow_overlap=False, replication_factor=1.0):
