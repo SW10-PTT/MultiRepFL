@@ -27,10 +27,9 @@ PRIVATE_KEYS="<Private keys from your accounts colon separated (for non-locally 
 ```
 
 ## 3. Requirements
-- Only tested with Python3.10
 - Nvidia or cpu:
 ``pip install -e ".[dev]"``
-- AMD:
+- AMD (Only works on linux):
 ``pip install -e ".[dev]" --extra-index-url https://download.pytorch.org/whl/rocm7.1``
 
 Build the abi and bytecode files from the smart contracts 
