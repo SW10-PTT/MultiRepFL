@@ -8,7 +8,8 @@ OpenFL 2.0 is a federated learning research platform that integrates PyTorch-bas
 
 ## Rules
 
-- Never run `git push` or push code to any remote. Always leave pushing to the user.
+- Never run `git commit` or `git push`. Always leave committing and pushing to the user.
+- When a commit or push is needed, tell the user what to commit and provide the exact command to run.
 
 ## Commands
 
