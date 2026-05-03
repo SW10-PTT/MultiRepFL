@@ -829,6 +829,8 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
         avg_accuracies = [] # after loop: [30, 20, 30, 40]
         avg_losses = [] # after loop: [60, 70, 50, 80]
 
+        print(f"\naccuracy_loss: loss_baseline={avg_prev_loss:.6f}  acc_baseline={avg_prev_acc:.6f}  (punished at ANY loss worsening)")
+
         for u in users: # For loop to extract accuracies and loses.
 
             # All accuracies and loses per user
@@ -845,6 +847,9 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
 
                 avg_accuracies.append(avg_acc) # int
                 avg_losses.append(avg_loss) # int
+                loss_pct_diff = (avg_loss - avg_prev_loss) / avg_prev_loss * 100 if avg_prev_loss != 0 else float('inf')
+                loss_status = "PUNISHED" if avg_loss > avg_prev_loss else ("improved" if avg_loss < avg_prev_loss else "neutral")
+                print(f"  [{u.display_label():<12}] loss={avg_loss:.6f}  baseline={avg_prev_loss:.6f}  diff={loss_pct_diff:+.2f}%  [{loss_status}]")
             except ValueError:
                 print("An error occured")
 
@@ -947,6 +952,8 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
         avg_losses = [] # after loop: [60, 70, 50, 80]
         per_user_outlier_info = []
 
+        print(f"\nloss_only: baseline={avg_prev_loss:.6f}  (punished at ANY worsening above baseline)")
+
         for u in users: # For loop to extract losses.
             # All loses per user
             _, losses = self.contract.functions.getAllLossesAbout(u.address).call()
@@ -959,6 +966,9 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                 avg_loss = np.mean(mad_losses)
                 avg_losses.append(avg_loss) # int
                 per_user_outlier_info.append({**prev_info, **info}) # Merge prev (global baseline) and current (per-user) MAD info into one dict; keys are prefixed ("previous_*" / "current_*") so they don't collide
+                pct_diff = (avg_loss - avg_prev_loss) / avg_prev_loss * 100 if avg_prev_loss != 0 else float('inf')
+                ustatus = "PUNISHED" if avg_loss > avg_prev_loss else ("improved" if avg_loss < avg_prev_loss else "neutral")
+                print(f"  [{u.display_label():<12}] loss={avg_loss:.6f}  baseline={avg_prev_loss:.6f}  diff={pct_diff:+.2f}%  [{ustatus}]")
             except ValueError:
                 print("An error occured")
                 per_user_outlier_info.append({})
@@ -1007,6 +1017,8 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
         avg_losses = []
         per_user_outlier_info = []
 
+        print(f"\nloss_tolerance_aware: baseline={avg_prev_loss:.6f}  ε={epsilon:.6f} ({self.loss_tolerance_pct*100:.1f}% of baseline)  punish_threshold={shifted_baseline:.6f}")
+
         for u in users:
             _, losses = self.contract.functions.getAllLossesAbout(u.address).call()
             try:
@@ -1025,11 +1037,19 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                     "tolerance_raw_diff": raw_diff,
                     "tolerance_in_band": in_band,
                 })
+                pct_diff = raw_diff / avg_prev_loss * 100 if avg_prev_loss != 0 else float('inf')
+                margin = shifted_baseline - avg_loss
+                pct_margin = margin / avg_prev_loss * 100 if avg_prev_loss != 0 else float('inf')
+                if raw_diff <= 0:
+                    ustatus = "improved"
+                elif in_band:
+                    ustatus = "in-band (safe)"
+                else:
+                    ustatus = "PUNISHED (beyond ε)"
+                print(f"  [{u.display_label():<12}] loss={avg_loss:.6f}  baseline={avg_prev_loss:.6f}  diff={pct_diff:+.2f}%  margin_to_punish={pct_margin:+.2f}% ({margin:+.6f})  [{ustatus}]")
             except ValueError:
                 print("An error occured")
                 per_user_outlier_info.append({})
-
-        print(f"loss_tolerance_aware: pct={self.loss_tolerance_pct} ε={epsilon:.6f} baseline={avg_prev_loss:.6f} shifted={shifted_baseline:.6f}")
 
         norm_losses = normalize_contribution_scores_new(avg_losses, shifted_baseline, 'loss')
         print(f"normalized losses: {norm_losses}")
@@ -1065,9 +1085,12 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
         avg_prev_loss = float(np.mean(mad_prev_losses))
 
         epsilon = self.loss_tolerance_pct * avg_prev_loss
+        snap_threshold = avg_prev_loss + epsilon
 
         avg_losses = []
         per_user_outlier_info = []
+
+        print(f"\nloss_tolerance_snap: baseline={avg_prev_loss:.6f}  ε={epsilon:.6f} ({self.loss_tolerance_pct*100:.1f}% of baseline)  snap_threshold={snap_threshold:.6f}")
 
         for u in users:
             _, losses = self.contract.functions.getAllLossesAbout(u.address).call()
@@ -1089,11 +1112,19 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                     "tolerance_in_band": in_band,
                     "tolerance_snapped": in_band,
                 })
+                pct_diff = raw_diff / avg_prev_loss * 100 if avg_prev_loss != 0 else float('inf')
+                margin = epsilon - raw_diff
+                pct_margin = margin / avg_prev_loss * 100 if avg_prev_loss != 0 else float('inf')
+                if raw_diff <= 0:
+                    ustatus = "improved"
+                elif in_band:
+                    ustatus = "SNAPPED to neutral (within ε)"
+                else:
+                    ustatus = "PUNISHED (beyond ε)"
+                print(f"  [{u.display_label():<12}] raw_loss={raw_avg_loss:.6f}  eff_loss={snapped_avg_loss:.6f}  baseline={avg_prev_loss:.6f}  diff={pct_diff:+.2f}%  margin_to_threshold={pct_margin:+.2f}% ({margin:+.6f})  [{ustatus}]")
             except ValueError:
                 print("An error occured")
                 per_user_outlier_info.append({})
-
-        print(f"loss_tolerance_snap: pct={self.loss_tolerance_pct} ε={epsilon:.6f} baseline={avg_prev_loss:.6f}")
 
         norm_losses = normalize_contribution_scores_new(avg_losses, avg_prev_loss, 'loss')
         print(f"normalized losses: {norm_losses}")
@@ -1825,6 +1856,9 @@ def remove_outliers_mad(arr, threshold=0.70, return_mask=False, collector=None, 
 
     if return_mask:
         return arr, mask
-    return flat[mask]
+    filtered = flat[mask]
+    # If all values were removed as outliers, fall back to the unfiltered array
+    # to prevent np.mean([]) returning NaN downstream.
+    return filtered if len(filtered) > 0 else flat
 
 runtime_warnings = []
