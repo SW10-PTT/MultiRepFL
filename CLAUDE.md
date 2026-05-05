@@ -77,8 +77,8 @@ Required variables:
 
 ### Ganache Setup
 
-Ganache requires a workspace (not quickstart) with: gas limit set significantly above default, high balance, and exactly **8 accounts**.
+Ganache requires a workspace (not quickstart) with: gas limit set significantly above default, and high balance.
 
 ### Python Version
 
-Python 3.10 and 3.13 are supported/tested.
+Python 3.13 is supported/tested.

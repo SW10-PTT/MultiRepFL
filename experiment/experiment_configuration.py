@@ -40,7 +40,8 @@ class ExperimentConfiguration:
                  first_round_fee=50, # Percentage of buy-in to charge as fee in first round
                  fork=True,
                  use_outlier_detection = True,
-                 contribution_score_strategy="accuracy_only", # Options: dotproduct, naive, accuracy, None (defaults to dotproduct)
+                 contribution_score_strategy="loss_tolerance_aware", # Options: dotproduct, naive, accuracy_loss, accuracy_only, loss_only, loss_tolerance_aware, loss_tolerance_snap
+                 loss_tolerance_pct=0.05, # ε = pct * avg_prev_loss; only used by loss_tolerance_* strategies
                  freerider_noise_scale=1.0,
                  freerider_start_round=3,
                  malicious_noise_scale=1.0,
@@ -86,6 +87,9 @@ class ExperimentConfiguration:
         self.punish_factor_contrib = punish_factor_contrib
         self.first_round_fee = first_round_fee
         self.contribution_score_strategy = contribution_score_strategy
+        self.loss_tolerance_pct = float(loss_tolerance_pct)
+        if self.loss_tolerance_pct < 0:
+            raise ValueError("loss_tolerance_pct must be >= 0")
         self.use_outlier_detection = use_outlier_detection
         self.freerider_noise_scale = freerider_noise_scale
         self.freerider_start_round = freerider_start_round
@@ -231,6 +235,7 @@ class ExperimentConfiguration:
             "punish_factor_contrib": self.punish_factor_contrib,
             "first_round_fee": self.first_round_fee,
             "contribution_score_strategy": self.contribution_score_strategy,
+            "loss_tolerance_pct": self.loss_tolerance_pct,
             "use_outlier_detection": self.use_outlier_detection,
             "freerider_noise_scale": self.freerider_noise_scale,
             "freerider_start_round": self.freerider_start_round,

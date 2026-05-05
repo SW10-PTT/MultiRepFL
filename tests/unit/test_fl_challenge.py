@@ -583,6 +583,186 @@ class TestCalcContributionScore:
                 f"Expected {expected_scores}, got {scores_normalized}"
 
 
+class TestCalcContributionScoresLossTolerance:
+    # Production reads `self.contract.functions.*`, so mock that path directly
+    # rather than the legacy `aggregator.model.*` path used elsewhere.
+    def setup_method(self):
+        self.aggregator = MagicMock()
+        self.aggregator.pytorch_model = MagicMock()
+        self.aggregator.pytorch_model.round = 1
+        self.aggregator.loss_tolerance_pct = 0.05
+
+    def _wire_contract(self, prev_losses, users):
+        self.aggregator.contract.functions.getAllPreviousAccuraciesAndLosses \
+            .return_value.call.return_value = ([], prev_losses)
+
+        def mock_get_losses(address):
+            user = next(u for u in users if u.address == address)
+            m = MagicMock()
+            m.call.return_value = (None, user._losses)
+            return m
+
+        self.aggregator.contract.functions.getAllLossesAbout.side_effect = mock_get_losses
+
+    def _build_users(self, user_losses):
+        users = []
+        for i, losses in enumerate(user_losses):
+            user = MagicMock()
+            user.address = f"0xAddressUser{i}"
+            user._losses = losses
+            users.append(user)
+        return users
+
+    @pytest.mark.parametrize("user_losses, prev_losses, loss_tolerance_pct, expected_scores", [
+        # Case 1: all losses equal to baseline → equal split (shifted by ε keeps all positive)
+        (
+            [[10], [10], [10]],
+            [10, 10, 10],
+            0.05,
+            [1.0/3, 1.0/3, 1.0/3],
+        ),
+        # Case 2: small worsenings within tolerance band → all still positive,
+        # ranked by how far below shifted baseline they are
+        (
+            [[10.4], [10.3], [10.1]],
+            [10, 10, 10],
+            0.05,
+            [1.0/7, 2.0/7, 4.0/7],
+        ),
+        # Case 3: one big worsening (beyond ε), two within tolerance → big one penalized,
+        # small worsenings get redistributed positive scores
+        (
+            [[12], [10.2], [10.3]],
+            [10, 10, 10],
+            0.05,
+            [-1.0, 1.2, 0.8],
+        ),
+        # Case 4: pure improvements → standard ranking unaffected by shift
+        (
+            [[8], [9], [9.5]],
+            [10, 10, 10],
+            0.05,
+            [0.5, 0.3, 0.2],
+        ),
+    ])
+    def test_calculate_scores_loss_tolerance_aware(self, user_losses, prev_losses, loss_tolerance_pct, expected_scores):
+        print(f"\n--- Test: Loss Tolerance Aware (shifted baseline) ---")
+        self.aggregator.loss_tolerance_pct = loss_tolerance_pct
+
+        users = self._build_users(user_losses)
+        self._wire_contract(prev_losses, users)
+
+        scores = FLChallenge._calculate_scores_loss_tolerance_aware(
+            self.aggregator, users, mad_threshold=1.1
+        )
+        scores_normalized = [s / 1e18 for s in scores]
+        print(f"scores_normalized = {scores_normalized}")
+
+        assert isinstance(scores, list)
+        assert len(scores) == len(users)
+        assert all(isinstance(s, int) for s in scores)
+        assert scores != []
+
+        assert scores_normalized == pytest.approx(expected_scores, rel=1e-9, abs=1e-12), \
+            f"Expected {expected_scores}, got {scores_normalized}"
+
+    @pytest.mark.parametrize("user_losses, prev_losses, loss_tolerance_pct, expected_scores", [
+        # Case A: all equal to baseline → no snap triggered (diff == 0, not in (0, ε])
+        (
+            [[10], [10], [10]],
+            [10, 10, 10],
+            0.05,
+            [1.0/3, 1.0/3, 1.0/3],
+        ),
+        # Case B: all small worsenings → all snap to baseline → equal split
+        (
+            [[10.4], [10.3], [10.1]],
+            [10, 10, 10],
+            0.05,
+            [1.0/3, 1.0/3, 1.0/3],
+        ),
+        # Case C: one big worsening, two snap → snapped users get baseline score (boosted to 1.0
+        # after zero-replacement edge case in normalize), big worsening gets -1
+        (
+            [[12], [10.2], [10.3]],
+            [10, 10, 10],
+            0.05,
+            [-1.0, 1.0, 1.0],
+        ),
+        # Case D: improvement + small worsening (snapped) + big worsening
+        (
+            [[8], [10.4], [12]],
+            [10, 10, 10],
+            0.05,
+            [2.0, 0.0, -1.0],
+        ),
+        # Case E: pure improvements → snap inactive, ranking by improvement magnitude
+        (
+            [[8], [9], [9.5]],
+            [10, 10, 10],
+            0.05,
+            [4.0/7, 2.0/7, 1.0/7],
+        ),
+    ])
+    def test_calculate_scores_loss_tolerance_snap(self, user_losses, prev_losses, loss_tolerance_pct, expected_scores):
+        print(f"\n--- Test: Loss Tolerance Snap (snap small worsenings to baseline) ---")
+        self.aggregator.loss_tolerance_pct = loss_tolerance_pct
+
+        users = self._build_users(user_losses)
+        self._wire_contract(prev_losses, users)
+
+        scores = FLChallenge._calculate_scores_loss_tolerance_snap(
+            self.aggregator, users, mad_threshold=1.1
+        )
+        scores_normalized = [s / 1e18 for s in scores]
+        print(f"scores_normalized = {scores_normalized}")
+
+        assert isinstance(scores, list)
+        assert len(scores) == len(users)
+        assert all(isinstance(s, int) for s in scores)
+        assert scores != []
+
+        assert scores_normalized == pytest.approx(expected_scores, rel=1e-9, abs=1e-12), \
+            f"Expected {expected_scores}, got {scores_normalized}"
+
+    def test_loss_tolerance_aware_matches_loss_only_when_pct_zero(self):
+        """ε=0 collapses to the same shifted baseline as plain loss_only."""
+        self.aggregator.loss_tolerance_pct = 0.0
+        users = self._build_users([[12], [10.2], [10.3]])
+        self._wire_contract([10, 10, 10], users)
+
+        scores_aware = FLChallenge._calculate_scores_loss_tolerance_aware(
+            self.aggregator, users, mad_threshold=1.1
+        )
+
+        # Reset call state and rerun via loss_only with same wiring
+        users2 = self._build_users([[12], [10.2], [10.3]])
+        self._wire_contract([10, 10, 10], users2)
+        scores_loss_only = FLChallenge._calculate_scores_loss_only(
+            self.aggregator, users2, mad_threshold=1.1
+        )
+
+        assert scores_aware == scores_loss_only
+
+    def test_loss_tolerance_snap_matches_loss_only_when_pct_zero(self):
+        """ε=0 disables the snap (no diff strictly in (0, 0]) → identical to loss_only."""
+        self.aggregator.loss_tolerance_pct = 0.0
+        users = self._build_users([[12], [10.2], [10.3]])
+        self._wire_contract([10, 10, 10], users)
+
+        scores_snap = FLChallenge._calculate_scores_loss_tolerance_snap(
+            self.aggregator, users, mad_threshold=1.1
+        )
+
+        users2 = self._build_users([[12], [10.2], [10.3]])
+        self._wire_contract([10, 10, 10], users2)
+        scores_loss_only = FLChallenge._calculate_scores_loss_only(
+            self.aggregator, users2, mad_threshold=1.1
+        )
+
+        assert scores_snap == scores_loss_only
+
+
 class TestCalcContributionScoresMAD:
     @pytest.mark.parametrize(
         "fl_challenge",

@@ -15,7 +15,8 @@ from analysis import ExperimentLogger
 config = ExperimentConfiguration(
     min_buy_in=int(1e18),
     max_buy_in=int(1e18),
-    contribution_score_strategy="accuracy_loss",
+    contribution_score_strategy="loss_tolerance_snap", # Options: dotproduct, naive, accuracy_loss, accuracy_only, loss_only, loss_tolerance_aware, loss_tolerance_snap
+    loss_tolerance_pct=0.05, # ε = pct * avg_prev_loss; only used by loss_tolerance_* strategies
     use_outlier_detection=True,
     minimum_rounds=2,
     force_merge_all=False,

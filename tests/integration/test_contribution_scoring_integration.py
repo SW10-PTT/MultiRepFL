@@ -15,6 +15,40 @@ from openfl.contracts.FLChallenge import (
 )
 
 
+def _build_loss_aggregator(prev_losses, user_losses, loss_tolerance_pct=0.05):
+    """Lightweight aggregator stub for loss-based scoring strategies.
+
+    Bypasses FLChallenge.__init__ (which requires a real web3 connection)
+    by constructing a MagicMock with just the attributes the scoring methods
+    touch. Mirrors the production access path: `self.contract.functions.*`
+    and `self.loss_tolerance_pct`.
+    """
+    aggregator = MagicMock()
+    aggregator.pytorch_model = MagicMock()
+    aggregator.pytorch_model.round = 1
+    aggregator.loss_tolerance_pct = loss_tolerance_pct
+
+    users = []
+    for i, losses in enumerate(user_losses):
+        user = MagicMock()
+        user.address = f"0xLossUser{i}"
+        user._losses = losses
+        users.append(user)
+
+    aggregator.contract.functions.getAllPreviousAccuraciesAndLosses \
+        .return_value.call.return_value = ([], prev_losses)
+
+    losses_by_addr = {u.address: u._losses for u in users}
+
+    def mock_get_losses(address):
+        m = MagicMock()
+        m.call.return_value = (None, losses_by_addr[address])
+        return m
+
+    aggregator.contract.functions.getAllLossesAbout.side_effect = mock_get_losses
+    return aggregator, users
+
+
 class TinyModel(nn.Module):
     # Minimal model used to simulate local updates. The parameters are small
     # tensors so we can reason about vector math in the tests without large
@@ -471,3 +505,133 @@ class TestAccuracyScoring:
 
     #     assert all(isinstance(score, int) for score in scores)
     #     assert sum(scores) == pytest.approx(1e18, rel=0, abs=5)
+
+
+class TestLossToleranceScoring:
+    """End-to-end behavior for the two tolerance-aware loss strategies.
+
+    Goal: confirm that honest participants whose updates are *slightly* worse
+    than the global model are not punished, while participants whose updates
+    are significantly worse still receive the expected negative contribution.
+    """
+
+    @pytest.fixture
+    def baseline_prev_losses(self):
+        # Simulate a converged global model with stable historical loss ~0.50.
+        return [0.50, 0.50, 0.50]
+
+    def test_loss_only_punishes_honest_minor_drift(self, baseline_prev_losses):
+        '''
+        Sanity check: with the legacy loss_only strategy, even tiny worsenings
+        produce negative contribution scores. This is the regression that
+        motivates the tolerance-aware strategies.
+        '''
+        # Each honest participant lands ~1-3% above the global loss after
+        # local training (well within natural variance).
+        user_losses = [[0.50], [0.51], [0.515]]
+        aggregator, users = _build_loss_aggregator(baseline_prev_losses, user_losses, loss_tolerance_pct=0.0)
+
+        scores = FLChallenge._calculate_scores_loss_only(aggregator, users, mad_threshold=1.1)
+        normalized = [s / 1e18 for s in scores]
+
+        # The two slightly-worse participants get penalized despite being honest.
+        assert normalized[1] < 0
+        assert normalized[2] < 0
+
+    def test_aware_keeps_minor_drift_positive(self, baseline_prev_losses):
+        '''
+        loss_tolerance_aware: honest participants with ≤ 5% worse loss should
+        still receive *positive* contribution scores because the reward
+        threshold is shifted by ε.
+        '''
+        # With L_global ≈ 0.50 and pct=0.05, ε = 0.025 → shifted baseline = 0.525.
+        # All three losses are at or below the shifted baseline.
+        user_losses = [[0.50], [0.51], [0.515]]
+        aggregator, users = _build_loss_aggregator(baseline_prev_losses, user_losses, loss_tolerance_pct=0.05)
+
+        scores = FLChallenge._calculate_scores_loss_tolerance_aware(aggregator, users, mad_threshold=1.1)
+        normalized = [s / 1e18 for s in scores]
+
+        # All honest contributors stay positive; ranking by improvement preserved.
+        assert all(s > 0 for s in normalized), f"expected all positive, got {normalized}"
+        assert normalized[0] > normalized[1] > normalized[2]
+        assert sum(normalized) == pytest.approx(1.0, abs=1e-9)
+
+    def test_aware_still_punishes_clear_worsening(self, baseline_prev_losses):
+        '''
+        loss_tolerance_aware: a participant whose loss is well beyond ε must
+        still get a negative score so the system retains its Byzantine
+        defenses against bad/free-rider behavior.
+        '''
+        # 0.80 is 60% worse than baseline 0.50 — far beyond the 5% tolerance.
+        user_losses = [[0.50], [0.51], [0.80]]
+        aggregator, users = _build_loss_aggregator(baseline_prev_losses, user_losses, loss_tolerance_pct=0.05)
+
+        scores = FLChallenge._calculate_scores_loss_tolerance_aware(aggregator, users, mad_threshold=1.1)
+        normalized = [s / 1e18 for s in scores]
+
+        assert normalized[2] < 0
+        assert normalized[0] > 0
+        assert normalized[1] > 0
+
+    def test_snap_zeroes_small_worsenings(self, baseline_prev_losses):
+        '''
+        loss_tolerance_snap: a participant in the tolerance band should be
+        treated as neutral (snap to baseline → zero diff) rather than
+        penalized.
+        '''
+        # Idx 1 is in the tolerance band (diff = 0.02, ε = 0.025 → snap).
+        # Idx 2 is well beyond (diff = 0.10) → real penalty.
+        user_losses = [[0.40], [0.52], [0.60]]
+        aggregator, users = _build_loss_aggregator(baseline_prev_losses, user_losses, loss_tolerance_pct=0.05)
+
+        scores = FLChallenge._calculate_scores_loss_tolerance_snap(aggregator, users, mad_threshold=1.1)
+        normalized = [s / 1e18 for s in scores]
+
+        # Best contributor positive, snap user neutral (≈ 0), worst contributor negative.
+        assert normalized[0] > 0
+        assert normalized[1] == pytest.approx(0.0, abs=1e-9)
+        assert normalized[2] < 0
+
+    def test_snap_preserves_pure_improvements(self, baseline_prev_losses):
+        '''
+        loss_tolerance_snap: pure improvements bypass the snap entirely and
+        retain their relative ranking.
+        '''
+        user_losses = [[0.40], [0.45], [0.475]]
+        aggregator, users = _build_loss_aggregator(baseline_prev_losses, user_losses, loss_tolerance_pct=0.05)
+
+        scores = FLChallenge._calculate_scores_loss_tolerance_snap(aggregator, users, mad_threshold=1.1)
+        normalized = [s / 1e18 for s in scores]
+
+        assert normalized[0] > normalized[1] > normalized[2] > 0
+        assert sum(normalized) == pytest.approx(1.0, abs=1e-9)
+
+    def test_aware_threshold_scales_with_baseline(self):
+        '''
+        ε = pct * L_global must scale with the dataset's loss magnitude:
+        the same absolute drift is forgiven on a high-loss task and
+        penalized on a low-loss task with identical pct.
+        '''
+        # Same absolute drift of 0.04, but on different L_global magnitudes.
+        # For high-loss task (L_global = 1.0), ε = 0.05 → drift inside band → positive.
+        # For low-loss task (L_global = 0.10), ε = 0.005 → drift outside band → negative.
+        high_baseline = [1.0, 1.0, 1.0]
+        low_baseline = [0.10, 0.10, 0.10]
+        # Drifted user is at idx 1
+        high_losses = [[1.0], [1.04], [1.0]]
+        low_losses = [[0.10], [0.14], [0.10]]
+
+        agg_hi, users_hi = _build_loss_aggregator(high_baseline, high_losses, loss_tolerance_pct=0.05)
+        agg_lo, users_lo = _build_loss_aggregator(low_baseline, low_losses, loss_tolerance_pct=0.05)
+
+        scores_hi = FLChallenge._calculate_scores_loss_tolerance_aware(agg_hi, users_hi, mad_threshold=1.1)
+        scores_lo = FLChallenge._calculate_scores_loss_tolerance_aware(agg_lo, users_lo, mad_threshold=1.1)
+
+        norm_hi = [s / 1e18 for s in scores_hi]
+        norm_lo = [s / 1e18 for s in scores_lo]
+
+        # High-loss task tolerates the drift → still positive.
+        assert norm_hi[1] > 0
+        # Low-loss task does not tolerate it → negative.
+        assert norm_lo[1] < 0
