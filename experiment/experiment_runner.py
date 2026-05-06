@@ -140,7 +140,7 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
   ############
   flags = globals.ReplayMode._actively_replaying | globals.ReplayMode.HardPlayBack
   if (globals.reuse_runs & flags) == flags:
-    print("We replaying, baby!")
+    log("round_models","Replaying!")
     # replay
     users_by_address = {u.address: u for u in users}
 

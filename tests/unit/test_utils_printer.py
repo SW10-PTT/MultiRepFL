@@ -27,7 +27,8 @@ def test_print_bar_delegates_to_print(monkeypatch):
         calls.append((text, end))
 
     monkeypatch.setattr(printer, "_print", fake_print)
-    printer.print_bar(1, 5)
+    monkeypatch.setattr(printer, "ENABLED_TAGS", {"bar"})
+    printer.print_bar("bar", 1, 5)
 
     assert calls
     rendered, end = calls[0]

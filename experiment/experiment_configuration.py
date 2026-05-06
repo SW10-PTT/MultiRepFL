@@ -1,7 +1,7 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
 
-from print_config import DEFAULT_ENABLED_PRINTS_CONFIG, PRINTS_SILENT, PRINTS_MINIMAL, PRINTS_NORMAL, PRINTS_DEBUG
+from experiment.print_config import DEFAULT_ENABLED_PRINTS_CONFIG#, PRINTS_SILENT, PRINTS_MINIMAL, PRINTS_NORMAL, PRINTS_DEBUG
 if TYPE_CHECKING:
     from openfl.utils.types.User import User
     from openfl.contracts.FLChallenge import FLChallenge

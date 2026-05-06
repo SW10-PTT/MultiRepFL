@@ -178,7 +178,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                                                                          ))
         l = len(txs)
         for i, txHash in enumerate(txs):
-            printer.print_bar(i, l)
+            printer.print_bar("round_models", i, l)
             receipt = globals.w3.eth.wait_for_transaction_receipt(txHash,
                                                             timeout=600, # WTF IS THIS wait properly please
                                                             poll_latency=1)
@@ -281,7 +281,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
         for i, txHash in enumerate(txs):
             if txHash == None:
                 continue
-            printer.print_bar(i, l)
+            printer.print_bar("round_models", i, l)
             receipt = globals.w3.eth.wait_for_transaction_receipt(txHash,
                                                             timeout=600, 
                                                             poll_latency=1)
@@ -449,7 +449,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
         #   3. Stores gas used — appends to self.gas_feedback
         #   4. Stores the tx hash + gas — appends to self.txHashes along with the receipt_type label (e.g. "round_models", "contrib")
 
-        printer.print_bar(i, len_txs)
+        printer.print_bar("round_scoring", i, len_txs)
         receipt = globals.w3.eth.wait_for_transaction_receipt(tx_hash,
                                                            timeout=600,
                                                            poll_latency=1)
@@ -556,7 +556,6 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                                                                          ))
                 continue
 
-            print(acc.hashedModel, type(acc.hashedModel)) #hexbytes!!
             reservation = Web3.solidity_keccak(['bytes32', 'uint256', 'address'],
                                               [acc.hashedModel,
                                                acc.secret, acc.address])
@@ -579,9 +578,9 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                                                                          ))
         l = len(txs)
         for i, txHash in enumerate(txs):
-            printer.print_bar(i, l)
+            printer.print_bar("round_models", i, l)
             receipt = globals.w3.eth.wait_for_transaction_receipt(txHash,
-                                                            timeout=600, 
+                                                            timeout=600,
                                                             poll_latency=1)
             
             self.gas_slot.append(receipt["gasUsed"])
@@ -617,7 +616,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                                                              ))
         l = len(txs)
         for i, txHash in enumerate(txs):
-            printer.print_bar(i, l)
+            printer.print_bar("experiment_end", i, l)
             receipt = globals.w3.eth.wait_for_transaction_receipt(txHash,
                                                             timeout=600, 
                                                             poll_latency=1)
@@ -830,7 +829,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
         avg_accuracies = [] # after loop: [30, 20, 30, 40]
         avg_losses = [] # after loop: [60, 70, 50, 80]
 
-        print(f"\naccuracy_loss: loss_baseline={avg_prev_loss:.6f}  acc_baseline={avg_prev_acc:.6f}  (punished at ANY loss worsening)")
+        log("round_scoring",f"\naccuracy_loss: loss_baseline={avg_prev_loss:.6f}  acc_baseline={avg_prev_acc:.6f}  (punished at ANY loss worsening)")
 
         for u in users: # For loop to extract accuracies and loses.
 
@@ -850,7 +849,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                 avg_losses.append(avg_loss) # int
                 loss_pct_diff = (avg_loss - avg_prev_loss) / avg_prev_loss * 100 if avg_prev_loss != 0 else float('inf')
                 loss_status = "PUNISHED" if avg_loss > avg_prev_loss else ("improved" if avg_loss < avg_prev_loss else "neutral")
-                print(f"  [{u.display_label():<12}] loss={avg_loss:.6f}  baseline={avg_prev_loss:.6f}  diff={loss_pct_diff:+.2f}%  [{loss_status}]")
+                log("round_scoring",f"  [{u.display_label():<12}] loss={avg_loss:.6f}  baseline={avg_prev_loss:.6f}  diff={loss_pct_diff:+.2f}%  [{loss_status}]")
             except ValueError:
                 log("round_scoring", "An error occured")
 
@@ -953,7 +952,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
         avg_losses = [] # after loop: [60, 70, 50, 80]
         per_user_outlier_info = []
 
-        print(f"\nloss_only: baseline={avg_prev_loss:.6f}  (punished at ANY worsening above baseline)")
+        log("round_scoring",f"\nloss_only: baseline={avg_prev_loss:.6f}  (punished at ANY worsening above baseline)")
 
         for u in users: # For loop to extract losses.
             # All loses per user
@@ -969,7 +968,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                 per_user_outlier_info.append({**prev_info, **info}) # Merge prev (global baseline) and current (per-user) MAD info into one dict; keys are prefixed ("previous_*" / "current_*") so they don't collide
                 pct_diff = (avg_loss - avg_prev_loss) / avg_prev_loss * 100 if avg_prev_loss != 0 else float('inf')
                 ustatus = "PUNISHED" if avg_loss > avg_prev_loss else ("improved" if avg_loss < avg_prev_loss else "neutral")
-                print(f"  [{u.display_label():<12}] loss={avg_loss:.6f}  baseline={avg_prev_loss:.6f}  diff={pct_diff:+.2f}%  [{ustatus}]")
+                log("round_scoring",f"  [{u.display_label():<12}] loss={avg_loss:.6f}  baseline={avg_prev_loss:.6f}  diff={pct_diff:+.2f}%  [{ustatus}]")
             except ValueError:
                 log("round_scoring", "An error occured")
                 per_user_outlier_info.append({})
@@ -1018,7 +1017,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
         avg_losses = []
         per_user_outlier_info = []
 
-        print(f"\nloss_tolerance_aware: baseline={avg_prev_loss:.6f}  ε={epsilon:.6f} ({self.loss_tolerance_pct*100:.1f}% of baseline)  punish_threshold={shifted_baseline:.6f}")
+        log("round_scoring", f"\nloss_tolerance_aware: baseline={avg_prev_loss:.6f}  ε={epsilon:.6f} ({self.loss_tolerance_pct*100:.1f}% of baseline)  punish_threshold={shifted_baseline:.6f}")
 
         for u in users:
             _, losses = self.contract.functions.getAllLossesAbout(u.address).call()
@@ -1047,16 +1046,16 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                     ustatus = "in-band (safe)"
                 else:
                     ustatus = "PUNISHED (beyond ε)"
-                print(f"  [{u.display_label():<12}] loss={avg_loss:.6f}  baseline={avg_prev_loss:.6f}  diff={pct_diff:+.2f}%  margin_to_punish={pct_margin:+.2f}% ({margin:+.6f})  [{ustatus}]")
+                log("round_scoring",f"  [{u.display_label():<12}] loss={avg_loss:.6f}  baseline={avg_prev_loss:.6f}  diff={pct_diff:+.2f}%  margin_to_punish={pct_margin:+.2f}% ({margin:+.6f})  [{ustatus}]")
             except ValueError:
-                print("An error occured")
+                log("round_scoring", "An error occurred")
                 per_user_outlier_info.append({})
 
         norm_losses = normalize_contribution_scores_new(avg_losses, shifted_baseline, 'loss')
-        print(f"normalized losses: {norm_losses}")
+        log("round_scoring", f"normalized losses: {norm_losses}")
 
         sum_nl = sum(norm_losses)
-        print(f"sum_nl: {sum_nl}")
+        log("round_scoring", f"sum_nl: {sum_nl}")
 
         diffs = [-(v - shifted_baseline) for v in avg_losses]
         success, errors = check_shapley_compliance(diffs, norm_losses)
@@ -1064,11 +1063,11 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
         if not success:
             msg = f"[Round {self.pytorch_model.round}] Axiom Violation: {errors}"
             runtime_warnings.append(msg)
-            print(colored(f"{msg}", "yellow"))
+            log("round_scoring", colored(f"{msg}", "yellow"))
             self._log_warning(msg)
 
         scores = [int(Decimal(v) * Decimal('1e18')) for v in norm_losses]
-        print(f"scores = {scores}")
+        log("round_scoring", f"scores = {scores}")
 
         self._log_contribution_scores(users, scores, avg_losses, per_user_outlier_info, shifted_baseline)
         return scores
@@ -1091,7 +1090,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
         avg_losses = []
         per_user_outlier_info = []
 
-        print(f"\nloss_tolerance_snap: baseline={avg_prev_loss:.6f}  ε={epsilon:.6f} ({self.loss_tolerance_pct*100:.1f}% of baseline)  snap_threshold={snap_threshold:.6f}")
+        log("round_scoring", f"\nloss_tolerance_snap: baseline={avg_prev_loss:.6f}  ε={epsilon:.6f} ({self.loss_tolerance_pct*100:.1f}% of baseline)  snap_threshold={snap_threshold:.6f}")
 
         for u in users:
             _, losses = self.contract.functions.getAllLossesAbout(u.address).call()
@@ -1122,16 +1121,16 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                     ustatus = "SNAPPED to neutral (within ε)"
                 else:
                     ustatus = "PUNISHED (beyond ε)"
-                print(f"  [{u.display_label():<12}] raw_loss={raw_avg_loss:.6f}  eff_loss={snapped_avg_loss:.6f}  baseline={avg_prev_loss:.6f}  diff={pct_diff:+.2f}%  margin_to_threshold={pct_margin:+.2f}% ({margin:+.6f})  [{ustatus}]")
+                log("round_scoring", f"  [{u.display_label():<12}] raw_loss={raw_avg_loss:.6f}  eff_loss={snapped_avg_loss:.6f}  baseline={avg_prev_loss:.6f}  diff={pct_diff:+.2f}%  margin_to_threshold={pct_margin:+.2f}% ({margin:+.6f})  [{ustatus}]")
             except ValueError:
-                print("An error occured")
+                log("round_scoring", "An error occurred")
                 per_user_outlier_info.append({})
 
         norm_losses = normalize_contribution_scores_new(avg_losses, avg_prev_loss, 'loss')
-        print(f"normalized losses: {norm_losses}")
+        log("round_scoring", f"normalized losses: {norm_losses}")
 
         sum_nl = sum(norm_losses)
-        print(f"sum_nl: {sum_nl}")
+        log("round_scoring", f"sum_nl: {sum_nl}")
 
         diffs = [-(v - avg_prev_loss) for v in avg_losses]
         success, errors = check_shapley_compliance(diffs, norm_losses)
@@ -1139,11 +1138,11 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
         if not success:
             msg = f"[Round {self.pytorch_model.round}] Axiom Violation: {errors}"
             runtime_warnings.append(msg)
-            print(colored(f"{msg}", "yellow"))
+            log("round_scoring", colored(f"{msg}", "yellow"))
             self._log_warning(msg)
 
         scores = [int(Decimal(v) * Decimal('1e18')) for v in norm_losses]
-        print(f"scores = {scores}")
+        log("round_scoring", f"scores = {scores}")
 
         self._log_contribution_scores(users, scores, avg_losses, per_user_outlier_info, avg_prev_loss)
         return scores
@@ -1655,7 +1654,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
         
         l = len(txs)
         for i, txHash in enumerate(txs):
-            printer.print_bar(i, l)
+            printer.print_bar("setup_contracts", i, l)
             receipt = globals.w3.eth.wait_for_transaction_receipt(txHash,
                                                             timeout=600, 
                                                             poll_latency=1)

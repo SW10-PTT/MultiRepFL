@@ -27,7 +27,9 @@ def _print(string, end= ""):
         return
     print(string, end=end)
 
-def print_bar(i, l):
+def print_bar(tag, i, l):
+        if tag not in ENABLED_TAGS:
+            return
         p = "-" * (i+1)
         r = "." *((l-1)-i)
         _print("{}{}".format(p, r), end="\r")
