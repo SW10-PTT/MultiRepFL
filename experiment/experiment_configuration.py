@@ -51,7 +51,7 @@ class ExperimentConfiguration:
                  data_percentages=None,
                  label_rules=None,
                  enabled_prints=None,
-                 seed=42,
+                 seed=123,
                  user_seeds=None,
                  allow_overlap=False,
                  replication_factor=1.0,
@@ -290,7 +290,8 @@ class ExperimentConfiguration:
         return resolved_rules
 
     def to_dict(self):
+        excluded = {"enabled_prints"}
         return {
             k: v for k, v in self.__dict__.items()
-            if not callable(v) and not (k.startswith("_") or k.startswith("__"))
+            if not callable(v) and not (k.startswith("_") or k.startswith("__")) and k not in excluded
         }
