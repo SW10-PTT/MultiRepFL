@@ -1,6 +1,7 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
 
+from experiment.print_config import DEFAULT_ENABLED_PRINTS_CONFIG#, PRINTS_SILENT, PRINTS_MINIMAL, PRINTS_NORMAL, PRINTS_DEBUG
 if TYPE_CHECKING:
     from openfl.utils.types.User import User
     from openfl.contracts.FLChallenge import FLChallenge
@@ -18,7 +19,6 @@ from openfl.utils.types.TrainingSpecsJobListing import TrainingSpecsJobListing
 
 
 VALID_PARTITION_STRATEGIES = ("global", "per_user")
-
 
 class ExperimentConfiguration:
     def __init__(self,
@@ -50,7 +50,8 @@ class ExperimentConfiguration:
                  force_merge_all=False,
                  data_percentages=None,
                  label_rules=None,
-                 seed=42,
+                 enabled_prints=None,
+                 seed=123,
                  user_seeds=None,
                  allow_overlap=False,
                  replication_factor=1.0,
@@ -98,6 +99,10 @@ class ExperimentConfiguration:
         self.force_merge_all = force_merge_all
         self.data_percentages = self._resolve_data_percentages(data_percentages)
         self.label_rules = self._resolve_label_rules(label_rules)
+        self.enabled_prints = (
+            set(enabled_prints) if enabled_prints is not None
+            else set(DEFAULT_ENABLED_PRINTS_CONFIG)
+        )
         # Master seed drives the partition; per-user seeds are derived from it for independent RNG streams.
         # allow_overlap+replication_factor control whether participants can share dataset samples.
         self.seed = int(seed)
@@ -285,7 +290,8 @@ class ExperimentConfiguration:
         return resolved_rules
 
     def to_dict(self):
+        excluded = {"enabled_prints"}
         return {
             k: v for k, v in self.__dict__.items()
-            if not callable(v) and not (k.startswith("_") or k.startswith("__"))
+            if not callable(v) and not (k.startswith("_") or k.startswith("__")) and k not in excluded
         }

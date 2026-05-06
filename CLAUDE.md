@@ -10,6 +10,7 @@ OpenFL 2.0 is a federated learning research platform that integrates PyTorch-bas
 
 - Never run `git commit` or `git push`. Always leave committing and pushing to the user.
 - When a commit or push is needed, tell the user what to commit and provide the exact command to run.
+- A custom method called log exists for printing, taking a tag and the print message. Whenever a Print statement is needed, use log, along with an appropriate exsting or new tag. New tags can be found in print_config.py.
 
 ## Commands
 
@@ -64,7 +65,8 @@ forge test
 - `dotproduct` — matrix multiplication of weight vectors
 - `naive` — accuracy-based
 - `accuracy_loss` — combined accuracy + loss
-- `accuracy_only` / `loss_only` — single-metric variants
+- `accuracy_only` / `loss_only` / `loss_tolerance_aware` / `loss_tolerance_snap` — single-metric variants, and loss with tolerance
+- 
 
 **Blockchain / Web3 Layer** (`src/openfl/api/`, `contracts/`)
 - `connection_helper.py` — RPC connection, ABI/bytecode loading, account init
