@@ -1,0 +1,137 @@
+{
+  "_doc": [
+    "this is to test the label skewness", 
+    "pelase insert beter documetnion for this test",
+    "Maybe change name to be shorter"
+  ],
+  "0": {
+    "name": "H1 Full Both",
+    "datasets": {
+      "MNIST": {
+        "data_percent": 10.0,
+        "only_labels": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+      },
+      "CIFAR-10": {
+        "data_percent": 10.0,
+        "only_labels": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+      }
+    }
+  },
+  "1": {
+    "name": "H2 Full Both",
+    "datasets": {
+      "MNIST": {
+        "data_percent": 10.0,
+        "only_labels": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+      },
+      "CIFAR-10": {
+        "data_percent": 10.0,
+        "only_labels": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+      }
+    }
+  },
+  "2": {
+    "name": "H3 Full Both",
+    "datasets": {
+      "MNIST": {
+        "data_percent": 10.0,
+        "only_labels": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+      },
+      "CIFAR-10": {
+        "data_percent": 10.0,
+        "only_labels": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+      }
+    }
+  },
+  "3": {
+    "name": "H4 Full Both",
+    "datasets": {
+      "MNIST": {
+        "data_percent": 10.0,
+        "only_labels": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+      },
+      "CIFAR-10": {
+        "data_percent": 10.0,
+        "only_labels": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+      }
+    }
+  },
+  "4": {
+    "name": "H5 Full Both",
+    "datasets": {
+      "MNIST": {
+        "data_percent": 10.0,
+        "only_labels": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+      },
+      "CIFAR-10": {
+        "data_percent": 10.0,
+        "only_labels": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+      }
+    }
+  },
+  "5": {
+    "name": "H6 Full Both",
+    "datasets": {
+      "MNIST": {
+        "data_percent": 10.0,
+        "only_labels": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+      },
+      "CIFAR-10": {
+        "data_percent": 10.0,
+        "only_labels": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+      }
+    }
+  },
+  "6": {
+    "name": "H7 Full MNIST, Gap CIFAR-10",
+    "datasets": {
+      "MNIST": {
+        "data_percent": 10.0,
+        "only_labels": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+      },
+      "CIFAR-10": {
+        "data_percent": 10.0,
+        "only_labels": [0, 1, 2, 3, 4, 5, 6]
+      }
+    }
+  },
+  "7": {
+    "name": "H8 Gap MNIST, Full CIFAR-10",
+    "datasets": {
+      "MNIST": {
+        "data_percent": 10.0,
+        "only_labels": [0, 1, 2, 3]
+      },
+      "CIFAR-10": {
+        "data_percent": 10.0,
+        "only_labels": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+      }
+    }
+  },
+  "8": {
+    "name": "H9 Weak MNIST, Full CIFAR-10",
+    "datasets": {
+      "MNIST": {
+        "data_percent": 10.0,
+        "only_labels": [0, 1, 2]
+      },
+      "CIFAR-10": {
+        "data_percent": 10.0,
+        "only_labels": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+      }
+    }
+  },
+  "9": {
+    "name": "H10 Full MNIST, Weak CIFAR-10",
+    "datasets": {
+      "MNIST": {
+        "data_percent": 10.0,
+        "only_labels": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+      },
+      "CIFAR-10": {
+        "data_percent": 10.0,
+        "only_labels": [0, 1, 2]
+      }
+    }
+  }
+}

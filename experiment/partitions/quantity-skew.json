@@ -1,0 +1,116 @@
+{
+  "_doc": [
+    "Please insert document for this experimetn",
+    "And better naming for the users"
+  ],
+  "0": {
+    "name": "H1 Strong MNIST, Weak CIFAR-10",
+    "datasets": {
+      "MNIST": {
+        "data_percent": 18.0
+      },
+      "CIFAR-10": {
+        "data_percent": 4.0
+      }
+    }
+  },
+  "1": {
+    "name": "H2 Strong MNIST, Weak CIFAR-10",
+    "datasets": {
+      "MNIST": {
+        "data_percent": 18.0
+      },
+      "CIFAR-10": {
+        "data_percent": 4.0
+      }
+    }
+  },
+  "2": {
+    "name": "H3 Strong MNIST, Weak CIFAR-10",
+    "datasets": {
+      "MNIST": {
+        "data_percent": 18.0
+      },
+      "CIFAR-10": {
+        "data_percent": 4.0
+      }
+    }
+  },
+  "3": {
+    "name": "H4 Weak MNIST, Strong CIFAR-10",
+    "datasets": {
+      "MNIST": {
+        "data_percent": 4.0
+      },
+      "CIFAR-10": {
+        "data_percent": 18.0
+      }
+    }
+  },
+  "4": {
+    "name": "H5 Weak MNIST, Strong CIFAR-10",
+    "datasets": {
+      "MNIST": {
+        "data_percent": 4.0
+      },
+      "CIFAR-10": {
+        "data_percent": 18.0
+      }
+    }
+  },
+  "5": {
+    "name": "H6 Weak MNIST, Strong CIFAR-10",
+    "datasets": {
+      "MNIST": {
+        "data_percent": 4.0
+      },
+      "CIFAR-10": {
+        "data_percent": 18.0
+      }
+    }
+  },
+  "6": {
+    "name": "H7 Balanced",
+    "datasets": {
+      "MNIST": {
+        "data_percent": 12.0
+      },
+      "CIFAR-10": {
+        "data_percent": 12.0
+      }
+    }
+  },
+  "7": {
+    "name": "H8 Balanced",
+    "datasets": {
+      "MNIST": {
+        "data_percent": 12.0
+      },
+      "CIFAR-10": {
+        "data_percent": 12.0
+      }
+    }
+  },
+  "8": {
+    "name": "H9 Narrow Both",
+    "datasets": {
+      "MNIST": {
+        "data_percent": 5.0
+      },
+      "CIFAR-10": {
+        "data_percent": 5.0
+      }
+    }
+  },
+  "9": {
+    "name": "H10 Narrow Both",
+    "datasets": {
+      "MNIST": {
+        "data_percent": 5.0
+      },
+      "CIFAR-10": {
+        "data_percent": 5.0
+      }
+    }
+  }
+}
