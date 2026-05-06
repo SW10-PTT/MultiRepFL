@@ -18,7 +18,7 @@ config = ExperimentConfiguration(
     contribution_score_strategy="loss_tolerance_aware", # Options: dotproduct, naive, accuracy_loss, accuracy_only, loss_only, loss_tolerance_aware, loss_tolerance_snap
     loss_tolerance_pct=0.2, # ε = pct * avg_prev_loss; only used by loss_tolerance_* strategies
     use_outlier_detection=True,
-    minimum_rounds=25,
+    minimum_rounds=3,
     epochs=1,
     punish_factor=3,
     punish_factor_contrib=3,

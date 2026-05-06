@@ -28,7 +28,9 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
   set_enabled_tags(experiment_config.enabled_prints)
 
   dataset_name = dataset_name.replace(".", "-")
-  experiment_config.dataset = dataset_name
+  # Refresh first so per_user mode resolves contributor counts from the spec
+  # for the active dataset before any downstream consumer reads them.
+  experiment_config.refresh_for_dataset(dataset_name)
 
   experiment_start = time.perf_counter()
 
@@ -52,13 +54,18 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
       experiment_config.malicious_noise_scale,
       experiment_config.force_merge_all)
 
-  for attitude, count in [
-      (Attitude.Honest, experiment_config.number_of_good_contributors),
-      (Attitude.Malicious, experiment_config.number_of_bad_contributors),
-      (Attitude.FreeRider, experiment_config.number_of_freerider_contributors),
-  ]:
-      for _ in range(count):
-          user_index = len(users)
+  if experiment_config.partition_strategy == "per_user":
+      # Spec drives both index→behavior mapping and data shares. Iterate by
+      # user_index so the user_index used here matches the spec keys, even
+      # when behaviors are interleaved (e.g. user 2 malicious, user 3 honest).
+      # Inactive entries are counted in number_of_inactive_contributors but
+      # don't materialise as User objects (they never join the FL round).
+      behaviors = experiment_config.get_behaviors_per_user()
+      total_contributors = experiment_config.number_of_contributors
+      for user_index in range(total_contributors):
+          attitude = behaviors[user_index]
+          if attitude == Attitude.Inactive:
+              continue
           addr, private_key = get_account_RPC(user_index, experiment_config.fork)
           user = User.from_experiment_config(
               attitude,
@@ -68,6 +75,23 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
           )
           apply_user_data_and_label_config(user, user_index, experiment_config)
           users.append(user)
+  else:
+      for attitude, count in [
+          (Attitude.Honest, experiment_config.number_of_good_contributors),
+          (Attitude.Malicious, experiment_config.number_of_bad_contributors),
+          (Attitude.FreeRider, experiment_config.number_of_freerider_contributors),
+      ]:
+          for _ in range(count):
+              user_index = len(users)
+              addr, private_key = get_account_RPC(user_index, experiment_config.fork)
+              user = User.from_experiment_config(
+                  attitude,
+                  experiment_config,
+                  addr,
+                  private_key
+              )
+              apply_user_data_and_label_config(user, user_index, experiment_config)
+              users.append(user)
 
   pytorch_model.prepare_data_for_users(
       users,
@@ -221,8 +245,10 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
 
 
 def apply_user_data_and_label_config(user: User, user_index: int, experiment_config: ExperimentConfiguration):
-    # Per-user strategy: spec drives data_percent, only_labels, flip_map.
-    # Global strategy: legacy data_percentages + label_rules drive them.
+    # Per-user strategy: spec drives data_percent, only_labels, flip_map,
+    # behavior, noise_scale, start_round.
+    # Global strategy: legacy data_percentages + label_rules drive data/labels;
+    # noise_scale and start_round were already set by User.from_experiment_config.
     if experiment_config.partition_strategy == "per_user":
         specs = experiment_config.get_partition_specs(experiment_config.dataset)
         spec = specs[user_index]
@@ -231,6 +257,16 @@ def apply_user_data_and_label_config(user: User, user_index: int, experiment_con
         user.data_percent = float(spec.data_percent)
         user.only_labels = list(spec.only_labels) if spec.only_labels is not None else None
         user.flip_map = dict(spec.flip_map)
+        user.noise_scale = (
+            None if spec.noise_scale is None else float(spec.noise_scale)
+        )
+        user.start_round = (
+            None if spec.start_round is None else int(spec.start_round)
+        )
+        # Keep attitudeSwitch in sync with spec.start_round so the existing
+        # round-gating logic in PytorchModel.update_users_attitude works.
+        if spec.start_round is not None:
+            user.attitudeSwitch = int(spec.start_round)
     else:
         user.data_percent = float(experiment_config.data_percentages[user_index])
         user_rule = experiment_config.label_rules.get(user_index, {})

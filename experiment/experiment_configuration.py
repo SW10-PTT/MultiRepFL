@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from experiment.print_config import DEFAULT_ENABLED_PRINTS_CONFIG#, PRINTS_SILENT, PRINTS_MINIMAL, PRINTS_NORMAL, PRINTS_DEBUG
 if TYPE_CHECKING:
@@ -14,6 +14,7 @@ from openfl.ml.partition_spec import (
     load_dataset_partition_specs,
     normalize_dataset_name,
 )
+from openfl.utils.types.Attitude import Attitude
 
 from openfl.utils.types.TrainingSpecsJobListing import TrainingSpecsJobListing
 
@@ -73,10 +74,6 @@ class ExperimentConfiguration:
 
         # Store everything
         self.number_of_participants =number_of_participants
-        self.number_of_good_contributors = number_of_good_contributors
-        self.number_of_bad_contributors = number_of_bad_contributors
-        self.number_of_freerider_contributors = number_of_freerider_contributors
-        self.number_of_inactive_contributors = number_of_inactive_contributors
         self.reward = reward
         self.minimum_rounds = minimum_rounds
         self.min_buy_in = min_buy_in
@@ -97,8 +94,6 @@ class ExperimentConfiguration:
         self.malicious_start_round = malicious_start_round
         self.malicious_noise_scale = malicious_noise_scale
         self.force_merge_all = force_merge_all
-        self.data_percentages = self._resolve_data_percentages(data_percentages)
-        self.label_rules = self._resolve_label_rules(label_rules)
         self.enabled_prints = (
             set(enabled_prints) if enabled_prints is not None
             else set(DEFAULT_ENABLED_PRINTS_CONFIG)
@@ -115,17 +110,45 @@ class ExperimentConfiguration:
             raise ValueError("replication_factor > 1.0 requires allow_overlap=True")
 
         # Toggle between the legacy stratified-global partitioner and the
-        # spec-driven per-user partitioner. per_user mode requires one spec
-        # per data-user (resolved below) and overrides data_percentages and
-        # label_rules at partition time.
+        # spec-driven per-user partitioner. In per_user mode the spec drives
+        # both data shares and per-user behavior (Honest/Malicious/Free-rider),
+        # so the contributor counts are derived from the spec and the
+        # number_of_*_contributors kwargs are ignored. data_percentages and
+        # label_rules are forbidden in per_user mode.
         if partition_strategy not in VALID_PARTITION_STRATEGIES:
             raise ValueError(
                 f"partition_strategy must be one of {VALID_PARTITION_STRATEGIES}, got {partition_strategy!r}"
             )
         self.partition_strategy = partition_strategy
         self.per_user_partitions = self._resolve_per_user_partitions(per_user_partitions)
+
         if self.partition_strategy == "per_user":
+            if not self.per_user_partitions:
+                raise ValueError(
+                    "partition_strategy='per_user' requires per_user_partitions to be provided"
+                )
+            if data_percentages is not None:
+                raise ValueError(
+                    "data_percentages is not allowed when partition_strategy='per_user'; "
+                    "set data_percent inside the per-user spec instead"
+                )
+            if label_rules is not None:
+                raise ValueError(
+                    "label_rules is not allowed when partition_strategy='per_user'; "
+                    "set only_labels/flip_map inside the per-user spec instead"
+                )
+            self._validate_per_user_index_set()
+            self._refresh_counts_from_specs()
+            self.data_percentages = []
+            self.label_rules = {}
             self._validate_per_user_partitions()
+        else:
+            self.number_of_good_contributors = number_of_good_contributors
+            self.number_of_bad_contributors = number_of_bad_contributors
+            self.number_of_freerider_contributors = number_of_freerider_contributors
+            self.number_of_inactive_contributors = number_of_inactive_contributors
+            self.data_percentages = self._resolve_data_percentages(data_percentages)
+            self.label_rules = self._resolve_label_rules(label_rules)
 
 
     def get_training_specs(self, manager_address, model_hash) -> TrainingSpecsJobListing:
@@ -163,6 +186,64 @@ class ExperimentConfiguration:
             return {}
         return load_dataset_partition_specs(per_user_partitions)
 
+    # All datasets must list the same set of user indices. Per-dataset behavior
+    # may still differ (e.g. user 0 honest on MNIST, malicious on CIFAR-10),
+    # but the participant roster is fixed.
+    def _validate_per_user_index_set(self):
+        reference_indices: Optional[set[int]] = None
+        reference_label: Optional[str] = None
+        for dataset_key, specs in self.per_user_partitions.items():
+            label = "default" if dataset_key == ANY_DATASET else dataset_key
+            indices = set(specs.keys())
+            if reference_indices is None:
+                reference_indices = indices
+                reference_label = label
+                continue
+            if indices != reference_indices:
+                missing = reference_indices - indices
+                extra = indices - reference_indices
+                raise ValueError(
+                    f"per_user_partitions: dataset {label!r} has a different user_index "
+                    f"set than {reference_label!r} (missing={sorted(missing)}, "
+                    f"extra={sorted(extra)}); every dataset must list the same users"
+                )
+
+    # Per-user mode counts depend on the active dataset since behavior is
+    # per-dataset. Recomputes the four contributor counts from the spec for
+    # self.dataset. Idempotent — call again whenever self.dataset changes.
+    def _refresh_counts_from_specs(self):
+        specs = self.get_partition_specs(self.dataset)
+        counts = {
+            Attitude.Honest: 0,
+            Attitude.Malicious: 0,
+            Attitude.FreeRider: 0,
+            Attitude.Inactive: 0,
+        }
+        for spec in specs.values():
+            counts[spec.behavior] += 1
+        self.number_of_good_contributors = counts[Attitude.Honest]
+        self.number_of_bad_contributors = counts[Attitude.Malicious]
+        self.number_of_freerider_contributors = counts[Attitude.FreeRider]
+        self.number_of_inactive_contributors = counts[Attitude.Inactive]
+
+    # The runner sets the active dataset name late (it's normalised from a CLI
+    # arg). In per_user mode, contributor counts depend on that dataset, so the
+    # runner must call this after it knows the final name. No-op for global.
+    def refresh_for_dataset(self, dataset_name: str) -> None:
+        self.dataset = dataset_name
+        if self.partition_strategy == "per_user":
+            self._refresh_counts_from_specs()
+
+    # {user_index: Attitude} for the active dataset, used by the experiment
+    # runner to assign attitudes when partition_strategy='per_user'.
+    def get_behaviors_per_user(self) -> dict[int, Attitude]:
+        if self.partition_strategy != "per_user":
+            raise RuntimeError(
+                "get_behaviors_per_user is only valid when partition_strategy='per_user'"
+            )
+        specs = self.get_partition_specs(self.dataset)
+        return {user_index: spec.behavior for user_index, spec in specs.items()}
+
     # Lookup specs for a given dataset. Falls back to the wildcard bucket
     # (legacy single-dataset JSON) when no dataset-specific entry exists.
     def get_partition_specs(self, dataset_name=None):
@@ -183,27 +264,27 @@ class ExperimentConfiguration:
     # per-class allocation can't overflow once that holds, since each user's
     # fair share is at most pct/100 of every class pool. Validates every
     # dataset entry independently so a bad profile is caught up front.
+    # Index-set consistency across datasets is checked by
+    # _validate_per_user_index_set; here we only verify density/budget.
     def _validate_per_user_partitions(self):
         if not self.per_user_partitions:
             raise ValueError(
                 "partition_strategy='per_user' requires per_user_partitions to be provided"
             )
 
-        expected_indices = set(range(self.number_of_data_users))
         budget_cap = 100.0
 
         for dataset_key, specs in self.per_user_partitions.items():
             label = "default" if dataset_key == ANY_DATASET else dataset_key
-            provided_indices = set(specs.keys())
-            missing = expected_indices - provided_indices
-            extra = provided_indices - expected_indices
-            if missing:
+            provided_indices = sorted(specs.keys())
+            # Indices must form 0..N-1 so downstream loops in the runner can
+            # iterate by index. (A future GUID-keyed layout will replace this
+            # with set-based iteration.)
+            expected_indices = list(range(len(provided_indices)))
+            if provided_indices != expected_indices:
                 raise ValueError(
-                    f"per_user_partitions[{label}] missing entries for user_index {sorted(missing)}"
-                )
-            if extra:
-                raise ValueError(
-                    f"per_user_partitions[{label}] has unexpected entries for user_index {sorted(extra)}"
+                    f"per_user_partitions[{label}] user_index keys must form a dense "
+                    f"0..N-1 range; got {provided_indices}"
                 )
 
             total_budget = sum(spec.data_percent for spec in specs.values())

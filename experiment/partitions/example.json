@@ -1,8 +1,9 @@
 {
   "_doc": [
-    "Per-user partition spec, one entry per data-user (good + bad + freerider).",
+    "Per-user partition spec, one entry per contributor (good + bad + freerider + inactive).",
     "Activate by setting partition_strategy='per_user' + per_user_partitions='<this path>'",
-    "in ExperimentConfiguration.",
+    "in ExperimentConfiguration. In per_user mode the spec is the source of truth for",
+    "behavior and contributor counts; number_of_*_contributors kwargs are ignored.",
     "",
     "Two accepted JSON shapes:",
     "  Multi-dataset (this file): {user_index: {name, datasets: {DATASET: spec}}}.",
@@ -19,43 +20,59 @@
     "only_labels=[4,9] effectively trains on ~2% of dataset (2 of 10 classes",
     "kept) -- bump pct if you want full coverage on those classes.",
     "",
-    "Fields per user:",
+    "Per-user fields (on the outer entry):",
     "  name               (str)              Human-readable label, kept on the user",
     "                                         for logs/plots. Optional.",
     "  datasets           (dict)             Dataset name -> spec dict (multi-dataset",
-    "                                         shape). Each spec dict carries:",
+    "                                         shape). Each spec dict carries the",
+    "                                         per-dataset fields below.",
+    "",
+    "Per-dataset fields (inside each datasets[<name>] block):",
     "  data_percent       (float, required)  Fair share of dataset before filtering.",
-    "                                         Sum across users <= 100 per dataset.",
-    "                                         In overlap mode each fair share is taken",
-    "                                         from the rep-inflated class pools.",
-    "  only_labels        (list[int])        Hard whitelist. Drops every class",
-    "                                         outside the list after fair-share.",
-    "  label_distribution (dict[int->float]) Per-class retention factor in [0, 1]",
-    "                                         applied to the fair share. 1.0 keeps",
-    "                                         all, 0.5 keeps half, 0.0 drops the",
-    "                                         class. Unmentioned classes default",
-    "                                         to 1.0. Combine with only_labels to",
-    "                                         drop some + downsample others.",
-    "  flip_map           (dict[int->int])   Malicious label-flip map applied at",
-    "                                         dataset read time.",
+    "                                         Must be > 0. Sum across users <= 100 per",
+    "                                         dataset.",
+    "  behavior           (str)              One of 'Honest', 'Malicious', 'Free-rider',",
+    "                                         'Inactive' (case-insensitive; 'FreeRider'",
+    "                                         also OK). Defaults to 'Honest' if missing.",
+    "                                         Behavior is per-dataset, so a user can be",
+    "                                         honest on MNIST and malicious on CIFAR-10.",
+    "                                         Inactive entries are counted toward the",
+    "                                         inactive contributor total but never join",
+    "                                         the FL round.",
+    "  noise_scale        (float)            REQUIRED for Malicious/Free-rider. Forbidden",
+    "                                         for Honest/Inactive. Per-user noise scale",
+    "                                         applied when injecting random weights.",
+    "  start_round        (int >= 1)         REQUIRED for Malicious/Free-rider. Forbidden",
+    "                                         for Honest/Inactive. Round at which the",
+    "                                         user switches to its faulty behavior.",
+    "  only_labels        (list[int])        Hard whitelist. Drops every class outside",
+    "                                         the list after fair-share.",
+    "  label_distribution (dict[int->float]) Per-class retention factor in [0, 1] applied",
+    "                                         to the fair share. 1.0 keeps all, 0.5 keeps",
+    "                                         half, 0.0 drops the class. Unmentioned",
+    "                                         classes default to 1.0.",
+    "  flip_map           (dict[int->int])   Malicious label-flip map applied at dataset",
+    "                                         read time.",
     "",
-    "Sum of data_percent per dataset must be <= 100. Skewed users keep less,",
-    "never conflict. Number of entries must equal number_of_good_contributors +",
-    "number_of_bad_contributors + number_of_freerider_contributors.",
+    "Every dataset block must list the same set of user_index keys (the participant",
+    "roster is fixed across datasets). Behavior, noise_scale and start_round may differ",
+    "per dataset. user_index keys must form a dense 0..N-1 range.",
     "",
-    "Example below: 8 data-users, MNIST and CIFAR-10 profiles. User 0/1 carry",
-    "only_labels skew, user 2 is malicious (flip_map), user 3 has retention",
-    "weights, rest stratified."
+    "Example below: 8 contributors. User 1 is honest on MNIST but malicious on CIFAR-10.",
+    "User 2 is malicious on both. User 6 is a free-rider on both. User 7 is inactive on",
+    "MNIST and honest on CIFAR-10."
   ],
 
   "0": {
     "name": "User 0",
     "datasets": {
       "MNIST": {
-        "data_percent": 20.0
+        "data_percent": 20.0, 
+        "behavior": "Honest"
       },
       "CIFAR-10": {
-        "data_percent": 15.0
+        "data_percent": 15.0, 
+        "behavior": "Honest"
       }
     }
   },
@@ -63,10 +80,12 @@
     "name": "User 1",
     "datasets": {
       "MNIST": {
-        "data_percent": 14.0
+        "data_percent": 14.0,
+        "behavior": "Honest"
       },
       "CIFAR-10": {
-        "data_percent": 10.0
+        "data_percent": 10.0,
+        "behavior": "Honest"
       }
     }
   },
@@ -75,12 +94,18 @@
     "datasets": {
       "MNIST": {
         "data_percent": 12.0,
+        "behavior": "Malicious",
+        "noise_scale": 1.0,
+        "start_round": 3,
         "flip_map": {
           "3": 8
         }
       },
       "CIFAR-10": {
         "data_percent": 8.0,
+        "behavior": "Malicious",
+        "noise_scale": 1.0,
+        "start_round": 3,
         "flip_map": {
           "3": 8
         }
@@ -91,6 +116,7 @@
     "name": "User 3",
     "datasets": {
       "MNIST": {
+        "behavior": "Honest",
         "data_percent": 12.0,
         "label_distribution": {
           "0": 0.9,
@@ -102,6 +128,7 @@
       },
       "CIFAR-10": {
         "data_percent": 10.0,
+        "behavior": "Honest",
         "label_distribution": {
           "0": 0.9,
           "1": 0.5,
@@ -117,11 +144,15 @@
     "datasets": {
       "MNIST": {
         "data_percent": 6.0,
-        "only_labels": [0, 1]
+        "only_labels": [0, 1],
+        "behavior": "Honest"
       },
       "CIFAR-10": {
         "data_percent": 6.0,
-        "only_labels": [0, 1]
+        "only_labels": [0, 1],
+        "behavior": "Free-rider", 
+        "noise_scale": 0.1,
+        "start_round": 3
       }
     }
   },
@@ -129,10 +160,12 @@
     "name": "User 5",
     "datasets": {
       "MNIST": {
-        "data_percent": 10.0
+        "data_percent": 10.0, 
+        "behavior": "Honest"
       },
       "CIFAR-10": {
-        "data_percent": 7.0
+        "data_percent": 7.0,
+        "behavior": "Honest"
       }
     }
   },
@@ -141,10 +174,16 @@
     "datasets": {
       "MNIST": {
         "data_percent": 9.0,
+        "behavior": "Free-rider",
+        "noise_scale": 0.1,
+        "start_round": 3,
         "only_labels": [4, 9]
       },
       "CIFAR-10": {
         "data_percent": 5.0,
+        "behavior": "Free-rider",
+        "noise_scale": 0.1,
+        "start_round": 3,
         "only_labels": [4, 9]
       }
     }
@@ -153,10 +192,12 @@
     "name": "User 7",
     "datasets": {
       "MNIST": {
-        "data_percent": 14.0
+        "data_percent": 5.0,
+        "behavior": "Honest"
       },
       "CIFAR-10": {
-        "data_percent": 9.0
+        "data_percent": 9.00 ,
+        "behavior": "Honest"
       }
     }
   }

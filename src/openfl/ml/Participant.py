@@ -93,5 +93,7 @@ class Participant(User):
             participantId=user.id)
         participant.partition_name = user.partition_name
         participant.partition_spec = user.partition_spec
+        participant.noise_scale = user.noise_scale
+        participant.start_round = user.start_round
         return participant
 

@@ -68,6 +68,14 @@ class User:
         self.partition_spec = None
         # Human-readable name from the partition spec (e.g. "User 3"). None when not set.
         self.partition_name: str | None = None
+        # Per-user noise scale for Malicious/FreeRider; None for Honest/Inactive.
+        # Read by PytorchModel when injecting noise so each user can have its
+        # own scale (per-dataset under partition_strategy='per_user').
+        self.noise_scale: float | None = None
+        # Per-user round at which the user switches from Honest to its faulty
+        # behavior. Mirrors attitudeSwitch but kept as a distinct attribute so
+        # the spec field maps 1:1 onto the user. None for Honest/Inactive.
+        self.start_round: int | None = None
 
     @property
     def finger_print(self):
@@ -80,6 +88,12 @@ class User:
             "only_labels": sorted(self.only_labels) if self.only_labels is not None else None,
             "flip_map": dict(sorted(self.flip_map.items())),
             "seed": self.seed,
+            "noise_scale": (
+                None if self.noise_scale is None else round(float(self.noise_scale), 8)
+            ),
+            "start_round": (
+                None if self.start_round is None else int(self.start_round)
+            ),
             "partition_spec": (
                 self.partition_spec.fingerprint_dict() if self.partition_spec is not None else None
             ),
@@ -94,14 +108,23 @@ class User:
                                experiment_config: ExperimentConfiguration,
                                address, private_key,
                                number_of_participants=None):
+        # Per-user noise/start_round defaults from the experiment config when
+        # in global mode; the runner overrides these from the spec when in
+        # per_user mode (apply_user_data_and_label_config).
         if _attitude == Attitude.Malicious:
             attitude_switch = experiment_config.malicious_start_round
+            noise_scale = experiment_config.malicious_noise_scale
+            start_round = experiment_config.malicious_start_round
         elif _attitude == Attitude.FreeRider:
             attitude_switch = experiment_config.freerider_start_round
+            noise_scale = experiment_config.freerider_noise_scale
+            start_round = experiment_config.freerider_start_round
         else:
             attitude_switch = 1  # Honest: futureAttitude == attitude, so switch is a no-op
+            noise_scale = None
+            start_round = None
 
-        return User(
+        user = User(
             _attitude,
             experiment_config.min_buy_in,
             experiment_config.max_buy_in,
@@ -112,6 +135,9 @@ class User:
             attitude_switch,
             number_of_participants,
         )
+        user.noise_scale = noise_scale
+        user.start_round = start_round
+        return user
 
     def to_dict(self):
         return {
