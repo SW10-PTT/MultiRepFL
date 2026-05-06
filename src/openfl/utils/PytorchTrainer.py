@@ -7,7 +7,7 @@ import torch
 # Imported only for type hints; skipped at runtime to avoid import errors when not on sys.path.
 if TYPE_CHECKING:
     from web3.contract import Contract
-from experiment_configuration import ExperimentConfiguration
+from experiment.experiment_configuration import ExperimentConfiguration
 from openfl.api.globals import ReplayMode, reuse_runs
 from openfl.utils.ITestAndTrainer import ITestAndTrainer
 import openfl.api.globals
@@ -23,7 +23,6 @@ class PyTorchTrainer(ITestAndTrainer):
 
     def test(self, round, tag, net, testloader: torch.utils.data.DataLoader, device: torch.device) -> Tuple[
             float, float]:
-        print(f"Test device: {device}")
         from openfl.ml.pytorch_model import test
         data = test(net, testloader, device)
         if ReplayMode.Record in reuse_runs:
@@ -50,7 +49,11 @@ class PyTorchTrainer(ITestAndTrainer):
 
     def get_task_rep_delta_and_GRS(self, round, tag, contract: Contract, get_participant_func):
         data = contract.functions.getTaskRepDeltaAndGRS.call()
-        formatted_data = [(str((get_participant_func(u[0]).id)), u[1], u[2]) for u in data ]
+        formatted_data = [
+            (str(get_participant_func(u[0]).id), u[1], u[2])
+            for u in data
+            if get_participant_func(u[0]) is not None
+        ]
         if ReplayMode.Record in reuse_runs:
             self.save(round, tag, formatted_data)
         return data

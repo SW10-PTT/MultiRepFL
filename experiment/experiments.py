@@ -5,12 +5,12 @@ from pathlib import Path
 import re
 import sys
 import traceback
-import experiment_runner as ExperimentRunner
-from experiment_configuration import ExperimentConfiguration
+import experiment.experiment_runner as ExperimentRunner
+from experiment.experiment_configuration import ExperimentConfiguration
 from itertools import product
 from dataclasses import dataclass
 import argparse
-from helper import getPath
+from experiment.helper import getPath
 
 from openfl.utils.async_writer import AsyncWriter
 from selector import choose_from_list

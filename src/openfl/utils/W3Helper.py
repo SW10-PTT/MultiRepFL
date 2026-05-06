@@ -8,8 +8,9 @@ from web3 import Web3
 
 # Imported only for type hints; skipped at runtime to avoid import errors when not on sys.path.
 if TYPE_CHECKING:
-    from experiment_configuration import ExperimentConfiguration
+    from experiment.experiment_configuration import ExperimentConfiguration
 from openfl.utils import require_env_var
+from openfl.utils.printer import log
 from openfl.api import globals
 
 
@@ -38,7 +39,7 @@ def get_PRIVKEYS(experiment_config: ExperimentConfiguration):
             for acc in loaded_accounts
         ]
 
-        print(f"Loaded {len(PRIVKEYS)} private keys.")
+        log("setup_env", f"Loaded {len(PRIVKEYS)} private keys.")
     else:
         PRIVKEYS = None
 

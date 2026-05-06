@@ -11,13 +11,14 @@ from urllib3.util import retry
 
 # Imported only for type hints; skipped at runtime to avoid import errors and circular imports.
 if TYPE_CHECKING:
-    from experiment_configuration import ExperimentConfiguration
+    from experiment.experiment_configuration import ExperimentConfiguration
     from openfl.contracts import FLManager
 from openfl.utils.async_writer import AsyncWriter
 from openfl.utils.types.Attitude import Attitude
 from openfl.utils.types.Colors import RNG, get_color
 from openfl.utils.types.TrainingSpecsJobListing import TrainingSpecsJobListing, TrainingSpecsChallenge
 import openfl.api.globals as globals
+from openfl.utils.printer import log
   
 class User:
     user_count = 0
@@ -94,10 +95,23 @@ class User:
                                address, private_key,
                                number_of_participants=None):
         if _attitude == Attitude.Malicious:
-            return User(_attitude, experiment_config.min_buy_in, experiment_config.max_buy_in,
-                address, private_key, experiment_config.malicious_start_round, number_of_participants)
-        return User(_attitude, experiment_config.min_buy_in, experiment_config.max_buy_in,
-                address, private_key, experiment_config.freerider_start_round, number_of_participants)
+            attitude_switch = experiment_config.malicious_start_round
+        elif _attitude == Attitude.FreeRider:
+            attitude_switch = experiment_config.freerider_start_round
+        else:
+            attitude_switch = 1  # Honest: futureAttitude == attitude, so switch is a no-op
+
+        return User(
+            _attitude,
+            experiment_config.min_buy_in,
+            experiment_config.max_buy_in,
+            address,
+            private_key,
+            0.0,    # _data_percent: placeholder, overwritten by apply_user_data_and_label_config
+            None,   # _only_labels: placeholder, overwritten by apply_user_data_and_label_config
+            attitude_switch,
+            number_of_participants,
+        )
 
     def to_dict(self):
         return {
@@ -157,7 +171,7 @@ class User:
         txHash = receipt["transactionHash"]
         self.txs.append(txHash)
         bal = globals.w3.eth.get_balance(globals.w3.eth.default_account)
-        print("{:<17} {} ({}) | {} | {:>25,.0f} WEI".format("Account registered:",
+        log("setup_contracts""{:<17} {} ({}) | {} | {:>25,.0f} WEI".format("Account registered:",
                 self.display_label(),
                 self.address[0:16] + "...",
                 txHash.hex()[0:6] + "...",

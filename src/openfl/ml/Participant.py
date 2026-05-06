@@ -82,7 +82,7 @@ class Participant(User):
             model,
             optimizer,
             criterion,
-            user.attitude,
+            user.futureAttitude,
             user.min_collateral,
             user.max_collateral,
             user.address,

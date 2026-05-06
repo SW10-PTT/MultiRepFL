@@ -15,6 +15,7 @@ import torch.optim as optim
 import torch.nn.functional as F
 import torch.multiprocessing as mp
 import os
+import platform
 import time
 import math
 from collections import Counter
@@ -39,6 +40,7 @@ from openfl.utils.types.EvaluationData import EvaluationData
 from openfl.api import globals
 from openfl.utils.types.Attitude import Attitude
 from openfl.utils.types.Colors import gb, rb, red, yellow, green, b
+from openfl.utils.printer import log
 from openfl.utils.types.ReplayTrainingSpecs import ReplayTrainingSpecs
 from openfl.utils.types.userDict import UserDict
 
@@ -51,16 +53,26 @@ logging.getLogger("torch._dynamo").setLevel(logging.ERROR)
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 USE_CUDA = (DEVICE.type == "cuda")
-PIN_MEMORY = USE_CUDA
-NON_BLOCKING = USE_CUDA
-NUM_WORKERS = min(4, os.cpu_count() // 2) if torch.cuda.is_available() else 0
+# torch.version.hip is set on ROCm builds (AMD); absent or None on NVIDIA CUDA builds
+_IS_AMD_GPU = USE_CUDA and (getattr(torch.version, "hip", None) is not None)
+_IS_NVIDIA_GPU = USE_CUDA and not _IS_AMD_GPU
+# On Windows, DataLoader worker processes carry high overhead with CUDA/ROCm and
+# can exhaust system RAM (36+ background processes for 8 participants × 4 workers).
+# Use 0 workers on Windows; forked workers on Linux are much cheaper.
+_IS_WINDOWS = platform.system() == "Windows"
+_IS_AMD_WINDOWS = _IS_AMD_GPU and _IS_WINDOWS
+# pin_memory and non_blocking benefit NVIDIA but add overhead with no gain on AMD Windows
+PIN_MEMORY = USE_CUDA and not _IS_AMD_WINDOWS
+NON_BLOCKING = USE_CUDA and not _IS_AMD_WINDOWS
+NUM_WORKERS = 0 if _IS_WINDOWS else (min(4, os.cpu_count() // 2) if torch.cuda.is_available() else 0)
 PERSISTENT_WORKERS = USE_CUDA and NUM_WORKERS > 0
-AMP = USE_CUDA # Optional: mixed precision on CUDA
+# AMP is well-supported on NVIDIA and AMD Linux (ROCm); skip on AMD Windows where support is unreliable
+AMP = USE_CUDA and not _IS_AMD_WINDOWS
 COMPILE = False
 
-# cuDNN autotune for fixed-size inputs (both MNIST 28x28 and CIFAR-10 32x32)
-torch.backends.cudnn.benchmark = USE_CUDA
-if DEVICE.type == "cuda":
+# cuDNN autotune is NVIDIA-specific; MIOpen (AMD ROCm) ignores this flag
+torch.backends.cudnn.benchmark = _IS_NVIDIA_GPU
+if _IS_NVIDIA_GPU:
     torch.set_float32_matmul_precision("high")
 
 def model_to_device(net: nn.Module) -> nn.Module:
@@ -146,6 +158,7 @@ class PytorchModel:
         self.participants = []
         self.disqualified = []
         self.runRepo: ITestAndTrainer = None
+        self.test_tensors = None  # GPU-preloaded (images, labels) for the global test set
         # self.EPOCHS = epochs
         # self.BATCHSIZE = batchsize
         self.train, self.val, self.test = self.load_data(self.NUMBER_OF_CONTRIBUTERS, _print=True)
@@ -174,10 +187,10 @@ class PytorchModel:
             raise ValueError("malicious_noise_scale must be non-negative")
         self.malicious_noise_scale = malicious_noise_scale
 
-        print("===================================================================================")
-        print("Pytorch Model created:\n")
-        print(str(self.global_model))
-        print("\n===================================================================================")
+        log("setup_data", "===================================================================================")
+        log("setup_data", "Pytorch Model created:\n")
+        log("setup_data", str(self.global_model))
+        log("setup_data", "\n===================================================================================")
 
     def add_participant(self, user):
         train_loader, val_loader = self.get_user_dataloaders(user)
@@ -194,16 +207,11 @@ class PytorchModel:
         criterion = nn.CrossEntropyLoss()
 
         l = len(self.participants)
-        self.participants.append(Participant.from_user(
-            user,
-            train_loader,
-            val_loader,
-            _model,
-            optimizer,
-            criterion
-        ))
+        p = Participant.from_user(user, train_loader, val_loader, _model, optimizer, criterion)
+        p.val_tensors = preload_to_gpu(val_loader, DEVICE) if USE_CUDA else None
+        self.participants.append(p)
 
-        print("Participant added: {:<9} {}".format(rb(user.attitude.name.upper()[0]+user.attitude.name[1:]), rb(user.display_label())))
+        log("setup_contracts","Participant added: {:<9} {}".format(rb(user.futureAttitude.name.upper()[0]+user.futureAttitude.name[1:]), rb(user.display_label())))
 
     # seed/allow_overlap/replication_factor forward to DataPartition for reproducible, optionally overlapping splits.
     def prepare_data_for_users(self, users, dataset_name, seed=42, allow_overlap=False, replication_factor=1.0):
@@ -284,6 +292,8 @@ class PytorchModel:
         testloader = cuda_safe_dataloader(testset, self.config.batch_size, shuffle=False)
         self.DATA = (trainloaders, valloaders, testloader)
         self.train, self.val, self.test = self.DATA
+        if USE_CUDA:
+            self.test_tensors = preload_to_gpu(testloader, DEVICE)
 
     def get_user_dataloaders(self, user):
         if self.train_by_user_id:
@@ -303,10 +313,10 @@ class PytorchModel:
         dataset_size = len(labels)
         num_classes = len(set(labels))
         per_class = dataset_size // num_classes
-        print(f"Dataset: {dataset_name} | {dataset_size:,} total samples | {num_classes} classes | ~{per_class:,} per class")
-        print()
-        print("Data split per user:")
-        print(
+        log("setup_data",f"Dataset: {dataset_name} | {dataset_size:,} total samples | {num_classes} classes | ~{per_class:,} per class")
+        log("setup_data")
+        log("setup_data","Data split per user:")
+        log("setup_data",
             "{:<4} {:<14} {:<16} {:>10} {:>10} {:>9}   {}".format(
                 "Idx",
                 "Name",
@@ -317,7 +327,7 @@ class PytorchModel:
                 "Rule",
             )
         )
-        print("-" * 90)
+        log("setup_data","-" * 90)
 
         total_config_percent = 0.0
         total_actual_percent = 0.0
@@ -338,7 +348,7 @@ class PytorchModel:
             user_idx = getattr(user, "number", user_id)
             user_name = (getattr(user, "partition_name", None) or "-")[:14]
 
-            print(
+            log("setup_data",
                 "{:<4} {:<14} {:<16} {:>9.2f}% {:>9.2f}% {:>9,}   {}".format(
                     user_idx,
                     user_name,
@@ -373,33 +383,33 @@ class PytorchModel:
         lost_samples = dataset_size - total_samples
         lost_percent = 100.0 * lost_samples / dataset_size
 
-        print("-" * 90)
-        print("Configured total: {:.2f}%".format(total_config_percent))
-        print("Assigned: {:>7,} / {:,} samples  ({:.2f}%)".format(total_samples, dataset_size, total_actual_percent))
+        log("setup_data","-" * 90)
+        log("setup_data","Configured total: {:.2f}%".format(total_config_percent))
+        log("setup_data","Assigned: {:>7,} / {:,} samples  ({:.2f}%)".format(total_samples, dataset_size, total_actual_percent))
         if lost_samples > 0:
-            print("Lost:     {:>7,} / {:,} samples  ({:.2f}%)  <- dropped due to only_labels".format(lost_samples, dataset_size, lost_percent))
-        print()
+            log("setup_data", "Lost:     {:>7,} / {:,} samples  ({:.2f}%)  <- dropped due to only_labels".format(lost_samples, dataset_size, lost_percent))
+        log("setup_data")
 
         col_w = 6
         header = "{:<4} {:<14} " + " ".join(f"{'L' + str(l):>{col_w}}" for l in all_label_classes)
-        print(header.format("Idx", "Name"))
-        print("-" * (20 + col_w * len(all_label_classes)))
+        log("setup_data",header.format("Idx", "Name"))
+        log("setup_data","-" * (20 + col_w * len(all_label_classes)))
         for user_idx, user_name, label_counts in label_dist_rows:
             row = "{:<4} {:<14} " + " ".join(f"{label_counts.get(l, 0):>{col_w},}" for l in all_label_classes)
-            print(row.format(user_idx, user_name))
+            log("setup_data",row.format(user_idx, user_name))
 
         if not label_flip_rows:
             return
 
-        print()
-        print("Label flips (samples changed per user):")
-        print("{:<4} {:<14} {:<5}   {:<24} {:>8} {:>11}".format("Idx", "Name", "Set", "Flip counts", "Changed", "% of set"))
-        print("-" * 75)
+        log("setup_data")
+        log("setup_data","Label flips (samples changed per user):")
+        log("setup_data","{:<4} {:<14} {:<5}   {:<24} {:>8} {:>11}".format("Idx", "Name", "Set", "Flip counts", "Changed", "% of set"))
+        log("setup_data","-" * 75)
         for user_idx, user_name, set_name, flip_counts, changed_total, changed_percent in label_flip_rows:
-            print("{:<4} {:<14} {:<5}   {:<24} {:>8} {:>10.2f}%".format(
+            log("setup_data","{:<4} {:<14} {:<5}   {:<24} {:>8} {:>10.2f}%".format(
                 user_idx, user_name, set_name, flip_counts, changed_total, changed_percent,
             ))
-        print("-" * 75)
+        log("setup_data","-" * 75)
 
     def count_labels(self, labels, ids):
         counts = Counter(labels[i] for i in ids)
@@ -462,9 +472,9 @@ class PytorchModel:
 
 
         if _print:
-            print("Data Loaded:")
-            print("Nr. of images for training: {:,.0f}".format(len(trainset)))
-            print("Nr. of images for testing:  {:,.0f}\n".format(len(testset)))
+            log("setup_data", "Data Loaded:")
+            log("setup_data", "Nr. of images for training: {:,.0f}".format(len(trainset)))
+            log("setup_data", "Nr. of images for testing:  {:,.0f}\n".format(len(testset)))
 
         # Split training set into partitions to simulate the individual dataset
         partition_size = len(trainset) // NUM_CLIENTS
@@ -509,28 +519,32 @@ class PytorchModel:
             persistent_workers=PERSISTENT_WORKERS,
         )
         self.DATA = (trainloaders, valloaders, testloader)
+        if USE_CUDA and self.test_tensors is None:
+            self.test_tensors = preload_to_gpu(testloader, DEVICE)
         return trainloaders, valloaders, testloader
 
 
     def federated_training(self):
         if debugging or globals.reuse_runs:
-            print(b("\n================ SEQUENTIAL FEDERATED TRAINING START ================"))
+            log("round_training", b("\n================ SEQUENTIAL FEDERATED TRAINING START ================"))
             start_total = time.perf_counter()
-            print(yellow(f"{'Debugging mode' if debugging else ''} {'and ' if debugging and globals.reuse_runs else ''}{'reuse_runs ' if globals.reuse_runs else ''}detected → running sequential training"))
+            log("round_training", yellow(f"{'Debugging mode' if debugging else ''} {'and ' if debugging and globals.reuse_runs else ''}{'reuse_runs ' if globals.reuse_runs else ''}detected → running sequential training"))
             results = self.run_sequential()
         else:
-            print(b("\n================ PARALLEL FEDERATED TRAINING START ================"))
+            log("round_training", b("\n================ PARALLEL FEDERATED TRAINING START ================"))
             start_total = time.perf_counter()
             results = self.run_multi_processing()
 
         self.apply_training_results(results)
+        if USE_CUDA:
+            torch.cuda.empty_cache()
         total_time = time.perf_counter() - start_total
 
-        print(b("=================== PARALLEL TRAINING END ===================\n"))
-        print(green(f"Total federated training time: {total_time:.2f} seconds\n"))
+        log("round_training", b("=================== PARALLEL TRAINING END ===================\n"))
+        log("round_training", green(f"Total federated training time: {total_time:.2f} seconds\n"))
 
     def finalize_paricipant_evaluation(self, participant): # Same as lines 294-296,306 in orgiginal code.
-        loss, acc = self.runRepo.test(self.round,f"test-finalize_paricipant_evaluation-{participant.id}", participant.model, self.test, DEVICE) # TODO: Investigate if this should be user.val instead.
+        loss, acc = self.runRepo.test(self.round,f"test-finalize_paricipant_evaluation-{participant.id}", participant.model, self._test_data, DEVICE) # TODO: Investigate if this should be user.val instead.
         participant._accuracy.append(acc) # Line 295 in original code # TODO: Investigate if this should be test and not validation accuracy.
         participant._loss.append(loss) # Line 296 in original code # TODO: Investigate if this should be test and not validation loss.
         participant.hashedModel = self.runRepo.get_hash(self.round, f"get_hash-finalize_paricipant_evaluation-{participant.id}", participant.model.state_dict())
@@ -590,6 +604,11 @@ class PytorchModel:
 
         print_training_mode(num_gpus, num_processes)
 
+        # With only 1 worker there's no parallelism benefit from a Pool; the spawn
+        # overhead just wastes time and memory (especially on Windows/ROCm).
+        if num_processes == 1:
+            return self.run_sequential()
+
         with ctx.Pool(processes=num_processes) as pool:
             start_pool = time.perf_counter()
 
@@ -618,22 +637,22 @@ class PytorchModel:
                     self.finalize_paricipant_evaluation(user)
 
             results = [r.get() for r in async_results] # Gather results from Multi-Processing
-        print(green(f"Parallel execution time: {time.perf_counter() - start_pool:.2f} seconds"))
+        log("round_training", green(f"Parallel execution time: {time.perf_counter() - start_pool:.2f} seconds"))
         return results
 
 
     def let_malicious_users_do_their_work(self):
         for i in range(len(self.participants)):
             if self.participants[i].attitude == Attitude.Malicious:
-                print(red("{} ({}) going to provide random weights".format(
+                log("agent_behavior",red("{} ({}) going to provide random weights".format(
                     self.participants[i].display_label(),
                     self.participants[i].address[0:16]+"...",
                 )))
                 manipulated_state_dict = manipulate(self.participants[i].model,scale=self.malicious_noise_scale,)
                 self.participants[i].model.load_state_dict(manipulated_state_dict)
                 self.participants[i].hashedModel = self.runRepo.get_hash(self.round, f"let_malicious_users_do_their_work-{self.participants[i].id}", self.participants[i].model.state_dict())
-                loss, accuracy = self.runRepo.test(self.round,f"test-let_malicious_users_do_their_work-usermodel-{self.participants[i].id}", self.participants[i].model, self.test, DEVICE)
-                print("{:<17} {} ({}) |  Testing  | Accuracy {:>3.0f} % | Loss ∞\n".format(
+                loss, accuracy = self.runRepo.test(self.round,f"test-let_malicious_users_do_their_work-usermodel-{self.participants[i].id}", self.participants[i].model, self._test_data, DEVICE)
+                log("agent_behavior","{:<17} {} ({}) |  Testing  | Accuracy {:>3.0f} % | Loss ∞\n".format(
                     "Account testing:   ",
                     self.participants[i].display_label(),
                     self.participants[i].address[0:16]+"...",
@@ -644,7 +663,7 @@ class PytorchModel:
         for user in self.participants:
             if user.attitudeSwitch == self.round \
                 and user.attitude != user.futureAttitude:
-                print(rb("{} ({}) going to switch attitude to {}".format(
+                log("agent_behavior",rb("{} ({}) going to switch attitude to {}".format(
                     user.display_label(),
                     user.address[0:16]+"...",
                     user.futureAttitude,
@@ -675,22 +694,22 @@ class PytorchModel:
                 #     print(red("Address {} going to add random noise to weights".format(user_idx[0:16]+"...")))
                 #     participant.model.load_state_dict(add_noise(copy.deepcopy(participant.model)))
                 if self.round < self.freerider_start_round:
-                    print(yellow(
+                    log("agent_behavior",yellow(
                         "{} ({}) waiting until round {} to start freeriding".format(
                             participant.display_label(),
                             participant.address[0:16] + "...",
                             self.freerider_start_round,
                         )
                     ))
-                    new_state_dict = manipulate(copy.deepcopy(participant.model))
+                    new_state_dict = manipulate(participant.model)
                 else:
                     new_state_dict = self._freerider_submit_with_noise(participant)
 
 
                 participant.model.load_state_dict(new_state_dict)
                 participant.hashedModel = self.runRepo.get_hash(self.round, f"get_hash-let_freerider_users_do_their_work-{participant.id}",participant.model.state_dict())
-                loss, accuracy = self.runRepo.test(self.round,f"test-let_freerider_users_do_their_work-usermodel-{participant.id}", participant.model, self.test, DEVICE)
-                print("{:<17} {} ({}) |  Testing  | Accuracy {:>3.0f} % | Loss ∞\n".format(
+                loss, accuracy = self.runRepo.test(self.round,f"test-let_freerider_users_do_their_work-usermodel-{participant.id}", participant.model, self._test_data, DEVICE)
+                log("agent_behavior","{:<17} {} ({}) |  Testing  | Accuracy {:>3.0f} % | Loss ∞\n".format(
                     "Account testing:   ",
                     participant.display_label(),
                     participant.address[0:16]+"...",
@@ -705,42 +724,43 @@ class PytorchModel:
             raise ValueError("freerider_noise_scale must be non-negative")
 
         if self.freerider_noise_scale == 0: # Copy global model if noise is zero
-            print(yellow("{} ({}) resubmitting original model".format(
+            log("agent_behavior",yellow("{} ({}) resubmitting original model".format(
                 user.display_label(),
                 user.address[0:16]+"...",
             )))
-            return copy.deepcopy(user.model).state_dict()
+            return {k: v.clone() for k, v in user.model.state_dict().items()}
 
-        print(red(
+        log("agent_behavior",red(
             "{} ({}) adding noise (scale={}) to global weights".format(
                 user.display_label(),
                 user.address[0:16]+"...",
                 self.freerider_noise_scale,
             )
         ))
-        return manipulate(copy.deepcopy(user.model), scale=self.freerider_noise_scale)
+        return manipulate(user.model, scale=self.freerider_noise_scale)
 
 
     def the_merge(self, _users):
         # No qualified users → skip merge this round
         if not _users:
-            print("-----------------------------------------------------------------------------------")
-            print(red("No participants qualified for merge this round – skipping aggregation"))
-            print("-----------------------------------------------------------------------------------\n")
+            log("round_models", "-----------------------------------------------------------------------------------")
+            log("round_models", red("No participants qualified for merge this round – skipping aggregation"))
+            log("round_models", "-----------------------------------------------------------------------------------\n")
             return
 
         ids, client_models = [], []
         for u in _users:
             ids.append(u.address)
             client_models.append(u.model)
-            print("{} ({}) participating in merge".format(u.display_label(), u.address[0:16]+"..."))
+            log("agent_behavior","{} ({}) participating in merge".format(u.display_label(), u.address[0:16]+"..."))
             #print(test(c[1],self.test,DEVICE))
 
         with torch.no_grad():
             global_dict = self.global_model.state_dict()
+            client_state_dicts = [m.state_dict() for m in client_models]
             for k in global_dict.keys():
                 stacked = torch.stack([
-                    client_models[i].state_dict()[k].to(
+                    client_state_dicts[i][k].to(
                         device=global_dict[k].device,
                         dtype=global_dict[k].dtype
                     )
@@ -749,22 +769,23 @@ class PytorchModel:
                 global_dict[k] = stacked.mean(0)
             self.global_model.load_state_dict(global_dict)
 
-        loss, accuracy = self.runRepo.test(self.round,f"test-themerge-globalmodel", self.global_model,self.test,DEVICE)
+        loss, accuracy = self.runRepo.test(self.round,f"test-themerge-globalmodel", self.global_model, self._test_data, DEVICE)
         self.accuracy.append(accuracy)
         self.loss.append(loss)
-        print("-----------------------------------------------------------------------------------")
-        print(b("Merged Model: Accuracy {:>3.0f} % | Loss {:>6,.2f}".format(accuracy*100,loss)))
+        log("round_models", "-----------------------------------------------------------------------------------")
+        log("round_models", b("Merged Model: Accuracy {:>3.0f} % | Loss {:>6,.2f}".format(accuracy*100,loss)))
 
         for u in self.participants:
-            u.previousModel = copy.deepcopy(u.model) #the model from this round
-            u.model.load_state_dict(self.global_model.state_dict()) #the global model
+            u.previousModel.load_state_dict(u.model.state_dict())
+            u.model.load_state_dict(self.global_model.state_dict())
 
-        print("-----------------------------------------------------------------------------------\n")
+        log("round_models", "-----------------------------------------------------------------------------------\n")
+
 
 
 
     def exchange_models(self):
-        print("Users exchanging models...")
+        log("round_models", "Users exchanging models...")
         for user in self.participants:
             user.userToEvaluate = []
             for j in self.participants:
@@ -773,25 +794,26 @@ class PytorchModel:
                 if j.model in user.userToEvaluate:
                     continue
                 user.userToEvaluate.append(j)
-        print("-----------------------------------------------------------------------------------")
+        log("round_models", "-----------------------------------------------------------------------------------")
+
 
 
     def verify_models(self, on_chain_hashes):
-        print("Users verifying models...")
+        log("round_models", "Users verifying models...")
         for _user in self.participants:
             _user.cheater = []
             for user in _user.userToEvaluate:
                 if not self.runRepo.get_hash(self.round, f"get_hash-verify_models-{user.id}", user.model.state_dict()) == on_chain_hashes[user.id]:
-                    print(red(f"{_user.display_label()}: {user.display_label()} ({user.address[0:16]}...) could not provide the registered model"))
+                    log("round_models",red(f"Account {_user.number}: Account {user.address[0:16]}... could not provide the registered model"))
                     _user.cheater.append(user)
 
-        print("-----------------------------------------------------------------------------------")
+        log("round_models", "-----------------------------------------------------------------------------------")
 
     def get_global_model_hash(self):
         return get_hash(self.global_model.state_dict())
 
     def evaluation(self):
-        print("Users evaluating models...")
+        log("round_models", "Users evaluating models...")
         start_total = time.perf_counter()
 
         scalar = 100 # Adds more decimals for precision (Adding 0 gives another decimal, vice versa)
@@ -809,7 +831,8 @@ class PytorchModel:
         # prev_losses = [0 for _ in range(n)]
 
         for feedbackGiver in self.participants:
-            valloader = feedbackGiver.val
+            val_tensors = getattr(feedbackGiver, 'val_tensors', None)
+            valloader = val_tensors if val_tensors is not None else feedbackGiver.val
             bad_att = feedbackGiver.attitude == Attitude.Malicious
             free_att = feedbackGiver.attitude == Attitude.FreeRider
             accuracy_last_round = -1
@@ -829,7 +852,7 @@ class PytorchModel:
                 if bad_att:
                     matrices.feedback_matrix[giver_idx, user_idx] = -1
                     matrices.accuracy_matrix[giver_idx, user_idx] = 0
-                    matrices.loss_matrix(giver_idx, user_idx, 65535)
+                    matrices.loss_matrix[giver_idx, user_idx] = 65535
                     matrices.prev_accuracies[giver_idx] = round(prev_acc * 100 * scalar)
                     matrices.prev_losses[giver_idx] = safe_scale(prev_loss, scalar, MAX_UINT16_SIZE)
 
@@ -879,22 +902,22 @@ class PytorchModel:
                 # Reset
                 feedbackGiver.userToEvaluate = []
 
-        print("FEEDBACK MATRIX:")
-        print(matrices.feedback_matrix)
-        print("-----------------------------------------------------------------------------------")
-        print("ACCURACY MATRIX:")
-        print(matrices.accuracy_matrix)
-        print("-----------------------------------------------------------------------------------")
-        print("LOSS MATRIX:")
-        print(matrices.loss_matrix)
-        print("-----------------------------------------------------------------------------------")
-        print("PREVIOUS ACCURACIES:")
-        print(matrices.prev_accuracies)
-        print("-----------------------------------------------------------------------------------")
-        print("PREVIOUS LOSSES:")
-        print(matrices.prev_losses)
-        print("-----------------------------------------------------------------------------------")
-        print(f"TOTAL evaluation time: {time.perf_counter() - start_total:.3f}s")
+        log("round_matrices", "FEEDBACK MATRIX:")
+        log("round_matrices", matrices.feedback_matrix)
+        log("round_matrices", "-----------------------------------------------------------------------------------")
+        log("round_matrices", "ACCURACY MATRIX:")
+        log("round_matrices", matrices.accuracy_matrix)
+        log("round_matrices", "-----------------------------------------------------------------------------------")
+        log("round_matrices", "LOSS MATRIX:")
+        log("round_matrices", matrices.loss_matrix)
+        log("round_matrices", "-----------------------------------------------------------------------------------")
+        log("round_matrices", "PREVIOUS ACCURACIES:")
+        log("round_matrices", matrices.prev_accuracies)
+        log("round_matrices", "-----------------------------------------------------------------------------------")
+        log("round_matrices", "PREVIOUS LOSSES:")
+        log("round_matrices", matrices.prev_losses)
+        log("round_matrices", "-----------------------------------------------------------------------------------")
+        log("round_matrices", f"TOTAL evaluation time: {time.perf_counter() - start_total:.3f}s")
         return matrices
 
     def get_participant(self, address_or_id, participants = None):
@@ -905,6 +928,11 @@ class PytorchModel:
             return p
         return next((x for x in participants if x.address == address_or_id), None)
 
+    @property
+    def _test_data(self):
+        """Return pre-loaded GPU tensors when available, otherwise the DataLoader."""
+        return self.test_tensors if self.test_tensors is not None else self.test
+
     def setup_replay(self, filename, config: ExperimentConfiguration, path):
 
         if ReplayMode.PlayBack in globals.reuse_runs and filename.is_file():
@@ -913,7 +941,7 @@ class PytorchModel:
         else:
             self.runRepo: ITestAndTrainer = PyTorchTrainer(config, filename)
 
-        loss, accuracy = self.runRepo.test(0, f"test-setup_replay-globalmodel", self.global_model, self.test, DEVICE)
+        loss, accuracy = self.runRepo.test(0, f"test-setup_replay-globalmodel", self.global_model, self._test_data, DEVICE)
 
         self.accuracy = [accuracy]
         self.loss = [loss]
@@ -940,6 +968,19 @@ def get_hash(_state_dict):
         parts.append(b"\n")
     blob = b"".join(parts)
     return Web3.keccak(blob)  #remove hex to match old, with improved algo.
+
+def preload_to_gpu(dataloader, device):
+    """Load an entire DataLoader into GPU memory as a single (images, labels) tensor pair."""
+    images_list, labels_list = [], []
+    with torch.no_grad():
+        for imgs, lbls in dataloader:
+            images_list.append(imgs)
+            labels_list.append(lbls)
+    return (
+        torch.cat(images_list).to(device, non_blocking=NON_BLOCKING),
+        torch.cat(labels_list).to(device, non_blocking=NON_BLOCKING),
+    )
+
 
 # PYTORCH FUNCTIONS
 def train(net, trainloader: torch.utils.data.DataLoader, epochs: int, device: torch.device) -> None:
@@ -971,11 +1012,19 @@ def test(net, testloader, device):
     criterion = nn.CrossEntropyLoss()
     net.eval()
 
-    correct = 0
-    total = 0
-    loss = 0.0
-
     with torch.no_grad():
+        # Fast path: pre-loaded GPU tensors — one forward pass, no per-batch CPU↔GPU transfers
+        if isinstance(testloader, tuple):
+            images, labels = testloader
+            with torch.autocast(device_type=device.type, enabled=AMP):
+                outputs = net(images)
+            loss = criterion(outputs, labels).item()
+            accuracy = (outputs.argmax(dim=1) == labels).float().mean().item()
+            return loss, accuracy
+
+        correct = 0
+        total = 0
+        loss = 0.0
         for images, labels in testloader:
             images = images.to(device, non_blocking=NON_BLOCKING)
             labels = labels.to(device, non_blocking=NON_BLOCKING)
@@ -1061,7 +1110,7 @@ def train_user_proc(user_addr, model_state, train_ds, val_ds, epochs, device_id,
     del train_loader
     del val_loader
 
-    print(f"[{device_label(device, device_id)}] User {user_addr} done | Acc: {val_acc:.3f}, Loss: {val_loss:.3f}")
+    log("round_training", f"[{device_label(device, device_id)}] User {user_addr} done | Acc: {val_acc:.3f}, Loss: {val_loss:.3f}")
 
     # Ensure all GPU work is complete before worker exits
     if device.type == "cuda":
@@ -1071,23 +1120,23 @@ def train_user_proc(user_addr, model_state, train_ds, val_ds, epochs, device_id,
 def print_training_mode(num_gpus: int, num_processes: int):
     """Prints a clean status message describing how training will run."""
     if num_gpus >= 2:
-        print(green(f"Detected {num_gpus} GPU(s) → Parallel multi-GPU training"))
+        log("round_training", green(f"Detected {num_gpus} GPU(s) → Parallel multi-GPU training"))
 
     elif num_gpus == 1:
         if num_processes > 1:
-            print(yellow(
+            log("round_training", yellow(
                 f"Detected 1 GPU → Parallel training on one GPU (shared across {num_processes} workers)"
             ))
         else:
-            print(green("Detected 1 GPU → Sequential GPU training"))
+            log("round_training", green("Detected 1 GPU → Sequential GPU training"))
 
     else:  # CPU-only
         if num_processes > 1:
-            print(yellow(
+            log("round_training", yellow(
                 f"Detected 0 GPU(s) → Parallel CPU training ({num_processes} workers)"
             ))
         else:
-            print(red("Detected 0 GPU(s) → Sequential CPU mode"))
+            log("round_training", red("Detected 0 GPU(s) → Sequential CPU mode"))
 
 
 

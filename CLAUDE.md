@@ -10,17 +10,22 @@ OpenFL 2.0 is a federated learning research platform that integrates PyTorch-bas
 
 - Never run `git commit` or `git push`. Always leave committing and pushing to the user.
 - When a commit or push is needed, tell the user what to commit and provide the exact command to run.
+- A custom method called log exists for printing, taking a tag and the print message. Whenever a Print statement is needed, use log, along with an appropriate exsting or new tag. New tags can be found in print_config.py.
 
 ## Commands
 
 ### Setup
 ```bash
+# CPU / NVIDIA (install GPU torch first if using NVIDIA):
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu130    # NVIDIA
 pip install -e ".[dev]"
 python3 scripts/compile_contracts.py   # Build ABI + bytecode from Solidity contracts
 
-# GPU (choose one):
-pip3 install torch torchvision --index-url https://download.pytorch.org/whl/rocm7.1  # AMD
-pip3 install torch torchvision --index-url https://download.pytorch.org/whl/cu130    # NVIDIA
+# AMD Linux:
+pip install torch torchvision --index-url https://download.pytorch.org/whl/rocm7.1
+pip install -e ".[dev]"
+
+# AMD Windows: see README section 3 for multi-step ROCm SDK + wheel install
 ```
 
 ### Running Experiments
@@ -60,7 +65,8 @@ forge test
 - `dotproduct` — matrix multiplication of weight vectors
 - `naive` — accuracy-based
 - `accuracy_loss` — combined accuracy + loss
-- `accuracy_only` / `loss_only` — single-metric variants
+- `accuracy_only` / `loss_only` / `loss_tolerance_aware` / `loss_tolerance_snap` — single-metric variants, and loss with tolerance
+- 
 
 **Blockchain / Web3 Layer** (`src/openfl/api/`, `contracts/`)
 - `connection_helper.py` — RPC connection, ABI/bytecode loading, account init
@@ -81,4 +87,4 @@ Ganache requires a workspace (not quickstart) with: gas limit set significantly 
 
 ### Python Version
 
-Python 3.13 is supported/tested.
+Python 3.12 is required (3.12.x). AMD GPU on Windows requires exactly Python 3.12 due to wheel availability.
