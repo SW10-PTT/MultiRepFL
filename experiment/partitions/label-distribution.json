@@ -1,6 +1,10 @@
 {
   "_doc": [
-    "add some text here"
+    "Tests the effect of soft per-class data skew. Each user has a data_percent plus a per-label",
+    "retention factor: 1.0 keeps the full fair share, 0.5 keeps half. Example: 15% data_percent",
+    "with retention 1.0 on label 1 -> 15% of label 1 in the dataset; retention 0.5 -> 7.5%.",
+    "Expectation: users with stronger data on a dataset perform better and earn a higher",
+    "reputation score."
   ],
   "5aaefefd-d131-41a1-8f42-5221248e2463": {
     "name": "H1 MNIST-heavy, expert MNIST 0-1 / CIFAR 4-5",

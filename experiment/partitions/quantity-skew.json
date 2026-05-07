@@ -1,7 +1,9 @@
 {
   "_doc": [
-    "Please insert document for this experimetn",
-    "And better naming for the users"
+    "Tests the effect of unequal data quantities. Users get different data_percent on MNIST",
+    "and CIFAR-10 with no label restrictions, so a user can be data-rich on one dataset and",
+    "data-poor on the other. Expectation: users with more data train better local models",
+    "and earn a higher reputation score."
   ],
   "5aaefefd-d131-41a1-8f42-5221248e2463": {
     "name": "H1 Strong MNIST, Weak CIFAR-10",

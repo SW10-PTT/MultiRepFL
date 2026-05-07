@@ -1,7 +1,8 @@
 {
   "_doc": [
-    "please add documentation for this experiment",
-    "and maybe change the nanme of ther users"
+    "Aggressive label restriction: each user has only a small label subset, different across",
+    "MNIST and CIFAR-10. Expectation: global accuracy drops, and users whose label coverage",
+    "is better aligned to the task earn a higher reputation score."
   ],
   "5aaefefd-d131-41a1-8f42-5221248e2463": {
     "name": "H1 Strong MNIST, Weak CIFAR-10",

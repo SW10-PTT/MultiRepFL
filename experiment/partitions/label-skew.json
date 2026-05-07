@@ -1,8 +1,7 @@
 {
   "_doc": [
-    "this is to test the label skewness", 
-    "pelase insert beter documetnion for this test",
-    "Maybe change name to be shorter"
+    "Simple label availability test: some users have all 10 labels, others have only a subset.",
+    "Expectation: users with more labels train better and earn a higher reputation score."
   ],
   "5aaefefd-d131-41a1-8f42-5221248e2463": {
     "name": "H1 Full Both",
