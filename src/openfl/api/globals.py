@@ -11,6 +11,7 @@ w3 = None
 reuse_runs: ReplayMode = ReplayMode.Record# | ReplayMode.PlayBack | ReplayMode.HardPlayBack
 gas_used = {}
 repo_dir = "runs"
+progress = 0
 
 
 

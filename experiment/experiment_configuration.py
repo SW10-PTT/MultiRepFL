@@ -289,3 +289,9 @@ class ExperimentConfiguration:
             k: v for k, v in self.__dict__.items()
             if not callable(v) and not (k.startswith("_") or k.startswith("__"))
         }
+    
+    def build_config(run_config: dict | str) -> ExperimentConfiguration:
+        if isinstance(run_config, str):
+            run_config = json.loads(run_config)
+
+        return ExperimentConfiguration(**run_config)

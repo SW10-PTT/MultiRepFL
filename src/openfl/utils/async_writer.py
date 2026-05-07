@@ -80,16 +80,12 @@ class AsyncWriter:
         self.queue.put((comment, True), block=False)
 
     def finish(self):
-        print("finish1")
         # Tell the writer thread to stop
         self.queue.put((None, False)) 
-        print("finish2")
         # Wait for all queued tasks (including stop) to be marked done
         self.queue.join()
-        print("finish3")
         # Now wait for the thread to exit
         self.thread.join()
-        print("finish4")
 
     def _write_config(self, file: TextIOWrapper):
       cfg = self.config
