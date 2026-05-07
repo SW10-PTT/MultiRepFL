@@ -16,18 +16,18 @@ config = ExperimentConfiguration(
     min_buy_in=int(1e18),
     max_buy_in=int(1e18),
     contribution_score_strategy="loss_tolerance_aware", # Options: dotproduct, naive, accuracy_loss, accuracy_only, loss_only, loss_tolerance_aware, loss_tolerance_snap
-    loss_tolerance_pct=0.15, # ε = pct * avg_prev_loss; only used by loss_tolerance_* strategies
+    loss_tolerance_pct=0.2, # ε = pct * avg_prev_loss; only used by loss_tolerance_* strategies
     use_outlier_detection=True,
     minimum_rounds=25,
     epochs=1,
-    number_of_good_contributors=5,
-    number_of_bad_contributors=3,
+    punish_factor=3,
+    punish_factor_contrib=3,
+    number_of_good_contributors=4,
+    number_of_bad_contributors=1,
     number_of_freerider_contributors=1,
     force_merge_all=False,
     freerider_noise_scale=0.1,
     malicious_noise_scale=1.0,
-    punish_factor=3,
-    punish_factor_contrib=3,
     freerider_start_round=1,
     malicious_start_round=1,
     number_of_participants=9,

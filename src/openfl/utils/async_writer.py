@@ -8,6 +8,7 @@ from queue import Queue, Full
 from typing import List
 import platform
 import psutil
+from openfl.utils.printer import log
 
 def _time_handler(item):
     return datetime.now().strftime("%H:%M:%S.%f")[:-3]
@@ -22,7 +23,7 @@ class AsyncWriter:
     def __init__(self, path: Path, header: List[str], queue_size, config, author):
         # path.parent.mkdir()
         path.parent.mkdir(parents=True, exist_ok=True)
-        print(f"Writing to {path.absolute()}")
+        log("writer", f"Writing to {path.absolute()}")
         self.csv_path = path
         self.header = header
         self.queue = Queue(maxsize=queue_size)
@@ -44,7 +45,7 @@ class AsyncWriter:
                     f.flush()
                     os.fsync(f.fileno())
                     self.queue.task_done()
-                    print("stopping write queue")
+                    log("writer", "stopping write queue")
                     break
 
                 if isComment:
@@ -58,7 +59,7 @@ class AsyncWriter:
                 if self.queue.empty():
                     f.flush()
                     os.fsync(f.fileno())
-        print("Stopping Writer")
+        log("writer", "Stopping Writer")
 
     def _writeMetaAndHeaderIfEmpty(self):
         empty = (not os.path.exists(self.csv_path)) or os.path.getsize(self.csv_path) == 0

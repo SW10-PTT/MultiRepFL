@@ -15,6 +15,7 @@ from openfl.ml.Participant import Participant
 from openfl.utils.types.Attitude import Attitude
 from openfl.utils.types.Colors import gb, rb, b, green, red
 from openfl.utils import require_env_var
+from openfl.utils.printer import log
 from openfl.api import globals
 
 class ConnectionHelper:
@@ -42,20 +43,20 @@ class ConnectionHelper:
         
         
         #print("\n==================================================================================\n")
-        print("Connected to Ethereum: {}".format(colored(globals.w3.is_connected(), "green", attrs=['bold'])))
-        print("initiated Ganache-Client @ Block Nr. {:,.0f}\n".format(latestBlock))        
-        print("Total Contributers:       {}".format(NUMBER_OF_CONTRIBUTORS))
-        print("Good Contributers:        {} ({:.0f}%)".format(NUMBER_OF_GOOD_CONTRIBUTORS,
-                                                        NUMBER_OF_GOOD_CONTRIBUTORS/NUMBER_OF_CONTRIBUTORS*100)) 
-        print("Malicious Contributers:   {} ({:.0f}%)".format(NUMBER_OF_BAD_CONTRIBUTORS,
-                                                        NUMBER_OF_BAD_CONTRIBUTORS/NUMBER_OF_CONTRIBUTORS*100 )) 
-        print("Freeriding Contributers:  {} ({:.0f}%)".format(NUMBER_OF_FREERIDER_CONTRIBUTORS,
-                                                        NUMBER_OF_FREERIDER_CONTRIBUTORS/NUMBER_OF_CONTRIBUTORS*100 )) 
-        print("Inactive Contributers:    {} ({:.0f}%)".format(NUMBER_OF_INACTIVE_CONTRIBUTORS,
-                                                        NUMBER_OF_INACTIVE_CONTRIBUTORS/NUMBER_OF_CONTRIBUTORS*100 )) 
-        print("Learning Rounds:          {}".format(MINIMUM_ROUNDS)) 
+        log("setup_env", "Connected to Ethereum: {}".format(colored(globals.w3.is_connected(), "green", attrs=['bold'])))
+        log("setup_env", "initiated Ganache-Client @ Block Nr. {:,.0f}\n".format(latestBlock))
+        log("setup_contracts", "Total Contributers:       {}".format(NUMBER_OF_CONTRIBUTORS))
+        log("setup_contracts", "Good Contributers:        {} ({:.0f}%)".format(NUMBER_OF_GOOD_CONTRIBUTORS,
+                                                        NUMBER_OF_GOOD_CONTRIBUTORS/NUMBER_OF_CONTRIBUTORS*100))
+        log("setup_contracts", "Malicious Contributers:   {} ({:.0f}%)".format(NUMBER_OF_BAD_CONTRIBUTORS,
+                                                        NUMBER_OF_BAD_CONTRIBUTORS/NUMBER_OF_CONTRIBUTORS*100))
+        log("setup_contracts", "Freeriding Contributers:  {} ({:.0f}%)".format(NUMBER_OF_FREERIDER_CONTRIBUTORS,
+                                                        NUMBER_OF_FREERIDER_CONTRIBUTORS/NUMBER_OF_CONTRIBUTORS*100))
+        log("setup_contracts", "Inactive Contributers:    {} ({:.0f}%)".format(NUMBER_OF_INACTIVE_CONTRIBUTORS,
+                                                        NUMBER_OF_INACTIVE_CONTRIBUTORS/NUMBER_OF_CONTRIBUTORS*100))
+        log("setup_contracts", "Learning Rounds:          {}".format(MINIMUM_ROUNDS))
 
-        print("-----------------------------------------------------------------------------------")
+        log("setup_contracts", "-----------------------------------------------------------------------------------")
 
         latestBlock = self.initiate_connection(NUMBER_OF_CONTRIBUTORS, latestBlock, manual_setup)
 
@@ -94,11 +95,11 @@ class ConnectionHelper:
             else:
                 prefix = "MAL."
             bal = globals.w3.eth.get_balance(acc.address)
-            print("{:<17} {} with {:<4,.1f} ETH | {} USER".format("Account initiated", 
+            log("setup_contracts", "{:<17} {} with {:<4,.1f} ETH | {} USER".format("Account initiated",
                                                            "@ Address "+acc.address[0:25]+"...",
                                                            bal/1e18,
                                                            prefix))
-        print("-----------------------------------------------------------------------------------")
+        log("setup_contracts", "-----------------------------------------------------------------------------------")
         return latestBlock
 
     @classmethod
@@ -126,14 +127,14 @@ class ConnectionHelper:
             try:
                 if globals.fork:
                     globals.w3 = Web3(Web3.HTTPProvider(infura_url))
-                    print("Connected:", globals.w3.is_connected())
-                    print("Client:", globals.w3.client_version)
-                    print("Chain ID:", globals.w3.eth.chain_id)
-                    print("Latest block:", globals.w3.eth.block_number)
-                    print("Accounts:", globals.w3.eth.accounts[:3])
-                    print("Default account:", globals.w3.eth.default_account)
+                    log("setup_env", "Connected:", globals.w3.is_connected())
+                    log("setup_env", "Client:", globals.w3.client_version)
+                    log("setup_env", "Chain ID:", globals.w3.eth.chain_id)
+                    log("setup_env", "Latest block:", globals.w3.eth.block_number)
+                    log("setup_env", "Accounts:", globals.w3.eth.accounts[:3])
+                    log("setup_env", "Default account:", globals.w3.eth.default_account)
                     globals.w3.eth.default_account = globals.w3.eth.accounts[0]
-                    print("New Default account:", globals.w3.eth.default_account)
+                    log("setup_env", "New Default account:", globals.w3.eth.default_account)
                 else:
                     globals.w3 = Web3(Web3.HTTPProvider(infura_url))
                 latestBlock = globals.w3.eth.block_number

@@ -17,6 +17,8 @@ from openfl.utils.async_writer import AsyncWriter
 from openfl.utils.types.Attitude import Attitude
 from openfl.utils.types.Colors import RNG, get_color
 from openfl.utils.types.TrainingSpecsJobListing import TrainingSpecsJobListing, TrainingSpecsChallenge
+import openfl.api.globals as globals
+from openfl.utils.printer import log
   
 class User:
     user_count = 0
@@ -170,7 +172,7 @@ class User:
         txHash = receipt["transactionHash"]
         self.txs.append(txHash)
         bal = globals.w3.eth.get_balance(globals.w3.eth.default_account)
-        print("{:<17} {} ({}) | {} | {:>25,.0f} WEI".format("Account registered:",
+        log("setup_contracts""{:<17} {} ({}) | {} | {:>25,.0f} WEI".format("Account registered:",
                 self.display_label(),
                 self.address[0:16] + "...",
                 txHash.hex()[0:6] + "...",
