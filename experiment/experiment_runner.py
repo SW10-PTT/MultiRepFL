@@ -157,7 +157,6 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
       except ContractLogicError as e:
           if "SUO" in str(e):
               log("round_models", "Participant tried joining but was not selected")
-  staus = f"$startingUserConfig${[p.get_status() for p in pytorch_model.participants]}"
   writer.write_comment(f"$startingUserConfig${[p.get_status() for p in pytorch_model.participants]}")
   
   # This happens after deciding on users
