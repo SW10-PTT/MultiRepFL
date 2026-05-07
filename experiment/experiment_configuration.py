@@ -190,7 +190,7 @@ class ExperimentConfiguration:
     # may still differ (e.g. user 0 honest on MNIST, malicious on CIFAR-10),
     # but the participant roster is fixed.
     def _validate_per_user_index_set(self):
-        reference_indices: Optional[set[int]] = None
+        reference_indices: Optional[set[str]] = None
         reference_label: Optional[str] = None
         for dataset_key, specs in self.per_user_partitions.items():
             label = "default" if dataset_key == ANY_DATASET else dataset_key
@@ -236,7 +236,7 @@ class ExperimentConfiguration:
 
     # {user_index: Attitude} for the active dataset, used by the experiment
     # runner to assign attitudes when partition_strategy='per_user'.
-    def get_behaviors_per_user(self) -> dict[int, Attitude]:
+    def get_behaviors_per_user(self) -> dict[str, Attitude]:
         if self.partition_strategy != "per_user":
             raise RuntimeError(
                 "get_behaviors_per_user is only valid when partition_strategy='per_user'"
@@ -265,7 +265,10 @@ class ExperimentConfiguration:
     # fair share is at most pct/100 of every class pool. Validates every
     # dataset entry independently so a bad profile is caught up front.
     # Index-set consistency across datasets is checked by
-    # _validate_per_user_index_set; here we only verify density/budget.
+    # _validate_per_user_index_set; here we only verify uniqueness/budget.
+    # user_index keys are opaque strings (GUIDs or numeric strings); the
+    # runner iterates them in sorted order for deterministic account
+    # allocation, so no positional/density invariant is required.
     def _validate_per_user_partitions(self):
         if not self.per_user_partitions:
             raise ValueError(
@@ -276,15 +279,9 @@ class ExperimentConfiguration:
 
         for dataset_key, specs in self.per_user_partitions.items():
             label = "default" if dataset_key == ANY_DATASET else dataset_key
-            provided_indices = sorted(specs.keys())
-            # Indices must form 0..N-1 so downstream loops in the runner can
-            # iterate by index. (A future GUID-keyed layout will replace this
-            # with set-based iteration.)
-            expected_indices = list(range(len(provided_indices)))
-            if provided_indices != expected_indices:
+            if not specs:
                 raise ValueError(
-                    f"per_user_partitions[{label}] user_index keys must form a dense "
-                    f"0..N-1 range; got {provided_indices}"
+                    f"per_user_partitions[{label}] must list at least one user"
                 )
 
             total_budget = sum(spec.data_percent for spec in specs.values())
@@ -295,11 +292,14 @@ class ExperimentConfiguration:
                 )
 
     def _resolve_user_seeds(self, user_seeds):
-        # Optional explicit per-user overrides. Anything not specified
-        # gets derived from the master seed at runtime via SHA256.
+        # Optional explicit per-user overrides. Keys are normalised to str so
+        # the same lookup works for GUID-keyed per_user mode and positional
+        # int indices in global mode (callers stringify on lookup).
+        # Anything not specified gets derived from the master seed at runtime
+        # via SHA256.
         if user_seeds is None:
             return {}
-        return {int(user_index): int(seed) for user_index, seed in user_seeds.items()}
+        return {str(user_index): int(seed) for user_index, seed in user_seeds.items()}
 
     def get_finger_print(self, participants):
         # Sort participant fingerprints so config fingerprint is order-invariant.

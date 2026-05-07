@@ -373,11 +373,20 @@ contract OpenFLChallenge {
     }
 
     function isContributionRoundDone() public view returns (bool roundClosed) {
+        // mergedUsers == users that contributed to the global model this
+        // round. Python uses `roundReputation >= 0` to pick the merger set
+        // (FLChallenge.py: contributors = [u for u in participants if
+        // u._roundrep[-1] >= 0]) and submits one contribution score per
+        // merger. The on-chain check must mirror that predicate, otherwise
+        // the round never closes when |downvoted| != |merged| and settle()
+        // gets force-triggered on partial state.
         uint mergedUsers = 0;
         for (uint i = 0; i < participants.length; i++) {
+            User storage user = users[participants[i]];
             if (
-                users[participants[i]].roundReputation < 0 &&
-                !users[participants[i]].isDisqualified
+                user.isRegistered &&
+                !user.isDisqualified &&
+                user.roundReputation >= 0
             ) {
                 mergedUsers++;
             }
@@ -461,27 +470,47 @@ contract OpenFLChallenge {
             }
         }
 
-        // Punish helpers of malicious users
+        // Punish helpers of malicious users.
+        //
+        // Invariant: votesPerRound == sum(nrOfVotesFromUser) over all voters
+        // (each feedback() call increments both by 1). The punish loop above
+        // already removed every punished user's outgoing votes (L411), so
+        // skipping isPunished users here keeps the subtractions disjoint.
+        // Within the helper branch, we hoist the subtraction outside the
+        // per-punished-address loop: a helper's votes leave the denominator
+        // exactly once regardless of how many malicious users they backed.
+        // Old code subtracted nrOfVotesFromUser once per offending vote,
+        // which both over-counted the penalty and underflowed votesPerRound
+        // whenever a helper voted positive for >= 2 punished users.
         for (uint i = 0; i < participants.length; i++) {
             User storage user = users[participants[i]];
-            if (user.isRegistered && !user.isDisqualified) {
-                for (uint j = 0; j < punishedAddresses.length; j++) {
-                    if (
-                        votedPositiveFor[participants[i]][punishedAddresses[j]]
-                    ) {
-                        votedPositiveFor[participants[i]][
-                            punishedAddresses[j]
-                        ] = false;
-                        votesPerRound -= user.nrOfVotesFromUser;
-                        user.whitelistedForRewards = false;
-                        emit PassivPunishment(
-                            participants[i],
-                            user.roundReputation,
-                            0,
-                            user.globalReputationScore
-                        );
-                    }
+            if (
+                !user.isRegistered ||
+                user.isDisqualified ||
+                user.isPunished
+            ) {
+                continue;
+            }
+            bool isHelper = false;
+            for (uint j = 0; j < punishedAddresses.length; j++) {
+                if (
+                    votedPositiveFor[participants[i]][punishedAddresses[j]]
+                ) {
+                    votedPositiveFor[participants[i]][
+                        punishedAddresses[j]
+                    ] = false;
+                    isHelper = true;
+                    emit PassivPunishment(
+                        participants[i],
+                        user.roundReputation,
+                        0,
+                        user.globalReputationScore
+                    );
                 }
+            }
+            if (isHelper) {
+                votesPerRound -= user.nrOfVotesFromUser;
+                user.whitelistedForRewards = false;
             }
         }
 

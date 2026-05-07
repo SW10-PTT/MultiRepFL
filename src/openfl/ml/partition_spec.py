@@ -56,9 +56,11 @@ def normalize_dataset_name(name: Optional[str]) -> str:
 
 # Per-user partition spec for the per_user partition strategy. Immutable
 # so it can flow through the config without surprise mutation.
+# user_index is a free-form string identifier (GUID, numeric string, or any
+# stable label). Any non-str input is coerced to str at construction time.
 @dataclass(frozen=True)
 class UserPartitionSpec:
-    user_index: int
+    user_index: str
     data_percent: float
     label_distribution: Optional[Dict[int, float]] = None
     only_labels: Optional[List[int]] = None
@@ -70,6 +72,11 @@ class UserPartitionSpec:
     start_round: Optional[int] = None
 
     def __post_init__(self):
+        # Normalise to str so GUID and legacy-int keys land in the same shape.
+        if not isinstance(self.user_index, str):
+            object.__setattr__(self, "user_index", str(self.user_index))
+        if not self.user_index:
+            raise ValueError("user_index must be a non-empty string")
         if not (0.0 < float(self.data_percent) <= 100.0):
             raise ValueError(
                 f"user {self.user_index}: data_percent must be in (0, 100], got {self.data_percent}"
@@ -132,7 +139,7 @@ class UserPartitionSpec:
     # so the resulting JSON blob is byte-stable.
     def fingerprint_dict(self) -> dict:
         return {
-            "user_index": int(self.user_index),
+            "user_index": str(self.user_index),
             "name": self.name,
             "data_percent": round(float(self.data_percent), 8),
             "label_distribution": (
@@ -159,11 +166,11 @@ class UserPartitionSpec:
 
 # Single-dataset loader. Returns {user_index: UserPartitionSpec}. Accepts
 # either a path to a JSON file or an in-memory dict in the legacy shape:
-#   {"users": [{"user_index": 0, ...}, ...]}
-#   {"0": {...}, "1": {...}}
+#   {"users": [{"user_index": "0", ...}, ...]}
+#   {"<guid>": {...}, "<guid>": {...}}
 def load_partition_specs(
     source: Union[str, Path, dict, None],
-) -> Dict[int, UserPartitionSpec]:
+) -> Dict[str, UserPartitionSpec]:
     if source is None:
         return {}
     payload = _load_payload(source)
@@ -178,7 +185,7 @@ def load_partition_specs(
 #   {"users": [{"user_index": ..., "name": ..., "datasets": {...}}, ...]}
 def load_dataset_partition_specs(
     source: Union[str, Path, dict, None],
-) -> Dict[str, Dict[int, UserPartitionSpec]]:
+) -> Dict[str, Dict[str, UserPartitionSpec]]:
     if source is None:
         return {}
     payload = _load_payload(source)
@@ -220,16 +227,16 @@ def _is_multi_dataset(payload) -> bool:
     return False
 
 
-def _load_multi_dataset(payload) -> Dict[str, Dict[int, UserPartitionSpec]]:
+def _load_multi_dataset(payload) -> Dict[str, Dict[str, UserPartitionSpec]]:
     raw = payload.get("users") if isinstance(payload, dict) and "users" in payload else payload
 
-    out: Dict[str, Dict[int, UserPartitionSpec]] = {}
+    out: Dict[str, Dict[str, UserPartitionSpec]] = {}
 
     def add_entry(user_key, entry):
         entry = dict(entry)
         if "user_index" not in entry and "id" not in entry and user_key is not None:
-            entry["user_index"] = int(user_key)
-        user_index = int(entry.get("user_index", entry.get("id")))
+            entry["user_index"] = str(user_key)
+        user_index = str(entry.get("user_index", entry.get("id")))
         name = entry.get("name")
         # Behavior, noise_scale and start_round are per-dataset by design.
         # Reject them at the user-entry level to keep the schema unambiguous.
@@ -266,13 +273,13 @@ def _load_multi_dataset(payload) -> Dict[str, Dict[int, UserPartitionSpec]]:
     return out
 
 
-def _load_single_dataset(payload) -> Dict[int, UserPartitionSpec]:
+def _load_single_dataset(payload) -> Dict[str, UserPartitionSpec]:
     if isinstance(payload, dict) and "users" in payload:
         raw = payload["users"]
     else:
         raw = payload
 
-    specs: Dict[int, UserPartitionSpec] = {}
+    specs: Dict[str, UserPartitionSpec] = {}
     if isinstance(raw, list):
         for entry in raw:
             spec = _build_spec(dict(entry))
@@ -280,7 +287,7 @@ def _load_single_dataset(payload) -> Dict[int, UserPartitionSpec]:
     elif isinstance(raw, dict):
         for key, entry in raw.items():
             entry = dict(entry)
-            entry.setdefault("user_index", int(key))
+            entry.setdefault("user_index", str(key))
             spec = _build_spec(entry)
             specs[spec.user_index] = spec
     else:
@@ -332,7 +339,7 @@ def _build_spec(entry: dict) -> UserPartitionSpec:
         start_round = int(start_round)
 
     return UserPartitionSpec(
-        user_index=int(entry["user_index"]),
+        user_index=str(entry["user_index"]),
         data_percent=float(entry["data_percent"]),
         label_distribution=label_dist,
         only_labels=only_labels,

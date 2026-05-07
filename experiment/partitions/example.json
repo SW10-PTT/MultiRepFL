@@ -56,11 +56,13 @@
     "",
     "Every dataset block must list the same set of user_index keys (the participant",
     "roster is fixed across datasets). Behavior, noise_scale and start_round may differ",
-    "per dataset. user_index keys must form a dense 0..N-1 range.",
+    "per dataset. user_index keys are opaque strings (GUIDs or numeric strings); the",
+    "runner allocates blockchain accounts in sorted-key order, so the same key set",
+    "produces the same account assignment across runs.",
     ""
   ],
 
-  "0": {
+  "49f1f8d6-306c-4e50-b159-e869243abf4d": {
     "name": "User 0",
     "datasets": {
       "MNIST": {
@@ -73,7 +75,7 @@
       }
     }
   },
-  "1": {
+  "041c30ac-9753-4fad-a2da-08fded8df5aa": {
     "name": "User 1",
     "datasets": {
       "MNIST": {
@@ -86,7 +88,7 @@
       }
     }
   },
-  "2": {
+  "e8708fb4-4bdd-4633-97f0-594989530d2d": {
     "name": "User 2",
     "datasets": {
       "MNIST": {
@@ -109,7 +111,7 @@
       }
     }
   },
-  "3": {
+  "e3caded8-a028-47bb-b807-f12952b829bd": {
     "name": "User 3",
     "datasets": {
       "MNIST": {
@@ -136,7 +138,7 @@
       }
     }
   },
-  "4": {
+  "5a25b310-85e4-4029-8a52-6f43a786d3ea": {
     "name": "User 4",
     "datasets": {
       "MNIST": {
@@ -153,7 +155,7 @@
       }
     }
   },
-  "5": {
+  "aefe1094-bd11-4b79-a81b-bc5d14ecd135": {
     "name": "User 5",
     "datasets": {
       "MNIST": {
@@ -166,7 +168,7 @@
       }
     }
   },
-  "6": {
+  "8a80a056-9f35-4a94-b7e2-5724d1042ab7": {
     "name": "User 6",
     "datasets": {
       "MNIST": {
@@ -185,7 +187,7 @@
       }
     }
   },
-  "7": {
+  "12209e45-482b-4962-a1bb-a03efb73f80e": {
     "name": "User 7",
     "datasets": {
       "MNIST": {
