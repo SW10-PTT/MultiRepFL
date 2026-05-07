@@ -1074,6 +1074,7 @@ class TestRemoveOutliersMAD:
 
 class TestFLChallengeFeatures:
     # Test user registration process
+    @pytest.mark.skip(reason="register_all_users method removed from FLChallenge — test no longer applicable")
     def test_register_all_users(self, fl_challenge, mock_participants, mock_contract):
         """
         Test the register_all_users method to ensure all users are registered correctly.
@@ -1171,52 +1172,48 @@ class TestFLChallengeFeatures:
             assert torch.equal(local_updates_arg[2], torch.tensor([3.0, 3.0, 3.0, 3.0]))
 
 
+def _make_strategy_challenge(strategy, use_outlier_detection=False):
+    # Bypass blockchain deploy in __init__; the strategy-selection tests only
+    # need _contribution_score_strategy + the calculator lookup table.
+    challenge = FLChallenge.__new__(FLChallenge)
+    challenge._contribution_score_strategy = strategy
+    challenge.contribution_score_strategy = strategy
+    challenge.experiment_config = SimpleNamespace(
+        contribution_score_strategy=strategy,
+        use_outlier_detection=use_outlier_detection,
+    )
+    challenge.use_outlier_detection = use_outlier_detection
+    challenge._contribution_score_calculators = {
+        "dotproduct": challenge._calculate_scores_dotproduct,
+        "naive": challenge._calculate_scores_naive,
+        "accuracy_loss": challenge._calculate_scores_accuracy_loss,
+        "accuracy_only": challenge._calculate_scores_accuracy_only,
+        "loss_only": challenge._calculate_scores_loss_only,
+        "loss_tolerance_aware": challenge._calculate_scores_loss_tolerance_aware,
+        "loss_tolerance_snap": challenge._calculate_scores_loss_tolerance_snap,
+    }
+    return challenge
+
+
 class TestFLChallengeWorkflow:
     # Test strategy selection for dot-product with MAD enabled
-    @pytest.mark.skip(reason="FLChallenge.__init__ signature changed; test uses old (manager, configs, pytorch_model, experiment_config) shape and triggers blockchain deploy")
-    def test_strategy_selection_dotproduct(self, mock_w3, mock_contract):
-        manager = MagicMock(w3=mock_w3, fork=True)
-        experiment_config = SimpleNamespace(
-            contribution_score_strategy='dotproduct',
-            use_outlier_detection=True,
-        )
-        configs = [mock_contract, "0xModel", 100, 1000, 500, 3, 0.5, 3, 0.1]
-        pytorch_model = MagicMock()
-
-        challenge = FLChallenge(manager, configs, pytorch_model, experiment_config)
+    def test_strategy_selection_dotproduct(self):
+        challenge = _make_strategy_challenge('dotproduct', use_outlier_detection=True)
 
         assert challenge._contribution_score_strategy == 'dotproduct'
         assert challenge.experiment_config.use_outlier_detection is True
         assert challenge._get_contribution_score_calculator() == challenge._calculate_scores_dotproduct
 
     # Test strategy selection for naive mode
-    @pytest.mark.skip(reason="FLChallenge.__init__ signature changed; test uses old call shape and triggers blockchain deploy")
-    def test_strategy_selection_naive(self, mock_w3, mock_contract):
-        manager = MagicMock(w3=mock_w3)
-        experiment_config = SimpleNamespace(
-            contribution_score_strategy='naive',
-            use_outlier_detection=False,
-        )
-        configs = [mock_contract, "0xModel", 100, 1000, 500, 3, 0.5, 3, 0.1]
-        pytorch_model = MagicMock()
-
-        challenge = FLChallenge(manager, configs, pytorch_model, experiment_config)
+    def test_strategy_selection_naive(self):
+        challenge = _make_strategy_challenge('naive')
 
         assert challenge._contribution_score_strategy == 'naive'
         assert challenge._get_contribution_score_calculator() == challenge._calculate_scores_naive
 
     # Test invalid strategy selection
-    @pytest.mark.skip(reason="FLChallenge.__init__ signature changed; test uses old call shape and triggers blockchain deploy")
-    def test_strategy_selection_invalid(self, mock_w3, mock_contract):
-        manager = MagicMock(w3=mock_w3)
-        experiment_config = SimpleNamespace(
-            contribution_score_strategy='invalid_strategy',
-            use_outlier_detection=False,
-        )
-        configs = [mock_contract, "0xModel", 100, 1000, 500, 3, 0.5, 3, 0.1]
-        pytorch_model = MagicMock()
-
-        challenge = FLChallenge(manager, configs, pytorch_model, experiment_config)
+    def test_strategy_selection_invalid(self):
+        challenge = _make_strategy_challenge('invalid_strategy')
 
         with pytest.raises(ValueError) as excinfo:
             challenge._get_contribution_score_calculator()
@@ -1409,19 +1406,18 @@ class TestReporting:
         """
         mock_receipt = MagicMock()
 
+        # get_events returns event dicts flattened (no nested "args" key);
+        # print_round_summary indexes ev['round'], ev['user'], etc. directly.
         expected_events = {
             "EndRound": [{
-                "args": {
-                    "round": 1,
-                    "validVotes": 10,
-                    # Change 'sumOfWeights' to 'sumOfWeightedContribScore'
-                    "sumOfWeightedContribScore": 500,
-                    "totalPunishment": 0
-                }
+                "round": 1,
+                "validVotes": 10,
+                "sumOfWeightedContribScore": 500,
+                "totalPunishment": 0,
             }],
-            "Reward": [{"args": {"user": "0xUser", "roundScore": 100, "win": 50, "newReputation": 1050}}],
+            "Reward": [{"user": "0xUser", "roundScore": 100, "win": 50, "newReputation": 1050}],
             "Punishment": [],
-            "Disqualification": []
+            "Disqualification": [],
         }
 
         with patch.object(fl_challenge, 'get_events', return_value=expected_events):

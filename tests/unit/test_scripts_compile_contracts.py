@@ -1,24 +1,17 @@
 import importlib.util
-import types
+import json
 import sys
+import types
 from pathlib import Path
 
-import pytest
 
-# Vi må lige overveje om denne test er relevant, maybe delete
-@pytest.mark.skip(
-    reason="scripts/compile_contracts.py was rewritten (now reads 5 .sol files: "
-    "Manager/Challenge/JobListing/Types/Clones; writes manager_abi.json, "
-    "model_abi.json, etc. — not abi.txt/bytecode.txt). Test stubs only 2 sources "
-    "and the wrong contract names. Needs a full rewrite."
-)
 def test_compile_contracts_runs_with_stubs(tmp_path, monkeypatch):
-    # Prepare fake solcx module
+    # Stub solcx so the script doesn't actually invoke a Solidity compiler.
     class FakeSolcx:
         def __init__(self):
             self.installed = []
             self.version = None
-            self.compiled = None
+            self.compiled_config = None
 
         def install_solc(self, version):
             self.installed.append(version)
@@ -27,12 +20,21 @@ def test_compile_contracts_runs_with_stubs(tmp_path, monkeypatch):
             self.version = version
 
         def compile_standard(self, config):
-            self.compiled = config
+            self.compiled_config = config
+            # Mirror the script's expected output shape: each .sol file maps to
+            # the contract names it defines, each with abi + evm.bytecode.object.
             return {
                 "contracts": {
-                    "OpenFLModel.sol": {"OpenFLModel": {"evm": {"bytecode": {"object": "aa"}}, "abi": [1]}},
-                    "OpenFLManager.sol": {"OpenFLManager": {"evm": {"bytecode": {"object": "bb"}}, "abi": [2]}},
-                }
+                    "OpenFLManager.sol": {
+                        "OpenFLManager": {"abi": [{"name": "mgr"}], "evm": {"bytecode": {"object": "aa"}}},
+                    },
+                    "OpenFLChallenge.sol": {
+                        "OpenFLChallenge": {"abi": [{"name": "ch"}], "evm": {"bytecode": {"object": "bb"}}},
+                    },
+                    "JobListing.sol": {
+                        "JobListing": {"abi": [{"name": "jl"}], "evm": {"bytecode": {"object": "cc"}}},
+                    },
+                },
             }
 
     fake = FakeSolcx()
@@ -41,35 +43,50 @@ def test_compile_contracts_runs_with_stubs(tmp_path, monkeypatch):
     solcx_stub.set_solc_version = fake.set_solc_version
     solcx_stub.compile_standard = fake.compile_standard
     solcx_stub.get_installed_solc_versions = lambda: list(fake.installed)
-
     monkeypatch.setitem(sys.modules, "solcx", solcx_stub)
 
     project_root = Path(__file__).resolve().parents[2]
     src_path = project_root / "scripts" / "compile_contracts.py"
     code = src_path.read_text(encoding="utf-8")
 
-
-    module_path = tmp_path / "pkg" / "compile_contracts.py"
+    # Place the script inside tmp_path/scripts so its parents[1] points at tmp_path,
+    # which is where it expects to find ./contracts and where it writes ./artifacts.
+    module_path = tmp_path / "scripts" / "compile_contracts.py"
     module_path.parent.mkdir(parents=True, exist_ok=True)
-    module_path.write_text(code)
+    module_path.write_text(code, encoding="utf-8")
 
-    # Create fake contract sources
     contracts_dir = tmp_path / "contracts"
     contracts_dir.mkdir()
-    (contracts_dir / "OpenFLManager.sol").write_text("pragma solidity ^0.8.9;", encoding="utf-8")
-    (contracts_dir / "OpenFLModel.sol").write_text("pragma solidity ^0.8.9;", encoding="utf-8")
+    for name in ("OpenFLManager.sol", "OpenFLChallenge.sol", "JobListing.sol", "Types.sol", "Clones.sol"):
+        (contracts_dir / name).write_text("pragma solidity ^0.8.9;", encoding="utf-8")
 
     spec = importlib.util.spec_from_file_location("tmp_compile_contracts", module_path)
     module = importlib.util.module_from_spec(spec)
     sys.modules["tmp_compile_contracts"] = module
-
-    # Ensure module sees correct __file__ and Path operations
     module.__file__ = str(module_path)
-    spec.loader.exec_module(module)  # type: ignore[arg-type]
+    spec.loader.exec_module(module)
 
-    build_dir = tmp_path / "artifacts" / "bytecode"
-    assert build_dir.exists()
-    assert (build_dir / "abi.txt").exists()
-    assert (build_dir / "bytecode.txt").exists()
+    # Verify the solcx stubs were invoked with the expected version pin.
     assert fake.installed == ["0.8.9"]
     assert fake.version == "0.8.9"
+    # Verify all five sources reached compile_standard.
+    assert set(fake.compiled_config["sources"].keys()) == {
+        "OpenFLManager.sol", "OpenFLChallenge.sol", "JobListing.sol", "Types.sol", "Clones.sol",
+    }
+
+    # Verify the artifact files the script writes.
+    build_dir = tmp_path / "artifacts" / "bytecode"
+    assert build_dir.exists()
+    for f in (
+        "manager_abi.json", "manager_bytecode.bin",
+        "model_abi.json", "model_bytecode.bin",
+        "job_listing_abi.json", "job_listing_bytecode.bin",
+        "abi_model.py",
+    ):
+        assert (build_dir / f).exists(), f"expected artifact {f} to be written"
+
+    # Spot-check ABI content round-trips through json.
+    assert json.loads((build_dir / "manager_abi.json").read_text(encoding="utf-8")) == [{"name": "mgr"}]
+    assert (build_dir / "manager_bytecode.bin").read_text(encoding="utf-8") == "aa"
+    assert (build_dir / "model_bytecode.bin").read_text(encoding="utf-8") == "bb"
+    assert (build_dir / "job_listing_bytecode.bin").read_text(encoding="utf-8") == "cc"
