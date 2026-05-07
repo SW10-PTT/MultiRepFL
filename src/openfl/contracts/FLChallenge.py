@@ -433,6 +433,24 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
             else:
                 warnings.warn("INVALID FEEDBACK TYPE")
 
+        l = len(txs)
+        for i, tx_hash in enumerate(txs):
+            if tx_hash is None:
+                continue
+            printer.print_bar("round_models", i, l)
+            receipt = globals.w3.eth.wait_for_transaction_receipt(
+                tx_hash, timeout=600, poll_latency=1
+            )
+            self.gas_feedback.append(receipt["gasUsed"])
+            self.txHashes.append(("feedback", receipt["transactionHash"].hex(), receipt["gasUsed"]))
+            self._log_receipt(receipt, "feedback")
+
+        # Append aggregated on-chain roundReputation so _roundrep[-1] reflects the
+        # post-voting total (matches analysis/README "round reputation after voting").
+        # Per-vote deltas above remain in the list for any historical inspection.
+        for user in self.pytorch_model.participants + self.pytorch_model.disqualified:
+            user._roundrep.append(self.get_round_reputation_of_user(user.address))
+
 
     def sign_and_send_tx(self, user, contract_fn_call):
         nonce = globals.w3.eth.get_transaction_count(user.address)
@@ -969,8 +987,8 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                 pct_diff = (avg_loss - avg_prev_loss) / avg_prev_loss * 100 if avg_prev_loss != 0 else float('inf')
                 ustatus = "PUNISHED" if avg_loss > avg_prev_loss else ("improved" if avg_loss < avg_prev_loss else "neutral")
                 log("round_scoring",f"  [{u.display_label():<12}] loss={avg_loss:.6f}  baseline={avg_prev_loss:.6f}  diff={pct_diff:+.2f}%  [{ustatus}]")
-            except ValueError:
-                log("round_scoring", "An error occured")
+            except ValueError as e:
+                log("round_scoring", f"  [{u.display_label():<12}] SKIPPED ({e}) raw_losses={losses}")
                 per_user_outlier_info.append({})
 
         norm_losses = normalize_contribution_scores_new(avg_losses, avg_prev_loss, 'loss')
@@ -1047,8 +1065,8 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                 else:
                     ustatus = "PUNISHED (beyond ε)"
                 log("round_scoring",f"  [{u.display_label():<12}] loss={avg_loss:.6f}  baseline={avg_prev_loss:.6f}  diff={pct_diff:+.2f}%  margin_to_punish={pct_margin:+.2f}% ({margin:+.6f})  [{ustatus}]")
-            except ValueError:
-                log("round_scoring", "An error occurred")
+            except ValueError as e:
+                log("round_scoring", f"  [{u.display_label():<12}] SKIPPED ({e}) raw_losses={losses}")
                 per_user_outlier_info.append({})
 
         norm_losses = normalize_contribution_scores_new(avg_losses, shifted_baseline, 'loss')
@@ -1122,8 +1140,8 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                 else:
                     ustatus = "PUNISHED (beyond ε)"
                 log("round_scoring", f"  [{u.display_label():<12}] raw_loss={raw_avg_loss:.6f}  eff_loss={snapped_avg_loss:.6f}  baseline={avg_prev_loss:.6f}  diff={pct_diff:+.2f}%  margin_to_threshold={pct_margin:+.2f}% ({margin:+.6f})  [{ustatus}]")
-            except ValueError:
-                log("round_scoring", "An error occurred")
+            except ValueError as e:
+                log("round_scoring", f"  [{u.display_label():<12}] SKIPPED ({e}) raw_losses={losses}")
                 per_user_outlier_info.append({})
 
         norm_losses = normalize_contribution_scores_new(avg_losses, avg_prev_loss, 'loss')
