@@ -4,7 +4,7 @@
     "pelase insert beter documetnion for this test",
     "Maybe change name to be shorter"
   ],
-  "0": {
+  "5aaefefd-d131-41a1-8f42-5221248e2463": {
     "name": "H1 Full Both",
     "datasets": {
       "MNIST": {
@@ -17,7 +17,7 @@
       }
     }
   },
-  "1": {
+  "f80f7577-2625-468e-9098-1f268eb4db72": {
     "name": "H2 Full Both",
     "datasets": {
       "MNIST": {
@@ -30,7 +30,7 @@
       }
     }
   },
-  "2": {
+  "2f537af4-cd45-47a1-b2ad-0be78f4ae664": {
     "name": "H3 Full Both",
     "datasets": {
       "MNIST": {
@@ -43,7 +43,7 @@
       }
     }
   },
-  "3": {
+  "2de35fc3-bb6d-4940-849c-be9123c68640": {
     "name": "H4 Full Both",
     "datasets": {
       "MNIST": {
@@ -56,7 +56,7 @@
       }
     }
   },
-  "4": {
+  "0982dbb0-cf60-4904-bc6f-ed405ee5072a": {
     "name": "H5 Full Both",
     "datasets": {
       "MNIST": {
@@ -69,7 +69,7 @@
       }
     }
   },
-  "5": {
+  "88e7f34a-c661-4b72-8736-1cdc10e7cab6": {
     "name": "H6 Full Both",
     "datasets": {
       "MNIST": {
@@ -82,7 +82,7 @@
       }
     }
   },
-  "6": {
+  "758d4dfd-7f62-4f88-8332-a1c5db7be718": {
     "name": "H7 Full MNIST, Gap CIFAR-10",
     "datasets": {
       "MNIST": {
@@ -95,7 +95,7 @@
       }
     }
   },
-  "7": {
+  "510b7588-a565-4b3e-a04d-ac8429f0fd33": {
     "name": "H8 Gap MNIST, Full CIFAR-10",
     "datasets": {
       "MNIST": {
@@ -108,7 +108,7 @@
       }
     }
   },
-  "8": {
+  "e8056a76-7709-4938-8e50-adba9f4ffc34": {
     "name": "H9 Weak MNIST, Full CIFAR-10",
     "datasets": {
       "MNIST": {
@@ -121,7 +121,7 @@
       }
     }
   },
-  "9": {
+  "92873d81-25d9-4e37-9728-dac62f4b268c": {
     "name": "H10 Full MNIST, Weak CIFAR-10",
     "datasets": {
       "MNIST": {

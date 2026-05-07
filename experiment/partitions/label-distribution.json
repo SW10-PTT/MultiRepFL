@@ -2,7 +2,7 @@
   "_doc": [
     "add some text here"
   ],
-  "0": {
+  "5aaefefd-d131-41a1-8f42-5221248e2463": {
     "name": "H1 MNIST-heavy, expert MNIST 0-1 / CIFAR 4-5",
     "datasets": {
       "MNIST": {
@@ -37,7 +37,7 @@
       }
     }
   },
-  "1": {
+  "f80f7577-2625-468e-9098-1f268eb4db72": {
     "name": "H2 MNIST-heavy, expert MNIST 2-3 / CIFAR 6-7",
     "datasets": {
       "MNIST": {
@@ -72,7 +72,7 @@
       }
     }
   },
-  "2": {
+  "2f537af4-cd45-47a1-b2ad-0be78f4ae664": {
     "name": "H3 MNIST-heavy, expert MNIST 4-5 / CIFAR 8-9",
     "datasets": {
       "MNIST": {
@@ -107,7 +107,7 @@
       }
     }
   },
-  "3": {
+  "2de35fc3-bb6d-4940-849c-be9123c68640": {
     "name": "H4 CIFAR-heavy, expert MNIST 6-7 / CIFAR 0-1",
     "datasets": {
       "MNIST": {
@@ -142,7 +142,7 @@
       }
     }
   },
-  "4": {
+  "0982dbb0-cf60-4904-bc6f-ed405ee5072a": {
     "name": "H5 CIFAR-heavy, expert MNIST 8-9 / CIFAR 2-3",
     "datasets": {
       "MNIST": {
@@ -177,7 +177,7 @@
       }
     }
   },
-  "5": {
+  "88e7f34a-c661-4b72-8736-1cdc10e7cab6": {
     "name": "H6 CIFAR-heavy, expert MNIST 0-1 / CIFAR 4-5",
     "datasets": {
       "MNIST": {
@@ -212,7 +212,7 @@
       }
     }
   },
-  "6": {
+  "758d4dfd-7f62-4f88-8332-a1c5db7be718": {
     "name": "H7 Balanced, expert MNIST 2-3 / CIFAR 6-7",
     "datasets": {
       "MNIST": {
@@ -247,7 +247,7 @@
       }
     }
   },
-  "7": {
+  "510b7588-a565-4b3e-a04d-ac8429f0fd33": {
     "name": "H8 Balanced, expert MNIST 4-5 / CIFAR 8-9",
     "datasets": {
       "MNIST": {
@@ -282,7 +282,7 @@
       }
     }
   },
-  "8": {
+  "e8056a76-7709-4938-8e50-adba9f4ffc34": {
     "name": "H9 Balanced, expert MNIST 6-7 / CIFAR 0-1",
     "datasets": {
       "MNIST": {
@@ -317,7 +317,7 @@
       }
     }
   },
-  "9": {
+  "92873d81-25d9-4e37-9728-dac62f4b268c": {
     "name": "H10 Balanced, expert MNIST 8-9 / CIFAR 2-3",
     "datasets": {
       "MNIST": {
