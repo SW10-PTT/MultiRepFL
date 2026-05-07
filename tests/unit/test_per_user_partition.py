@@ -246,9 +246,9 @@ def test_per_user_stratified_val_split():
 def test_per_user_overlap_mode_shares_samples():
     # Overlap mode pulls fair-share allocations from the rep-inflated class
     # pool, so two users on the same class can land on the same sample_id.
-    # 50% pcts pulling only L4 from a rep=2 pool of 200 = 2 concatenated
-    # shuffles of 100. Each user's 100-sample chunk is one full shuffle, so
-    # they end up with overlapping base ids.
+    # rep=2 inflates L4's 100 ids to a single 200-item pool (each id twice)
+    # then shuffles. Each user takes a 100-item slice; with 100 unique ids
+    # spread over 200 shuffled positions, the two slices share base ids.
     spec0 = UserPartitionSpec(user_index=0, data_percent=50.0, only_labels=[4])
     spec1 = UserPartitionSpec(user_index=1, data_percent=50.0, only_labels=[4])
     users = [FakeUser(0, 50.0, spec0), FakeUser(1, 50.0, spec1)]
@@ -265,7 +265,7 @@ def test_per_user_overlap_mode_shares_samples():
     counts1 = class_counts(labels, collect_ids(splits, users[1]))
     assert set(counts0.keys()) <= {4}
     assert set(counts1.keys()) <= {4}
-    # Combined demand 120 of L4 with only 100 distinct base ids forces overlap.
+    # Combined demand 200 of L4 with only 100 distinct base ids forces overlap.
     shared = set(collect_ids(splits, users[0])) & set(collect_ids(splits, users[1]))
     assert len(shared) > 0
 
