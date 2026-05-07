@@ -30,7 +30,7 @@ config = ExperimentConfiguration(
     malicious_noise_scale=1.0,
     freerider_start_round=1,
     malicious_start_round=1,
-    number_of_participants=6,
+    number_of_participants=8,
     #data_percentages=[30, 10, 15, 15, 10, 20],
     # 0: {"only_labels": [0, 1, 2, 3, 4]}
     # 0: {"flip_map": {4: 9}}

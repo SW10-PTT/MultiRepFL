@@ -56,8 +56,8 @@ class ExperimentConfiguration:
                  user_seeds=None,
                  allow_overlap=False,
                  replication_factor=1.0,
-                 partition_strategy="global", # Options: global, per_user
-                 per_user_partitions=None): # Path to JSON file with per-user partition specs; see example.json for format. Or None. Example: "experiment/partitions/example.json"
+                 partition_strategy="per_user", # Options: global, per_user
+                 per_user_partitions="experiment/partitions/example.json"): # Path to JSON file with per-user partition specs; see example.json for format. Or None. Example: "experiment/partitions/example.json"
 
         self.name = name
         self.dataset = dataset
