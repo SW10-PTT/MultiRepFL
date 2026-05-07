@@ -32,6 +32,9 @@ def _build_loss_aggregator(prev_losses, user_losses, loss_tolerance_pct=0.05):
     for i, losses in enumerate(user_losses):
         user = MagicMock()
         user.address = f"0xLossUser{i}"
+        # display_label feeds f-string format specs (e.g. ":<12") in
+        # round_scoring log lines; bare MagicMock can't be __format__'d.
+        user.display_label.return_value = f"loss_user{i}"
         user._losses = losses
         users.append(user)
 
@@ -65,47 +68,60 @@ class TinyModel(nn.Module):
 def build_challenge(strategy: str, *, use_outlier_detection: bool = False, contract=None):
     """Construct an FLChallenge with the scoring strategy under test.
 
-    The manager, w3 connection, and contract are mocked because we only care
-    about the pure Python scoring routines. Pytorch model metadata is also
-    stubbed to keep test setup lightweight.
+    Bypass __init__ via __new__ — production __init__ deploys the on-chain
+    challenge through globals.w3, which isn't available under unit tests.
+    Wire only the fields the scoring routines read: contract, pytorch_model,
+    contribution_score_strategy, use_outlier_detection, loss_tolerance_pct,
+    and the strategy lookup table.
     """
-    manager = MagicMock()
-    manager.w3 = MagicMock()
-    manager.fork = True
-
-    model_mock = contract or MagicMock()
-
-    # Ensure address exists
-    if not hasattr(model_mock, 'address'):
-        model_mock.address = "0xModelAddress"
-
-    # Ensure ABI exists (crucial for line 75 of fl_challenge.py)
-    if not hasattr(model_mock, 'abi'):
-        model_mock.abi = []
-
-    configs = [
-        model_mock, "0xModel", 1, 2, 3, 4, 0.5, 3, 0.1
-    ]
+    contract_mock = contract if contract is not None else MagicMock()
+    if not hasattr(contract_mock, "address"):
+        contract_mock.address = "0xModelAddress"
+    if not hasattr(contract_mock, "abi"):
+        contract_mock.abi = []
 
     pytorch_model = MagicMock()
     pytorch_model.participants = []
+    pytorch_model.round = 1
 
-    experiment_config = SimpleNamespace(
+    challenge = FLChallenge.__new__(FLChallenge)
+    challenge.contract = contract_mock
+    challenge.contractAddress = contract_mock.address
+    challenge.model = contract_mock  # legacy alias for tests written pre-rename
+    challenge.pytorch_model = pytorch_model
+    challenge._contribution_score_strategy = strategy
+    challenge.contribution_score_strategy = strategy
+    challenge.use_outlier_detection = use_outlier_detection
+    challenge.loss_tolerance_pct = 0.05
+    challenge.experiment_config = SimpleNamespace(
         contribution_score_strategy=strategy,
         use_outlier_detection=use_outlier_detection,
     )
-
-    return FLChallenge(manager, configs, pytorch_model, experiment_config)
+    challenge._contribution_score_calculators = {
+        "dotproduct": challenge._calculate_scores_dotproduct,
+        "naive": challenge._calculate_scores_naive,
+        "accuracy_loss": challenge._calculate_scores_accuracy_loss,
+        "accuracy_only": challenge._calculate_scores_accuracy_only,
+        "loss_only": challenge._calculate_scores_loss_only,
+        "loss_tolerance_aware": challenge._calculate_scores_loss_tolerance_aware,
+        "loss_tolerance_snap": challenge._calculate_scores_loss_tolerance_snap,
+    }
+    challenge._log_contribution_scores = MagicMock()
+    challenge._log_warning = MagicMock()
+    return challenge
 
 
 def make_participant(idx: int, previous_model: nn.Module, merged_model: nn.Module):
     """Create a minimal participant stub used by scoring methods."""
+    label = f"part{idx}"
     return SimpleNamespace(
         id=idx,
         address=f"0xparticipant{idx}",
         privateKey=f"priv{idx}",
         previousModel=previous_model,
         model=merged_model,
+        # display_label is consumed by f-string format specs in scoring logs.
+        display_label=lambda label=label: label,
     )
 
 
