@@ -4,6 +4,7 @@ import pytest
 import torch
 
 import openfl.ml.pytorch_model as pm
+import openfl.utils.types.Colors as colors
 
 
 def test_manipulate_adds_noise():
@@ -32,9 +33,9 @@ def test_add_noise_modifies_target_tensor():
 
 
 def test_get_color_handles_known_and_unknown_indices():
-    assert pm.get_color(0, "bad") == pm.bad_c
-    assert pm.get_color(0, "freerider") == pm.free_c
-    assert pm.get_color(100, "good") is None
+    assert colors.get_color(0, "bad") == colors.bad_c
+    assert colors.get_color(0, "freerider") == colors.free_c
+    assert colors.get_color(100, "good") is None
 
 
 def test_device_label_formats_output():

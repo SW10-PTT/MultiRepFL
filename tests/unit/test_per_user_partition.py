@@ -76,18 +76,18 @@ def test_spec_rejects_distribution_outside_only_labels():
 def test_load_partition_specs_from_file(tmp_path):
     payload = {
         "users": [
-            {"user_index": 0, "data_percent": 50.0, "label_distribution": {"0": 1.0, "1": 1.0}},
-            {"user_index": 1, "data_percent": 50.0, "only_labels": [2, 3], "flip_map": {"2": 3}},
+            {"user_index": "alpha-guid", "data_percent": 50.0, "label_distribution": {"0": 1.0, "1": 1.0}},
+            {"user_index": "beta-guid", "data_percent": 50.0, "only_labels": [2, 3], "flip_map": {"2": 3}},
         ]
     }
     path = tmp_path / "partitions.json"
     path.write_text(json.dumps(payload))
 
     specs = load_partition_specs(str(path))
-    assert set(specs.keys()) == {0, 1}
-    assert specs[0].label_distribution == {0: 1.0, 1: 1.0}
-    assert specs[1].only_labels == [2, 3]
-    assert specs[1].flip_map == {2: 3}
+    assert set(specs.keys()) == {"alpha-guid", "beta-guid"}
+    assert specs["alpha-guid"].label_distribution == {0: 1.0, 1: 1.0}
+    assert specs["beta-guid"].only_labels == [2, 3]
+    assert specs["beta-guid"].flip_map == {2: 3}
 
 
 def test_load_partition_specs_from_dict_keys():
@@ -96,9 +96,22 @@ def test_load_partition_specs_from_dict_keys():
         "1": {"data_percent": 40.0, "only_labels": [0]},
     }
     specs = load_partition_specs(payload)
-    assert specs[0].user_index == 0
-    assert specs[0].data_percent == 60.0
-    assert specs[1].only_labels == [0]
+    assert specs["0"].user_index == "0"
+    assert specs["0"].data_percent == 60.0
+    assert specs["1"].only_labels == [0]
+
+
+def test_load_partition_specs_accepts_guid_keys():
+    payload = {
+        "550e8400-e29b-41d4-a716-446655440000": {"data_percent": 30.0},
+        "6ba7b810-9dad-11d1-80b4-00c04fd430c8": {"data_percent": 70.0, "only_labels": [3]},
+    }
+    specs = load_partition_specs(payload)
+    assert set(specs.keys()) == {
+        "550e8400-e29b-41d4-a716-446655440000",
+        "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+    }
+    assert specs["6ba7b810-9dad-11d1-80b4-00c04fd430c8"].only_labels == [3]
 
 
 # ---- PerUserSpecStrategy partitioning ----
@@ -233,9 +246,9 @@ def test_per_user_stratified_val_split():
 def test_per_user_overlap_mode_shares_samples():
     # Overlap mode pulls fair-share allocations from the rep-inflated class
     # pool, so two users on the same class can land on the same sample_id.
-    # 50% pcts pulling only L4 from a rep=2 pool of 200 = 2 concatenated
-    # shuffles of 100. Each user's 100-sample chunk is one full shuffle, so
-    # they end up with overlapping base ids.
+    # rep=2 inflates L4's 100 ids to a single 200-item pool (each id twice)
+    # then shuffles. Each user takes a 100-item slice; with 100 unique ids
+    # spread over 200 shuffled positions, the two slices share base ids.
     spec0 = UserPartitionSpec(user_index=0, data_percent=50.0, only_labels=[4])
     spec1 = UserPartitionSpec(user_index=1, data_percent=50.0, only_labels=[4])
     users = [FakeUser(0, 50.0, spec0), FakeUser(1, 50.0, spec1)]
@@ -252,7 +265,7 @@ def test_per_user_overlap_mode_shares_samples():
     counts1 = class_counts(labels, collect_ids(splits, users[1]))
     assert set(counts0.keys()) <= {4}
     assert set(counts1.keys()) <= {4}
-    # Combined demand 120 of L4 with only 100 distinct base ids forces overlap.
+    # Combined demand 200 of L4 with only 100 distinct base ids forces overlap.
     shared = set(collect_ids(splits, users[0])) & set(collect_ids(splits, users[1]))
     assert len(shared) > 0
 

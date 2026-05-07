@@ -648,7 +648,15 @@ class PytorchModel:
                     self.participants[i].display_label(),
                     self.participants[i].address[0:16]+"...",
                 )))
-                manipulated_state_dict = manipulate(self.participants[i].model,scale=self.malicious_noise_scale,)
+                # noise_scale is set per-user (from the spec in per_user mode,
+                # or from experiment_config.malicious_noise_scale in global mode).
+                scale = self.participants[i].noise_scale
+                if scale is None:
+                    raise ValueError(
+                        f"malicious participant {self.participants[i].display_label()} "
+                        f"has no noise_scale set"
+                    )
+                manipulated_state_dict = manipulate(self.participants[i].model, scale=scale)
                 self.participants[i].model.load_state_dict(manipulated_state_dict)
                 self.participants[i].hashedModel = self.runRepo.get_hash(self.round, f"let_malicious_users_do_their_work-{self.participants[i].id}", self.participants[i].model.state_dict())
                 loss, accuracy = self.runRepo.test(self.round,f"test-let_malicious_users_do_their_work-usermodel-{self.participants[i].id}", self.participants[i].model, self._test_data, DEVICE)
@@ -693,12 +701,19 @@ class PytorchModel:
                 # if self.round > 1:
                 #     print(red("Address {} going to add random noise to weights".format(user_idx[0:16]+"...")))
                 #     participant.model.load_state_dict(add_noise(copy.deepcopy(participant.model)))
-                if self.round < self.freerider_start_round:
+                # Per-user start_round drives when this freerider activates.
+                start_round = participant.start_round
+                if start_round is None:
+                    raise ValueError(
+                        f"freerider participant {participant.display_label()} "
+                        f"has no start_round set"
+                    )
+                if self.round < start_round:
                     log("agent_behavior",yellow(
                         "{} ({}) waiting until round {} to start freeriding".format(
                             participant.display_label(),
                             participant.address[0:16] + "...",
-                            self.freerider_start_round,
+                            start_round,
                         )
                     ))
                     new_state_dict = manipulate(participant.model)
@@ -720,10 +735,20 @@ class PytorchModel:
     def _freerider_submit_with_noise(self, user):
         """Freerider reuses the global model with configurable noise."""
 
-        if self.freerider_noise_scale < 0:
-            raise ValueError("freerider_noise_scale must be non-negative")
+        # Per-user noise_scale: set from spec in per_user mode, from
+        # experiment_config.freerider_noise_scale in global mode.
+        scale = user.noise_scale
+        if scale is None:
+            raise ValueError(
+                f"freerider participant {user.display_label()} has no noise_scale set"
+            )
+        if scale < 0:
+            raise ValueError(
+                f"freerider participant {user.display_label()}: noise_scale must be "
+                f"non-negative, got {scale}"
+            )
 
-        if self.freerider_noise_scale == 0: # Copy global model if noise is zero
+        if scale == 0: # Copy global model if noise is zero
             log("agent_behavior",yellow("{} ({}) resubmitting original model".format(
                 user.display_label(),
                 user.address[0:16]+"...",
@@ -734,10 +759,10 @@ class PytorchModel:
             "{} ({}) adding noise (scale={}) to global weights".format(
                 user.display_label(),
                 user.address[0:16]+"...",
-                self.freerider_noise_scale,
+                scale,
             )
         ))
-        return manipulate(user.model, scale=self.freerider_noise_scale)
+        return manipulate(user.model, scale=scale)
 
 
     def the_merge(self, _users):

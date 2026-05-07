@@ -4,7 +4,8 @@
       "Bash(ls:*)",
       "Bash(py:*)",
       "Bash(tail:*)",
-      "WebSearch"
+      "WebSearch",
+      "Bash(python -m pytest tests/unit/test_per_user_partition.py -x --tb=short --no-header -p no:cacheprovider --noconftest)"
     ]
   }
 }

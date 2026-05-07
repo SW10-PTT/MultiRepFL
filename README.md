@@ -42,8 +42,7 @@ pip install -e ".[dev]"
 
 **AMD GPU (Linux):**
 ```bash
-pip install torch torchvision --index-url https://download.pytorch.org/whl/rocm7.1
-pip install -e ".[dev]"
+pip install -e ".[dev]" --extra-index-url https://download.pytorch.org/whl/rocm7.1
 ```
 
 **AMD GPU (Windows) — requires AMD driver 26.2.2:**
