@@ -44,7 +44,7 @@ class DataPartition:
         seed: int = 42,
         allow_overlap: bool = False,
         replication_factor: float = 1.0,
-        per_user_specs: Optional[Dict[int, UserPartitionSpec]] = None,
+        per_user_specs: Optional[Dict[str, UserPartitionSpec]] = None,
     ):
         if not 0 <= validation_split < 1:
             raise ValueError("validation_split must be in the range [0, 1)")
@@ -276,7 +276,8 @@ class PerUserSpecStrategy(PartitionStrategy):
         rng = random.Random(self.partition.seed)
         specs = self.partition.per_user_specs or {}
 
-        # Resolve user -> spec via user.number (the data-user index).
+        # Resolve user -> spec. Production flow attaches the spec on the User;
+        # tests can fall back to user.number / get_id_or_address lookups in specs.
         user_to_spec = {}
         for user in users:
             spec = self._resolve_user_spec(user, specs)
@@ -343,17 +344,21 @@ class PerUserSpecStrategy(PartitionStrategy):
     # the User by the runner (`user.partition_spec`); otherwise falls back
     # to specs indexed by `user.number` or `user.get_id_or_address()` so
     # this strategy can be exercised in tests without the full User class.
+    # Spec keys are strings; numeric fallbacks are stringified for lookup.
     def _resolve_user_spec(self, user, specs):
         attached = getattr(user, "partition_spec", None)
         if attached is not None:
             return attached
         index = getattr(user, "number", None)
-        if index is not None and index in specs:
-            return specs[index]
-        if user.get_id_or_address() in specs:
-            return specs[user.get_id_or_address()]
+        if index is not None and str(index) in specs:
+            return specs[str(index)]
+        addr = user.get_id_or_address()
+        if addr in specs:
+            return specs[addr]
+        if str(addr) in specs:
+            return specs[str(addr)]
         raise ValueError(
-            f"PerUserSpecStrategy: no spec found for user {user.get_id_or_address()} "
+            f"PerUserSpecStrategy: no spec found for user {addr} "
             f"(number={index})"
         )
 

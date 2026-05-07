@@ -18,7 +18,7 @@ config = ExperimentConfiguration(
     contribution_score_strategy="loss_tolerance_aware", # Options: dotproduct, naive, accuracy_loss, accuracy_only, loss_only, loss_tolerance_aware, loss_tolerance_snap
     loss_tolerance_pct=0.2, # ε = pct * avg_prev_loss; only used by loss_tolerance_* strategies
     use_outlier_detection=True,
-    minimum_rounds=25,
+    minimum_rounds=3,
     epochs=1,
     punish_factor=3,
     punish_factor_contrib=3,
@@ -30,7 +30,16 @@ config = ExperimentConfiguration(
     malicious_noise_scale=1.0,
     freerider_start_round=1,
     malicious_start_round=1,
-    number_of_participants=6,
+    number_of_participants=8,
+    dataset="mnist",
+    data_percentages=None,
+    label_rules=None,
+    seed=123,
+    user_seeds=None,
+    allow_overlap=False,
+    replication_factor=1.0,
+    partition_strategy="per_user", # Options: global, per_user
+    per_user_partitions="experiment/partitions/example.json"
     #data_percentages=[30, 10, 15, 15, 10, 20],
     # 0: {"only_labels": [0, 1, 2, 3, 4]}
     # 0: {"flip_map": {4: 9}}
@@ -76,18 +85,17 @@ def main():
 def run():
     startTime = datetime.now().strftime("%d-%m-%y--%H_%M_%S")
     path = getPath(config, startTime, DATASET, RESULTDATAFOLDER)
-    flags = globals.ReplayMode._actively_replaying | globals.ReplayMode.HardPlayBack
     writer = None
     logger = None
     metadata = {**vars(config), "dataset": DATASET, "timestamp": startTime}
+    flags = globals.ReplayMode._actively_replaying | globals.ReplayMode.HardPlayBack
     if (globals.reuse_runs & flags) != flags:
         writer = AsyncWriter(path, OUTPUTHEADERS, WRITERBUFFERSIZE, config, "sample")
         logger = ExperimentLogger(experiment_id=path.stem, metadata=metadata)
-    experiment = ExperimentRunner.run_experiment(DATASET, config, writer, logger, path)
+    (experiment, filename) = ExperimentRunner.run_experiment(DATASET, config, writer, logger, path)
     writer.finish()
     logger.save(path.with_suffix(".pkl"))
 
-    flags = globals.ReplayMode._actively_replaying | globals.ReplayMode.HardPlayBack
     if (globals.reuse_runs & flags) != flags:
         experiment.model.visualize_simulation("figures")
         ExperimentRunner.print_transactions(experiment)

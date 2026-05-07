@@ -5,10 +5,45 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 
+from openfl.utils.types.Attitude import Attitude
+
 
 # Sentinel dataset key used when the JSON has a single-dataset (legacy) shape.
 # Lookups fall back to this when no dataset-specific entry matches.
 ANY_DATASET = "*"
+
+
+# Behaviors allowed in per-user specs. Behavior is per-dataset, so a single
+# user can be Honest on MNIST and Malicious on CIFAR-10. Inactive entries are
+# permitted as well — they're skipped at user-creation time but counted toward
+# the inactive contributor total.
+_BEHAVIOR_MAP = {
+    "honest": Attitude.Honest,
+    "malicious": Attitude.Malicious,
+    "freerider": Attitude.FreeRider,
+    "inactive": Attitude.Inactive,
+}
+_BEHAVIOR_NAMES = "Honest, Malicious, Free-rider, Inactive"
+
+# Behaviors that take noise_scale + start_round in the spec.
+_NOISY_BEHAVIORS = (Attitude.Malicious, Attitude.FreeRider)
+
+
+def parse_behavior(value) -> Attitude:
+    if isinstance(value, Attitude):
+        if value not in _BEHAVIOR_MAP.values():
+            raise ValueError(
+                f"behavior {value.name!r} not allowed in per-user specs; must be one of {_BEHAVIOR_NAMES}"
+            )
+        return value
+    if not isinstance(value, str):
+        raise TypeError(f"behavior must be a string, got {type(value).__name__}")
+    norm = value.strip().lower().replace("-", "").replace("_", "").replace(" ", "")
+    if norm not in _BEHAVIOR_MAP:
+        raise ValueError(
+            f"behavior {value!r} invalid; must be one of {_BEHAVIOR_NAMES}"
+        )
+    return _BEHAVIOR_MAP[norm]
 
 
 # Normalise dataset names so JSON keys ("MNIST", "CIFAR-10") match the runtime
@@ -21,16 +56,27 @@ def normalize_dataset_name(name: Optional[str]) -> str:
 
 # Per-user partition spec for the per_user partition strategy. Immutable
 # so it can flow through the config without surprise mutation.
+# user_index is a free-form string identifier (GUID, numeric string, or any
+# stable label). Any non-str input is coerced to str at construction time.
 @dataclass(frozen=True)
 class UserPartitionSpec:
-    user_index: int
+    user_index: str
     data_percent: float
     label_distribution: Optional[Dict[int, float]] = None
     only_labels: Optional[List[int]] = None
     flip_map: Dict[int, int] = field(default_factory=dict)
     name: Optional[str] = None
+    behavior: Attitude = Attitude.Honest
+    # Required iff behavior in {Malicious, FreeRider}; forbidden otherwise.
+    noise_scale: Optional[float] = None
+    start_round: Optional[int] = None
 
     def __post_init__(self):
+        # Normalise to str so GUID and legacy-int keys land in the same shape.
+        if not isinstance(self.user_index, str):
+            object.__setattr__(self, "user_index", str(self.user_index))
+        if not self.user_index:
+            raise ValueError("user_index must be a non-empty string")
         if not (0.0 < float(self.data_percent) <= 100.0):
             raise ValueError(
                 f"user {self.user_index}: data_percent must be in (0, 100], got {self.data_percent}"
@@ -54,11 +100,46 @@ class UserPartitionSpec:
                         f"user {self.user_index}: label_distribution keys {sorted(missing)} not in only_labels"
                     )
 
+        # noise_scale + start_round are required for Malicious and Free-rider
+        # entries (they drive per-user noise injection and the round at which
+        # the user switches to its faulty behavior). Forbidden for Honest and
+        # Inactive entries to avoid silent misconfiguration.
+        if self.behavior in _NOISY_BEHAVIORS:
+            if self.noise_scale is None:
+                raise ValueError(
+                    f"user {self.user_index}: behavior {self.behavior.name!r} requires "
+                    f"'noise_scale' to be set in the spec"
+                )
+            if float(self.noise_scale) < 0:
+                raise ValueError(
+                    f"user {self.user_index}: noise_scale must be non-negative, got {self.noise_scale}"
+                )
+            if self.start_round is None:
+                raise ValueError(
+                    f"user {self.user_index}: behavior {self.behavior.name!r} requires "
+                    f"'start_round' to be set in the spec"
+                )
+            if int(self.start_round) < 1:
+                raise ValueError(
+                    f"user {self.user_index}: start_round must be >= 1, got {self.start_round}"
+                )
+        else:
+            if self.noise_scale is not None:
+                raise ValueError(
+                    f"user {self.user_index}: 'noise_scale' is not allowed when "
+                    f"behavior is {self.behavior.name!r}"
+                )
+            if self.start_round is not None:
+                raise ValueError(
+                    f"user {self.user_index}: 'start_round' is not allowed when "
+                    f"behavior is {self.behavior.name!r}"
+                )
+
     # Deterministic dict for hashing in fingerprints. Keys/values are sorted
     # so the resulting JSON blob is byte-stable.
     def fingerprint_dict(self) -> dict:
         return {
-            "user_index": int(self.user_index),
+            "user_index": str(self.user_index),
             "name": self.name,
             "data_percent": round(float(self.data_percent), 8),
             "label_distribution": (
@@ -73,16 +154,23 @@ class UserPartitionSpec:
                 None if self.only_labels is None else sorted(int(x) for x in self.only_labels)
             ),
             "flip_map": {str(src): int(dst) for src, dst in sorted(self.flip_map.items())},
+            "behavior": self.behavior.name,
+            "noise_scale": (
+                None if self.noise_scale is None else round(float(self.noise_scale), 8)
+            ),
+            "start_round": (
+                None if self.start_round is None else int(self.start_round)
+            ),
         }
 
 
 # Single-dataset loader. Returns {user_index: UserPartitionSpec}. Accepts
 # either a path to a JSON file or an in-memory dict in the legacy shape:
-#   {"users": [{"user_index": 0, ...}, ...]}
-#   {"0": {...}, "1": {...}}
+#   {"users": [{"user_index": "0", ...}, ...]}
+#   {"<guid>": {...}, "<guid>": {...}}
 def load_partition_specs(
     source: Union[str, Path, dict, None],
-) -> Dict[int, UserPartitionSpec]:
+) -> Dict[str, UserPartitionSpec]:
     if source is None:
         return {}
     payload = _load_payload(source)
@@ -97,7 +185,7 @@ def load_partition_specs(
 #   {"users": [{"user_index": ..., "name": ..., "datasets": {...}}, ...]}
 def load_dataset_partition_specs(
     source: Union[str, Path, dict, None],
-) -> Dict[str, Dict[int, UserPartitionSpec]]:
+) -> Dict[str, Dict[str, UserPartitionSpec]]:
     if source is None:
         return {}
     payload = _load_payload(source)
@@ -139,17 +227,25 @@ def _is_multi_dataset(payload) -> bool:
     return False
 
 
-def _load_multi_dataset(payload) -> Dict[str, Dict[int, UserPartitionSpec]]:
+def _load_multi_dataset(payload) -> Dict[str, Dict[str, UserPartitionSpec]]:
     raw = payload.get("users") if isinstance(payload, dict) and "users" in payload else payload
 
-    out: Dict[str, Dict[int, UserPartitionSpec]] = {}
+    out: Dict[str, Dict[str, UserPartitionSpec]] = {}
 
     def add_entry(user_key, entry):
         entry = dict(entry)
         if "user_index" not in entry and "id" not in entry and user_key is not None:
-            entry["user_index"] = int(user_key)
-        user_index = int(entry.get("user_index", entry.get("id")))
+            entry["user_index"] = str(user_key)
+        user_index = str(entry.get("user_index", entry.get("id")))
         name = entry.get("name")
+        # Behavior, noise_scale and start_round are per-dataset by design.
+        # Reject them at the user-entry level to keep the schema unambiguous.
+        for forbidden in ("behavior", "noise_scale", "start_round"):
+            if forbidden in entry:
+                raise ValueError(
+                    f"user {user_index}: {forbidden!r} must be set inside each dataset "
+                    f"block, not on the user entry"
+                )
         datasets = entry.get("datasets")
         if not isinstance(datasets, dict) or not datasets:
             raise ValueError(
@@ -177,13 +273,13 @@ def _load_multi_dataset(payload) -> Dict[str, Dict[int, UserPartitionSpec]]:
     return out
 
 
-def _load_single_dataset(payload) -> Dict[int, UserPartitionSpec]:
+def _load_single_dataset(payload) -> Dict[str, UserPartitionSpec]:
     if isinstance(payload, dict) and "users" in payload:
         raw = payload["users"]
     else:
         raw = payload
 
-    specs: Dict[int, UserPartitionSpec] = {}
+    specs: Dict[str, UserPartitionSpec] = {}
     if isinstance(raw, list):
         for entry in raw:
             spec = _build_spec(dict(entry))
@@ -191,7 +287,7 @@ def _load_single_dataset(payload) -> Dict[int, UserPartitionSpec]:
     elif isinstance(raw, dict):
         for key, entry in raw.items():
             entry = dict(entry)
-            entry.setdefault("user_index", int(key))
+            entry.setdefault("user_index", str(key))
             spec = _build_spec(entry)
             specs[spec.user_index] = spec
     else:
@@ -223,11 +319,33 @@ def _build_spec(entry: dict) -> UserPartitionSpec:
     if name is not None:
         name = str(name)
 
+    behavior_raw = entry.get("behavior")
+    if behavior_raw is None:
+        behavior = Attitude.Honest
+    else:
+        try:
+            behavior = parse_behavior(behavior_raw)
+        except (TypeError, ValueError) as e:
+            raise ValueError(
+                f"user {entry['user_index']}: {e}"
+            ) from None
+
+    noise_scale = entry.get("noise_scale")
+    if noise_scale is not None:
+        noise_scale = float(noise_scale)
+
+    start_round = entry.get("start_round")
+    if start_round is not None:
+        start_round = int(start_round)
+
     return UserPartitionSpec(
-        user_index=int(entry["user_index"]),
+        user_index=str(entry["user_index"]),
         data_percent=float(entry["data_percent"]),
         label_distribution=label_dist,
         only_labels=only_labels,
         flip_map=flip_map,
         name=name,
+        behavior=behavior,
+        noise_scale=noise_scale,
+        start_round=start_round,
     )
