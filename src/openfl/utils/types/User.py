@@ -153,7 +153,7 @@ class User:
         return f"#{self.number}"
 
     def get_status(self):
-        user = f"$user${self.number}, {self.partition_name}, {self.attitude}, {self.futureAttitude}, {self.attitudeSwitch}, {self.address}"
+        user = f"$user${self.number}, {str(self.id)}, {self.partition_name}, {self.attitude}, {self.futureAttitude}, {self.attitudeSwitch}, {self.address}"
         return user
 
     def get_id_or_address(self):
@@ -193,6 +193,7 @@ class User:
         return False
     
     def register_for_job(self, job: "ConnectionHelper"):
+        import openfl.api.globals as globals
         (receipt, _) = job.transact("register", self, self.collateral, [], "User.register_for_job")
         txHash = receipt["transactionHash"]
         self.txs.append(txHash)

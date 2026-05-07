@@ -1303,6 +1303,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                 role=_participant.futureAttitude,
                 grs=_participant._globalrep[-1],
                 address=_participant.address,
+                id=_participant.id,
                 sub_personal_acc=None,
                 sub_personal_loss=None,
                 sub_global_acc=None,
@@ -1371,6 +1372,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                 sub_personal_loss=_user.currentLoss,
                 sub_global_acc=_user._accuracy[-1],
                 sub_global_loss=_user._loss[-1],
+                id = _user.id,
                 round_reputation_assigned=_user._roundrep[-1] if _user._roundrep else None,
                 reward_delta=_addr_to_reward.get(_user.address, None),
                 is_reward=_addr_to_ir.get(_user.address, None),
@@ -1385,6 +1387,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                 sub_personal_loss=_user.currentLoss,
                 sub_global_acc=_user._accuracy[-1],
                 sub_global_loss=_user._loss[-1],
+                id=_user.id,
                 round_reputation_assigned=_user._roundrep[-1] if _user._roundrep else None,
                 reward_delta=_addr_to_reward.get(_user.address, None),
                 is_reward=_addr_to_ir.get(_user.address, None),
@@ -1512,8 +1515,12 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                 "disqualifiedUsers": round_kicked,
                 "contributionScores": self.scores,
                 "userStatuses": [user.get_status() for user in self.pytorch_model.participants],
-                "GasTransactions": roundTx
+                "GasTransactions": roundTx,
                 })
+            globals.progress = int(
+                ((roundnr + 1) / rounds) * 100
+            )
+            print(f"roundnr: {globals.progress}")
 
 
         log("round_scoring", f"Number of Shapley Axioms violated: {len(runtime_warnings)}\n")
@@ -1525,6 +1532,8 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
 
         self.writer.write_comment(f"$gasCosts${self.gas_feedback},{self.gas_register},{self.gas_slot},{self.gas_weights},{self.gas_close},{self.gas_deploy},{self.gas_exit}")
         trs = self.pytorch_model.runRepo.get_task_rep_delta_and_GRS(-1, "get_task_rep_delta_and_GRS-simulate", self.contract, self.pytorch_model.get_participant)
+        self.writer.write_comment(f"$trs${trs}")
+        self._logger.log_trs(trs)
         self.pytorch_model.runRepo.flush()
         self.exit_system()
 

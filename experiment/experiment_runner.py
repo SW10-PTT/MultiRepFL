@@ -120,7 +120,7 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
   
   new_job_listing: JobListing = publisher.deploy_joblisting_contract(training_specs, manager)
 
-  writer.write_comment(f"$startingUserConfig${[p.get_status() for p in pytorch_model.participants]}")
+  
 
   extra_configs = {}
   if experiment_config.contribution_score_strategy is not None:
@@ -183,7 +183,8 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
       except ContractLogicError as e:
           if "SUO" in str(e):
               log("round_models", "Participant tried joining but was not selected")
-
+  writer.write_comment(f"$startingUserConfig${[p.get_status() for p in pytorch_model.participants]}")
+  
   # This happens after deciding on users
   newChallenge.simulate(rounds=experiment_config.minimum_rounds)
   experiment_end = time.perf_counter()
@@ -243,7 +244,7 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
 
       logger.log_setup(total_experiment_time, hardware, config)
 
-  return Experiment(newChallenge, manager)
+  return (Experiment(newChallenge, manager), filename)
 
 
 def apply_user_data_and_label_config(user: User, user_index, experiment_config: ExperimentConfiguration):
