@@ -219,7 +219,6 @@ def worker_loop():
             (experiment, filename) = experiment_runner.run_experiment(
                 config.dataset, config, writer, logger, path
             )
-            writer.write_comment(f"$startingUserConfig${[p.get_status() for p in experiment.pytorch_model.participants]}")
 
             writer.finish()
             logger.save(path.with_suffix(".pkl"))
