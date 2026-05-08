@@ -1535,7 +1535,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
             globals.progress = int(
                 ((roundnr + 1) / rounds) * 100
             )
-            print(f"roundnr: {globals.progress}")
+            log("round_scoring",f"roundnr: {globals.progress}")
 
 
         log("round_scoring", f"Number of Shapley Axioms violated: {len(runtime_warnings)}\n")

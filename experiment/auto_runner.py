@@ -21,6 +21,9 @@ from experiment.helper import getPath
 from openfl.utils.async_writer import AsyncWriter
 from openfl.api import globals
 
+from openfl.utils import printer, config
+from openfl.utils.printer import log
+
 API = "http://localhost:8080/api"
 
 worker_id = None
@@ -74,7 +77,7 @@ def create_tarball(folder_path: Path, fingerpint):
 
 
 def upload_file(upload_url, file_path: Path):
-    print("Uploading:", file_path)
+    log("autorunner","Uploading:", file_path)
 
     with open(file_path, "rb") as f:
         res = requests.put(
@@ -86,8 +89,8 @@ def upload_file(upload_url, file_path: Path):
             timeout=300
         )
 
-    print(res.status_code)
-    print(res.text)
+    log("autorunner",res.status_code)
+    log("autorunner",res.text)
 
     res.raise_for_status()
 
@@ -170,10 +173,10 @@ def registerWorkerLoop():
     while True:
         try:
             worker_id = register_worker()
-            print("Worker registered:", worker_id)
+            log("autorunner", "Worker registered:", worker_id)
             break
         except Exception:
-            print("Failed to register worker, trying again in 10 seconds...")
+            log("autorunner", "Failed to register worker, trying again in 10 seconds...")
             time.sleep(10)
             continue
 
@@ -190,13 +193,13 @@ def worker_loop():
             run = claim_run(worker_id)
 
             if not run:
-                print("No runs available...")
+                log("autorunner", "No runs available...")
                 time.sleep(5)
                 continue
 
             run_id = run["id"]
 
-            print("Running:", run_id)
+            log("autorunner", "Running:", run_id)
 
             config = run["config"]
 
@@ -239,7 +242,7 @@ def worker_loop():
 
         except Exception as e:
             stop_heartbeat_loop()
-            print("Run failed:", e)
+            log("autorunner", "Run failed:", e)
             try:
                 fail_run(run_id, e)
                 reset()
