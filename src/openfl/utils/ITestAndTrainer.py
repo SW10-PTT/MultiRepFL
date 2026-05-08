@@ -67,7 +67,7 @@ class ITestAndTrainer(ABC):
             self,
             round: int,
             tag: str,
-            user_addr, model_state, train_ds, val_ds, epochs, device_id, dataset, batchsize, pin_memory, shuffle
+            user_addr, user_label, model_state, train_ds, val_ds, epochs, device_id, dataset, batchsize, pin_memory, shuffle
     ):
         raise NotImplementedError
 

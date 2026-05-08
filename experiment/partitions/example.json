@@ -112,7 +112,7 @@
     }
   },
   "e3caded8-a028-47bb-b807-f12952b829bd": {
-    "name": "User 3",
+    "name": "Kasper",
     "datasets": {
       "MNIST": {
         "behavior": "Honest",

@@ -359,7 +359,7 @@ def print_latex(experiment):
   for i, p in enumerate(model.pytorch_model.participants[:-1] + \
                             model.pytorch_model.disqualified + \
                             [model.pytorch_model.participants[-1]]):
-      log("latex_output", "P-{}  & {} \\ ".format(i+1, p.address))
+      log("latex_output", "P-{} ({})  & {} \\ ".format(i+1, p.display_label(), p.address))
 
   log("latex_output", "\\end{tabular}")
   log("latex_output", "\\end{center}")

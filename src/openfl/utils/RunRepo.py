@@ -51,7 +51,7 @@ class RunRepo(ITestAndTrainer):
             self,
             round: int,
             tag: str,
-            user_addr, model_state, train_ds, val_ds, epochs, device_id, dataset, batchsize, pin_memory, shuffle
+            user_addr, user_label, model_state, train_ds, val_ds, epochs, device_id, dataset, batchsize, pin_memory, shuffle
     ):
         data = self.load(round, tag)
         expanded_data = (data[0], model_state, data[1], data[2])
