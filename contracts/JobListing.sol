@@ -3,6 +3,20 @@ pragma solidity ^0.8.0;
 import "./Types.sol";
 import "./OpenFLManager.sol";
 
+// Minimal interface to read TaskRep round results from the challenge contract.
+// Mirrors OpenFLChallenge.TaskRep + getTaskRepDeltaAndGRS().
+interface IOpenFLChallengeTaskRep {
+    struct TaskRep {
+        address user;
+        int256 delta;
+        uint globalReputationScore;
+    }
+
+    function getTaskRepDeltaAndGRS() external view returns (TaskRep[] memory);
+
+    function taskType() external view returns (TaskType);
+}
+
 contract JobListing {
     modifier onlyNotYetRegisteredUsers() {
         require(applicants[msg.sender].addr == address(0), "SAR");
@@ -14,8 +28,24 @@ contract JobListing {
         _;
     }
 
+    // Authorized callers for updateUserTaskReps:
+    //   - the registered challenge contract (normal runs, called from FLChallenge)
+    //   - the publisher EOA who deployed this JobListing (replay runs, called from Python)
+    modifier onlyTaskRepUpdater() {
+        require(
+            msg.sender == challengeAddress || msg.sender == publisher,
+            "JL: not authorized for task rep update"
+        );
+        _;
+    }
+
     event SelectionComplete(address[] participants);
     event ChallengeRegistered(address challengeAddress, bool success);
+    event TaskRepsApplied(
+        address indexed challengeAddress,
+        TaskType indexed taskType,
+        uint participantCount
+    );
 
     struct User {
         uint globalTaskRep; // 32
@@ -32,7 +62,12 @@ contract JobListing {
     uint16 nrOfApplicants;
     address managerAddress;
     bytes32 challengeCodeHash;
-    address challengeAddress;
+    address public challengeAddress;
+    address public publisher;
+
+    // True once updateUserTaskReps has run for this JobListing's challenge.
+    // Idempotency guard: TaskRep deltas must apply at most once per challenge.
+    bool public taskRepsApplied;
 
     TrainingSpecifications trainingSpecs;
     address[] selectedParticipants;
@@ -50,6 +85,7 @@ contract JobListing {
     ) payable {
         managerAddress = _managerAddress;
         manager = OpenFLManager(_managerAddress);
+        publisher = msg.sender;
         applicationWindowCloseTime = block.timestamp + 0 seconds;
 
         trainingSpecs.freeriderPenalty = _freeriderPenalty;
@@ -105,11 +141,14 @@ contract JobListing {
     function registrationProcess(address userAddr) internal {
         User storage user = applicants[userAddr];
 
+        // TaskRep is per-task (TaskType acts as dataset key) — getUserRep
+        // returns the user's TaskRep specifically for this job's task.
         (
             uint taskRep,
             uint globalIntegrity,
             uint nrOfTasksParticipated
         ) = manager.getUserRep(userAddr, trainingSpecs.taskType);
+
         user.globalTaskRep = taskRep;
         user.globalIntegrity = globalIntegrity;
         user.nrOfTasksParticipated = nrOfTasksParticipated;
@@ -216,5 +255,89 @@ contract JobListing {
         }
 
         return heapUsers;
+    }
+
+    // Returns the TaskType (= dataset) bound to this JobListing — convenience
+    // getter for off-chain callers and verification.
+    function getTaskType() external view returns (TaskType) {
+        return trainingSpecs.taskType;
+    }
+
+    // Pass-through view helper: forwards the round's TaskRep deltas + GRS from
+    // the registered challenge contract. Useful for Python/off-chain code that
+    // wants to inspect what updateUserTaskReps would consume without making a
+    // separate call into the challenge.
+    function getChallengeTaskReps()
+        external
+        view
+        returns (IOpenFLChallengeTaskRep.TaskRep[] memory)
+    {
+        require(challengeAddress != address(0), "JL: challenge not registered");
+        return IOpenFLChallengeTaskRep(challengeAddress).getTaskRepDeltaAndGRS();
+    }
+
+    // Calculate and apply updated per-task (= per-dataset) TaskRep for every
+    // participant of the registered challenge. Called once per JobListing
+    // lifecycle.
+    //
+    // Inputs available to the formula (per participant `rep`):
+    //   - rep.user                    : participant address
+    //   - rep.delta                   : signed taskRepDelta produced by this challenge round
+    //   - rep.globalReputationScore   : participant's current GRS (collateral, not integrity rep)
+    //   - tt                          : TaskType (= dataset) bound to this job
+    //   - priorTaskRep                : participant's existing TaskRep for tt
+    //                                   (from manager.getUserRep)
+    //   - nrOfTasksParticipated       : from manager.getUserRep
+    //
+    // The formula must produce a *signed delta* (`int256 newDelta`) to apply on
+    // top of the existing TaskRep. Negative deltas are saturated at zero by
+    // OpenFLManager.applyUserTaskRepDelta.
+    //
+    // Auth: callable by the registered challenge contract (normal flow) or by
+    // the JobListing publisher EOA (replay flow). Idempotent — taskRepsApplied
+    // flag prevents double application.
+    function updateUserTaskReps() external onlyTaskRepUpdater {
+        require(!taskRepsApplied, "JL: task reps already applied");
+        require(challengeAddress != address(0), "JL: challenge not registered");
+
+        IOpenFLChallengeTaskRep challenge = IOpenFLChallengeTaskRep(
+            challengeAddress
+        );
+        IOpenFLChallengeTaskRep.TaskRep[] memory reps = challenge
+            .getTaskRepDeltaAndGRS();
+
+        TaskType tt = trainingSpecs.taskType;
+
+        for (uint i = 0; i < reps.length; i++) {
+            IOpenFLChallengeTaskRep.TaskRep memory rep = reps[i];
+
+            // ============================================================
+            // TASK REP FORMULA — fill in below.
+            //
+            // Available locals: rep.user, rep.delta, rep.globalReputationScore,
+            //                   tt, priorTaskRep, nrOfTasksParticipated
+            //
+            // Compute `int256 newDelta` representing the signed change to apply
+            // to manager's GlobalTaskRep[user][tt].
+            // ============================================================
+            (
+                uint priorTaskRep,
+                ,
+                uint nrOfTasksParticipated
+            ) = manager.getUserRep(rep.user, tt);
+
+            // PLACEHOLDER — replace with real formula.
+            int256 newDelta = rep.delta;
+
+            // Suppress unused-variable warnings until formula uses them.
+            priorTaskRep;
+            nrOfTasksParticipated;
+            // ============================================================
+
+            manager.applyUserTaskRepDelta(rep.user, tt, newDelta);
+        }
+
+        taskRepsApplied = true;
+        emit TaskRepsApplied(challengeAddress, tt, reps.length);
     }
 }

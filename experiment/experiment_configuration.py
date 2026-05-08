@@ -152,7 +152,19 @@ class ExperimentConfiguration:
 
 
     def get_training_specs(self, manager_address, model_hash) -> TrainingSpecsJobListing:
-        return TrainingSpecsJobListing(model_hash, self.min_buy_in, self.max_buy_in, manager_address, self.reward, self.minimum_rounds, self.punish_factor, self.punish_factor_contrib, self.first_round_fee, 1) # Todo: Tasktype
+        from openfl.utils.types.TrainingSpecsJobListing import TaskType
+        return TrainingSpecsJobListing(
+            model_hash,
+            self.min_buy_in,
+            self.max_buy_in,
+            manager_address,
+            self.reward,
+            self.minimum_rounds,
+            self.punish_factor,
+            self.punish_factor_contrib,
+            self.first_round_fee,
+            int(TaskType.from_dataset_name(self.dataset)),
+        )
 
     @property
     def number_of_contributors(self):

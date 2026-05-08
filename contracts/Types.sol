@@ -1,11 +1,18 @@
 pragma solidity ^0.8.0;
 
+// TaskType identifies the dataset/task this job is for. TaskRep is tracked
+// per TaskType (one TaskRep per MNIST, another per CIFAR10, etc.). Keep
+// `template` first so the default (uninitialised) value is the template marker.
 enum TaskType {
     template,
     Images,
     Language,
     Images_clothing,
-    Images_objects
+    Images_objects,
+    MNIST,
+    CIFAR10,
+    FashionMNIST,
+    IMDB
 }
 
 struct TrainingSpecifications {

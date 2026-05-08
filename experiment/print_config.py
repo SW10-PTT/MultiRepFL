@@ -27,6 +27,7 @@ PRINTS_ALL = {
     "writer",
     "gas_report",
     "latex_output",
+    "autorunner"
 }
 
 # PRINTS_MINIMAL = PRINTS_EVEN_LESSER

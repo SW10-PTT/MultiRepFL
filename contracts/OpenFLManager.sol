@@ -33,6 +33,9 @@ contract OpenFLManager {
     event JobListingValid(bool isValid);
 
     struct User {
+        // GlobalTaskRep is the per-task (= per-dataset) TaskRep. TaskType acts
+        // as the dataset key (e.g. MNIST, CIFAR10). Mutated by valid
+        // JobListings via applyUserTaskRepDelta after a challenge round.
         mapping(TaskType => uint256) GlobalTaskRep;
         uint256 GlobalIntegrityRep;
         uint128 TotalContribScore;
@@ -106,5 +109,37 @@ contract OpenFLManager {
         validJobs[job] = validJob;
 
         emit JobListingValid(validJob);
+    }
+
+    event UserTaskRepUpdated(
+        address indexed user,
+        TaskType indexed taskType,
+        uint256 oldValue,
+        uint256 newValue
+    );
+
+    // Apply a signed delta to a user's per-task (= per-dataset) TaskRep.
+    // Only callable by a registered (valid) JobListing — register via registerJob().
+    // Saturates at 0 on negative deltas larger than the current balance to
+    // avoid underflow.
+    function applyUserTaskRepDelta(
+        address user,
+        TaskType taskType,
+        int256 delta
+    ) external {
+        require(validJobs[msg.sender], "OFLM: caller not valid job");
+
+        uint256 current = users[user].GlobalTaskRep[taskType];
+        uint256 updated;
+
+        if (delta >= 0) {
+            updated = current + uint256(delta);
+        } else {
+            uint256 absDelta = uint256(-delta);
+            updated = absDelta >= current ? 0 : current - absDelta;
+        }
+
+        users[user].GlobalTaskRep[taskType] = updated;
+        emit UserTaskRepUpdated(user, taskType, current, updated);
     }
 }

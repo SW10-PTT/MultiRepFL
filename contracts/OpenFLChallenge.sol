@@ -37,7 +37,7 @@ contract OpenFLChallenge {
     uint public roundStart;
     uint public contributionStart;
     uint public freeriderPenalty;
-    TaskType taskType;
+    TaskType public taskType;
     uint constant ONE_DAY = 864e2;
 
     address[] public participants;
@@ -1176,6 +1176,7 @@ contract OpenFLChallenge {
 
         return taskReps;
     }
+    
 
     // Fallback function parses dynamic size feedback arrays
     // @dev This allows the contract to have an arbitrary number of participants
