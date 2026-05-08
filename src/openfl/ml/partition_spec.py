@@ -180,9 +180,11 @@ def load_partition_specs(
 # Multi-dataset loader. Returns {dataset_name_normalised: {user_index: spec}}.
 # When the JSON has the legacy single-dataset shape, all specs land under
 # ANY_DATASET so downstream lookups can fall back to it regardless of the
-# active dataset. The new multi-dataset shape is:
-#   {user_index: {"name": ..., "datasets": {DATASET: spec, ...}}}
+# active dataset. Canonical multi-dataset shape (array of users):
+#   {"presets": [{"id": ..., "name": ..., "datasets": {DATASET: spec, ...}}, ...]}
+# Legacy shapes still accepted:
 #   {"users": [{"user_index": ..., "name": ..., "datasets": {...}}, ...]}
+#   {user_index: {"name": ..., "datasets": {DATASET: spec, ...}}}
 def load_dataset_partition_specs(
     source: Union[str, Path, dict, None],
 ) -> Dict[str, Dict[str, UserPartitionSpec]]:
@@ -214,7 +216,12 @@ def _load_payload(source: Union[str, Path, dict]) -> dict:
 def _is_multi_dataset(payload) -> bool:
     if not isinstance(payload, dict):
         return False
-    entries = payload.get("users") if "users" in payload else payload
+    if "presets" in payload:
+        entries = payload["presets"]
+    elif "users" in payload:
+        entries = payload["users"]
+    else:
+        entries = payload
     if isinstance(entries, list):
         candidates = entries
     elif isinstance(entries, dict):
@@ -228,7 +235,12 @@ def _is_multi_dataset(payload) -> bool:
 
 
 def _load_multi_dataset(payload) -> Dict[str, Dict[str, UserPartitionSpec]]:
-    raw = payload.get("users") if isinstance(payload, dict) and "users" in payload else payload
+    if isinstance(payload, dict) and "presets" in payload:
+        raw = payload["presets"]
+    elif isinstance(payload, dict) and "users" in payload:
+        raw = payload["users"]
+    else:
+        raw = payload
 
     out: Dict[str, Dict[str, UserPartitionSpec]] = {}
 
@@ -274,7 +286,9 @@ def _load_multi_dataset(payload) -> Dict[str, Dict[str, UserPartitionSpec]]:
 
 
 def _load_single_dataset(payload) -> Dict[str, UserPartitionSpec]:
-    if isinstance(payload, dict) and "users" in payload:
+    if isinstance(payload, dict) and "presets" in payload:
+        raw = payload["presets"]
+    elif isinstance(payload, dict) and "users" in payload:
         raw = payload["users"]
     else:
         raw = payload
