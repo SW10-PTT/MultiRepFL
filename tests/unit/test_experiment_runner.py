@@ -1,6 +1,18 @@
 from types import SimpleNamespace
 
+import pytest
+
 import experiment.experiment_runner as runner
+import openfl.api.globals as openfl_globals
+from openfl.utils.printer import set_enabled_tags
+
+
+@pytest.fixture(autouse=True)
+def _enable_runner_log_tags():
+    # log() is a no-op unless the tag is in ENABLED_TAGS; turn on the tags the
+    # functions under test write to so capsys can see their output.
+    set_enabled_tags({"gas_report", "latex_output"})
+
 
 # Maybe delete these tests
 
@@ -73,10 +85,18 @@ class DummyExperiment:
         self.manager = SimpleNamespace(manager=SimpleNamespace(address="0xmanager"))
 
 
-def test_print_transactions_outputs_receipts(capsys):
+def test_print_transactions_outputs_receipts(capsys, monkeypatch):
+    # print_transactions reads globals.w3, not experiment.model.w3 — monkeypatch
+    # globals.w3 to a stub that returns a deterministic receipt.
+    fake_w3 = SimpleNamespace(
+        eth=SimpleNamespace(
+            wait_for_transaction_receipt=lambda tx: {"status": 1, "gasUsed": 10}
+        )
+    )
+    monkeypatch.setattr(openfl_globals, "w3", fake_w3)
+
     dummy = DummyExperiment()
     dummy.model.txHashes = [("fn", "hash", 42)]
-    dummy.model.w3.eth.receipts = {"hash": {"status": 1, "gasUsed": 42}}
 
     runner.print_transactions(dummy)
     captured = capsys.readouterr().out

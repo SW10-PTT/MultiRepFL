@@ -14,11 +14,37 @@
       "console": "integratedTerminal",
       "preLaunchTask": "compile-contracts",
       "cwd": "${workspaceFolder}",
-      "env": { "PYTHONPATH": "${workspaceFolder}" },
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}"
+      },
       "python": "${command:python.interpreterPath}",
-      "windows": { "python": "${workspaceFolder}\\.venv\\Scripts\\python.exe" },
-      "linux":   { "python": "${workspaceFolder}/.venv/bin/python" },
-      "osx":     { "python": "${workspaceFolder}/.venv/bin/python" }
+      "windows": {
+        "python": "${workspaceFolder}\\.venv\\Scripts\\python.exe"
+      },
+      "linux": {
+        "python": "${workspaceFolder}/.venv/bin/python"
+      },
+      "osx": {
+        "python": "${workspaceFolder}/.venv/bin/python"
+      }
+    },
+    {
+      "name": "Compile - AutoRun",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "experiment/auto_runner.py",
+      "console": "integratedTerminal",
+      "preLaunchTask": "compile-contracts",
+      "python": "${command:python.interpreterPath}",
+      "windows": {
+        "python": "${workspaceFolder}\\.venv\\Scripts\\python.exe"
+      },
+      "linux": {
+        "python": "${workspaceFolder}/.venv/bin/python"
+      },
+      "osx": {
+        "python": "${workspaceFolder}/.venv/bin/python"
+      }
     },
     {
       "name": "Compile - Debug: Experiments",
@@ -34,9 +60,15 @@
       "console": "integratedTerminal",
       "preLaunchTask": "compile-contracts",
       "python": "${command:python.interpreterPath}",
-      "windows": { "python": "${workspaceFolder}\\.venv\\Scripts\\python.exe" },
-      "linux":   { "python": "${workspaceFolder}/.venv/bin/python" },
-      "osx":     { "python": "${workspaceFolder}/.venv/bin/python" }
+      "windows": {
+        "python": "${workspaceFolder}\\.venv\\Scripts\\python.exe"
+      },
+      "linux": {
+        "python": "${workspaceFolder}/.venv/bin/python"
+      },
+      "osx": {
+        "python": "${workspaceFolder}/.venv/bin/python"
+      }
     },
     {
       "name": "Compile - Debug: Sample",
@@ -47,9 +79,15 @@
       "cwd": "${workspaceFolder}",
       "preLaunchTask": "compile-contracts",
       "python": "${command:python.interpreterPath}",
-      "windows": { "python": "${workspaceFolder}\\.venv\\Scripts\\python.exe" },
-      "linux":   { "python": "${workspaceFolder}/.venv/bin/python" },
-      "osx":     { "python": "${workspaceFolder}/.venv/bin/python" }
+      "windows": {
+        "python": "${workspaceFolder}\\.venv\\Scripts\\python.exe"
+      },
+      "linux": {
+        "python": "${workspaceFolder}/.venv/bin/python"
+      },
+      "osx": {
+        "python": "${workspaceFolder}/.venv/bin/python"
+      }
     },
     {
       "name": "Debug: Experiments",
@@ -62,9 +100,15 @@
       ],
       "console": "integratedTerminal",
       "python": "${command:python.interpreterPath}",
-      "windows": { "python": "${workspaceFolder}\\.venv\\Scripts\\python.exe" },
-      "linux":   { "python": "${workspaceFolder}/.venv/bin/python" },
-      "osx":     { "python": "${workspaceFolder}/.venv/bin/python" }
+      "windows": {
+        "python": "${workspaceFolder}\\.venv\\Scripts\\python.exe"
+      },
+      "linux": {
+        "python": "${workspaceFolder}/.venv/bin/python"
+      },
+      "osx": {
+        "python": "${workspaceFolder}/.venv/bin/python"
+      }
     },
     {
       "name": "Python Debugger: Processor",
@@ -73,11 +117,19 @@
       "program": "scripts/processData.py",
       "console": "integratedTerminal",
       "cwd": "${workspaceFolder}",
-      "env": { "PYTHONPATH": "${workspaceFolder}" },
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}"
+      },
       "python": "${command:python.interpreterPath}",
-      "windows": { "python": "${workspaceFolder}\\.venv\\Scripts\\python.exe" },
-      "linux":   { "python": "${workspaceFolder}/.venv/bin/python" },
-      "osx":     { "python": "${workspaceFolder}/.venv/bin/python" }
+      "windows": {
+        "python": "${workspaceFolder}\\.venv\\Scripts\\python.exe"
+      },
+      "linux": {
+        "python": "${workspaceFolder}/.venv/bin/python"
+      },
+      "osx": {
+        "python": "${workspaceFolder}/.venv/bin/python"
+      }
     },
     {
       "name": "Python Debugger: Current File",
@@ -86,9 +138,15 @@
       "program": "${file}",
       "console": "integratedTerminal",
       "python": "${command:python.interpreterPath}",
-      "windows": { "python": "${workspaceFolder}\\.venv\\Scripts\\python.exe" },
-      "linux":   { "python": "${workspaceFolder}/.venv/bin/python" },
-      "osx":     { "python": "${workspaceFolder}/.venv/bin/python" }
+      "windows": {
+        "python": "${workspaceFolder}\\.venv\\Scripts\\python.exe"
+      },
+      "linux": {
+        "python": "${workspaceFolder}/.venv/bin/python"
+      },
+      "osx": {
+        "python": "${workspaceFolder}/.venv/bin/python"
+      }
     }
   ]
 }

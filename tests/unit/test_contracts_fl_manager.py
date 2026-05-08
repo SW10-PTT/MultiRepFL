@@ -1,62 +1,61 @@
 from types import SimpleNamespace
 
-import openfl.contracts.FLManager as FLManager
+from openfl.contracts.FLManager import FLManager
 
 
-# Maybe delete these tests
-class DummyHelper:
+class _DummyJobListing:
     def __init__(self):
-        self.called_with = None
-
-    def initiate_rpc(self, **kwargs):
-        self.called_with = kwargs
-        return "web3", 123
-
-    def initialize(self):
-        return "manager"
+        self.contract = SimpleNamespace(address="0xJobListing")
 
 
-def test_init_delegates_to_connection_helper(monkeypatch):
-    helper = DummyHelper()
-    monkeypatch.setattr(FLManager.ConnectionHelper, "initiate_rpc", lambda self, **kwargs: helper.initiate_rpc(**kwargs))
-    monkeypatch.setattr(FLManager.ConnectionHelper, "initialize", lambda self: helper.initialize())
+def test_init_sets_core_fields():
+    pytorch_model = "model"
+    publisher = SimpleNamespace(address="0xPublisher")
 
-    mgr = FLManager.FLManager(pytorch_model="model")
-    result = mgr.init(1, 0, 0, 0, 5)
+    mgr = FLManager(pytorch_model=pytorch_model, publisher=publisher)
 
-    assert result is mgr
-    assert mgr.w3 == "web3"
-    assert mgr.latestBlock == 123
-    assert mgr.manager == "manager"
-    assert helper.called_with["NUMBER_OF_GOOD_CONTRIBUTORS"] == 1
+    assert mgr.pytorch_model == "model"
+    assert mgr.publisher is publisher
+    assert mgr.manual_setup is False
+    assert mgr.latestBlock is None
+    assert mgr.contract is None
+    assert mgr.challenge_contract is None
+    assert mgr.modelOf == {}
+    assert mgr.job_listings == []
+    assert mgr.gas_deploy == []
+    assert mgr.txHashes == []
+    assert mgr.job_template_address is None
 
 
-def test_get_model_queries_manager(monkeypatch):
+def test_init_honours_manual_ganache_flag():
+    mgr = FLManager(pytorch_model="m", publisher=SimpleNamespace(), manual_ganache_setup=True)
+    assert mgr.manual_setup is True
+
+
+def test_get_model_of_queries_contract():
     class FakeCall:
-        def __init__(self):
+        def __init__(self, result):
+            self._result = result
             self.called_with = None
+
         def call(self, params):
             self.called_with = params
-            return "result"
+            return self._result
+
+    captured = {}
 
     class FakeFunctions:
-        def __init__(self):
-            self.last_params = None
-        def ModelOf(self, address, count):
-            self.last_params = (address, count)
-            return FakeCall()
-        def ModelCountOf(self, address):
-            self.last_params = address
-            return FakeCall()
+        def getModel(self, participant_address, addr):
+            captured["args"] = (participant_address, addr)
+            return FakeCall("model-result")
 
-    manager_obj = SimpleNamespace(functions=FakeFunctions(), address="0xmanager")
-    mgr = FLManager.FLManager(pytorch_model="model")
-    mgr.manager = manager_obj
+    fake_contract = SimpleNamespace(functions=FakeFunctions(), address="0xManager")
 
-    participant = SimpleNamespace(address="0xabc")
+    mgr = FLManager(pytorch_model="m", publisher=SimpleNamespace())
+    mgr.contract = fake_contract
 
-    assert mgr.get_model_of(participant, 2) == "result"
-    assert manager_obj.functions.last_params == ("0xabc", 2)
+    participant = SimpleNamespace(address="0xParticipant")
+    result = mgr.get_model_of(participant, "0xModelAddr")
 
-    assert mgr.get_model_count_of(participant) == "result"
-    assert manager_obj.functions.last_params == participant.address
+    assert result == "model-result"
+    assert captured["args"] == ("0xParticipant", "0xModelAddr")

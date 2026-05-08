@@ -15,6 +15,8 @@ def make_user(**overrides):
     u.flip_map = {}
     u.seed = 42
     u.partition_spec = None
+    u.noise_scale = None
+    u.start_round = None
     for key, value in overrides.items():
         setattr(u, key, value)
     return u
