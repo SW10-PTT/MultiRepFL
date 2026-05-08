@@ -75,9 +75,9 @@ def test_spec_rejects_distribution_outside_only_labels():
 
 def test_load_partition_specs_from_file(tmp_path):
     payload = {
-        "users": [
-            {"user_index": "alpha-guid", "data_percent": 50.0, "label_distribution": {"0": 1.0, "1": 1.0}},
-            {"user_index": "beta-guid", "data_percent": 50.0, "only_labels": [2, 3], "flip_map": {"2": 3}},
+        "presets": [
+            {"id": "alpha-guid", "data_percent": 50.0, "label_distribution": {"0": 1.0, "1": 1.0}},
+            {"id": "beta-guid", "data_percent": 50.0, "only_labels": [2, 3], "flip_map": {"2": 3}},
         ]
     }
     path = tmp_path / "partitions.json"
@@ -90,10 +90,12 @@ def test_load_partition_specs_from_file(tmp_path):
     assert specs["beta-guid"].flip_map == {2: 3}
 
 
-def test_load_partition_specs_from_dict_keys():
+def test_load_partition_specs_from_presets_array():
     payload = {
-        "0": {"data_percent": 60.0},
-        "1": {"data_percent": 40.0, "only_labels": [0]},
+        "presets": [
+            {"id": "0", "data_percent": 60.0},
+            {"id": "1", "data_percent": 40.0, "only_labels": [0]},
+        ]
     }
     specs = load_partition_specs(payload)
     assert specs["0"].user_index == "0"
@@ -101,10 +103,12 @@ def test_load_partition_specs_from_dict_keys():
     assert specs["1"].only_labels == [0]
 
 
-def test_load_partition_specs_accepts_guid_keys():
+def test_load_partition_specs_accepts_guid_ids():
     payload = {
-        "550e8400-e29b-41d4-a716-446655440000": {"data_percent": 30.0},
-        "6ba7b810-9dad-11d1-80b4-00c04fd430c8": {"data_percent": 70.0, "only_labels": [3]},
+        "presets": [
+            {"id": "550e8400-e29b-41d4-a716-446655440000", "data_percent": 30.0},
+            {"id": "6ba7b810-9dad-11d1-80b4-00c04fd430c8", "data_percent": 70.0, "only_labels": [3]},
+        ]
     }
     specs = load_partition_specs(payload)
     assert set(specs.keys()) == {
