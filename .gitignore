@@ -158,6 +158,12 @@ runs/
 #Bytecode
 artifacts/bytecode/**
 
+# Compiled contract artifacts
+bin/contracts/
+
+# Generated simulation figure (regenerated per run)
+figures/mnist_simulation.pdf
+
 #Data
 data/**
 experiment/data/**
