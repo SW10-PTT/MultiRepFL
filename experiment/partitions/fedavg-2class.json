@@ -1,0 +1,138 @@
+{
+  "_doc": [
+    "FedAvg-style pathological non-IID: each user holds exactly 2 of the 10 classes (McMahan",
+    "et al. 2017). Each class appears in 2 users; equal data_percent across users.",
+    "Expectation: a stress test for federated averaging — global accuracy is hard to achieve,",
+    "and reputation should reward users whose specialty classes match the evaluation task."
+  ],
+  "5aaefefd-d131-41a1-8f42-5221248e2463": {
+    "name": "H1 Classes 0-1",
+    "datasets": {
+      "MNIST": {
+        "data_percent": 10.0,
+        "only_labels": [0, 1]
+      },
+      "CIFAR-10": {
+        "data_percent": 10.0,
+        "only_labels": [0, 1]
+      }
+    }
+  },
+  "f80f7577-2625-468e-9098-1f268eb4db72": {
+    "name": "H2 Classes 2-3",
+    "datasets": {
+      "MNIST": {
+        "data_percent": 10.0,
+        "only_labels": [2, 3]
+      },
+      "CIFAR-10": {
+        "data_percent": 10.0,
+        "only_labels": [2, 3]
+      }
+    }
+  },
+  "2f537af4-cd45-47a1-b2ad-0be78f4ae664": {
+    "name": "H3 Classes 4-5",
+    "datasets": {
+      "MNIST": {
+        "data_percent": 10.0,
+        "only_labels": [4, 5]
+      },
+      "CIFAR-10": {
+        "data_percent": 10.0,
+        "only_labels": [4, 5]
+      }
+    }
+  },
+  "2de35fc3-bb6d-4940-849c-be9123c68640": {
+    "name": "H4 Classes 6-7",
+    "datasets": {
+      "MNIST": {
+        "data_percent": 10.0,
+        "only_labels": [6, 7]
+      },
+      "CIFAR-10": {
+        "data_percent": 10.0,
+        "only_labels": [6, 7]
+      }
+    }
+  },
+  "0982dbb0-cf60-4904-bc6f-ed405ee5072a": {
+    "name": "H5 Classes 8-9",
+    "datasets": {
+      "MNIST": {
+        "data_percent": 10.0,
+        "only_labels": [8, 9]
+      },
+      "CIFAR-10": {
+        "data_percent": 10.0,
+        "only_labels": [8, 9]
+      }
+    }
+  },
+  "88e7f34a-c661-4b72-8736-1cdc10e7cab6": {
+    "name": "H6 Classes 0-1",
+    "datasets": {
+      "MNIST": {
+        "data_percent": 10.0,
+        "only_labels": [0, 1]
+      },
+      "CIFAR-10": {
+        "data_percent": 10.0,
+        "only_labels": [0, 1]
+      }
+    }
+  },
+  "758d4dfd-7f62-4f88-8332-a1c5db7be718": {
+    "name": "H7 Classes 2-3",
+    "datasets": {
+      "MNIST": {
+        "data_percent": 10.0,
+        "only_labels": [2, 3]
+      },
+      "CIFAR-10": {
+        "data_percent": 10.0,
+        "only_labels": [2, 3]
+      }
+    }
+  },
+  "510b7588-a565-4b3e-a04d-ac8429f0fd33": {
+    "name": "H8 Classes 4-5",
+    "datasets": {
+      "MNIST": {
+        "data_percent": 10.0,
+        "only_labels": [4, 5]
+      },
+      "CIFAR-10": {
+        "data_percent": 10.0,
+        "only_labels": [4, 5]
+      }
+    }
+  },
+  "e8056a76-7709-4938-8e50-adba9f4ffc34": {
+    "name": "H9 Classes 6-7",
+    "datasets": {
+      "MNIST": {
+        "data_percent": 10.0,
+        "only_labels": [6, 7]
+      },
+      "CIFAR-10": {
+        "data_percent": 10.0,
+        "only_labels": [6, 7]
+      }
+    }
+  },
+  "92873d81-25d9-4e37-9728-dac62f4b268c": {
+    "name": "H10 Classes 8-9",
+    "datasets": {
+      "MNIST": {
+        "data_percent": 10.0,
+        "only_labels": [8, 9]
+      },
+      "CIFAR-10": {
+        "data_percent": 10.0,
+        "only_labels": [8, 9]
+      }
+    }
+  }
+}
