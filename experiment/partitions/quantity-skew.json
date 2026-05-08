@@ -5,114 +5,126 @@
     "data-poor on the other. Expectation: users with more data train better local models",
     "and earn a higher reputation score."
   ],
-  "5aaefefd-d131-41a1-8f42-5221248e2463": {
-    "name": "H1 Strong MNIST, Weak CIFAR-10",
-    "datasets": {
-      "MNIST": {
-        "data_percent": 18.0
-      },
-      "CIFAR-10": {
-        "data_percent": 4.0
+  "presets": [
+    {
+      "id": "5aaefefd-d131-41a1-8f42-5221248e2463",
+      "name": "H1 Strong MNIST, Weak CIFAR-10",
+      "datasets": {
+        "MNIST": {
+          "data_percent": 18.0
+        },
+        "CIFAR-10": {
+          "data_percent": 4.0
+        }
+      }
+    },
+    {
+      "id": "f80f7577-2625-468e-9098-1f268eb4db72",
+      "name": "H2 Strong MNIST, Weak CIFAR-10",
+      "datasets": {
+        "MNIST": {
+          "data_percent": 18.0
+        },
+        "CIFAR-10": {
+          "data_percent": 4.0
+        }
+      }
+    },
+    {
+      "id": "2f537af4-cd45-47a1-b2ad-0be78f4ae664",
+      "name": "H3 Strong MNIST, Weak CIFAR-10",
+      "datasets": {
+        "MNIST": {
+          "data_percent": 18.0
+        },
+        "CIFAR-10": {
+          "data_percent": 4.0
+        }
+      }
+    },
+    {
+      "id": "2de35fc3-bb6d-4940-849c-be9123c68640",
+      "name": "H4 Weak MNIST, Strong CIFAR-10",
+      "datasets": {
+        "MNIST": {
+          "data_percent": 4.0
+        },
+        "CIFAR-10": {
+          "data_percent": 18.0
+        }
+      }
+    },
+    {
+      "id": "0982dbb0-cf60-4904-bc6f-ed405ee5072a",
+      "name": "H5 Weak MNIST, Strong CIFAR-10",
+      "datasets": {
+        "MNIST": {
+          "data_percent": 4.0
+        },
+        "CIFAR-10": {
+          "data_percent": 18.0
+        }
+      }
+    },
+    {
+      "id": "88e7f34a-c661-4b72-8736-1cdc10e7cab6",
+      "name": "H6 Weak MNIST, Strong CIFAR-10",
+      "datasets": {
+        "MNIST": {
+          "data_percent": 4.0
+        },
+        "CIFAR-10": {
+          "data_percent": 18.0
+        }
+      }
+    },
+    {
+      "id": "758d4dfd-7f62-4f88-8332-a1c5db7be718",
+      "name": "H7 Balanced",
+      "datasets": {
+        "MNIST": {
+          "data_percent": 12.0
+        },
+        "CIFAR-10": {
+          "data_percent": 12.0
+        }
+      }
+    },
+    {
+      "id": "510b7588-a565-4b3e-a04d-ac8429f0fd33",
+      "name": "H8 Balanced",
+      "datasets": {
+        "MNIST": {
+          "data_percent": 12.0
+        },
+        "CIFAR-10": {
+          "data_percent": 12.0
+        }
+      }
+    },
+    {
+      "id": "e8056a76-7709-4938-8e50-adba9f4ffc34",
+      "name": "H9 Narrow Both",
+      "datasets": {
+        "MNIST": {
+          "data_percent": 5.0
+        },
+        "CIFAR-10": {
+          "data_percent": 5.0
+        }
+      }
+    },
+    {
+      "id": "92873d81-25d9-4e37-9728-dac62f4b268c",
+      "name": "H10 Narrow Both",
+      "datasets": {
+        "MNIST": {
+          "data_percent": 5.0
+        },
+        "CIFAR-10": {
+          "data_percent": 5.0
+        }
       }
     }
-  },
-  "f80f7577-2625-468e-9098-1f268eb4db72": {
-    "name": "H2 Strong MNIST, Weak CIFAR-10",
-    "datasets": {
-      "MNIST": {
-        "data_percent": 18.0
-      },
-      "CIFAR-10": {
-        "data_percent": 4.0
-      }
-    }
-  },
-  "2f537af4-cd45-47a1-b2ad-0be78f4ae664": {
-    "name": "H3 Strong MNIST, Weak CIFAR-10",
-    "datasets": {
-      "MNIST": {
-        "data_percent": 18.0
-      },
-      "CIFAR-10": {
-        "data_percent": 4.0
-      }
-    }
-  },
-  "2de35fc3-bb6d-4940-849c-be9123c68640": {
-    "name": "H4 Weak MNIST, Strong CIFAR-10",
-    "datasets": {
-      "MNIST": {
-        "data_percent": 4.0
-      },
-      "CIFAR-10": {
-        "data_percent": 18.0
-      }
-    }
-  },
-  "0982dbb0-cf60-4904-bc6f-ed405ee5072a": {
-    "name": "H5 Weak MNIST, Strong CIFAR-10",
-    "datasets": {
-      "MNIST": {
-        "data_percent": 4.0
-      },
-      "CIFAR-10": {
-        "data_percent": 18.0
-      }
-    }
-  },
-  "88e7f34a-c661-4b72-8736-1cdc10e7cab6": {
-    "name": "H6 Weak MNIST, Strong CIFAR-10",
-    "datasets": {
-      "MNIST": {
-        "data_percent": 4.0
-      },
-      "CIFAR-10": {
-        "data_percent": 18.0
-      }
-    }
-  },
-  "758d4dfd-7f62-4f88-8332-a1c5db7be718": {
-    "name": "H7 Balanced",
-    "datasets": {
-      "MNIST": {
-        "data_percent": 12.0
-      },
-      "CIFAR-10": {
-        "data_percent": 12.0
-      }
-    }
-  },
-  "510b7588-a565-4b3e-a04d-ac8429f0fd33": {
-    "name": "H8 Balanced",
-    "datasets": {
-      "MNIST": {
-        "data_percent": 12.0
-      },
-      "CIFAR-10": {
-        "data_percent": 12.0
-      }
-    }
-  },
-  "e8056a76-7709-4938-8e50-adba9f4ffc34": {
-    "name": "H9 Narrow Both",
-    "datasets": {
-      "MNIST": {
-        "data_percent": 5.0
-      },
-      "CIFAR-10": {
-        "data_percent": 5.0
-      }
-    }
-  },
-  "92873d81-25d9-4e37-9728-dac62f4b268c": {
-    "name": "H10 Narrow Both",
-    "datasets": {
-      "MNIST": {
-        "data_percent": 5.0
-      },
-      "CIFAR-10": {
-        "data_percent": 5.0
-      }
-    }
-  }
+  ]
 }
