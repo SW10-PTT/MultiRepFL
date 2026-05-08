@@ -1445,7 +1445,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
 
         self._log_round_zero()
 
-        for i in range(rounds):
+        for roundnr in range(rounds):
             log("round_boundary", b(f"Round {self.pytorch_model.round} starts..."))
             _round_start = time.perf_counter()
             self.pytorch_model.update_users_attitude()
