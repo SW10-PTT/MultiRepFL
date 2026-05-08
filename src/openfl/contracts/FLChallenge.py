@@ -868,8 +868,10 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                 loss_pct_diff = (avg_loss - avg_prev_loss) / avg_prev_loss * 100 if avg_prev_loss != 0 else float('inf')
                 loss_status = "PUNISHED" if avg_loss > avg_prev_loss else ("improved" if avg_loss < avg_prev_loss else "neutral")
                 log("round_scoring",f"  [{u.display_label():<12}] loss={avg_loss:.6f}  baseline={avg_prev_loss:.6f}  diff={loss_pct_diff:+.2f}%  [{loss_status}]")
-            except ValueError:
-                log("round_scoring", "An error occured")
+            except ValueError as e:
+                log("round_scoring", f"  [{u.display_label():<12}] SKIPPED ({e}) — using baseline as neutral fallback")
+                avg_accuracies.append(avg_prev_acc)
+                avg_losses.append(avg_prev_loss)
 
 
         scores = []
@@ -928,8 +930,9 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                 avg_acc = np.mean(mad_accuracies)
                 avg_accuracies.append(avg_acc) # int
                 per_user_outlier_info.append({**prev_info, **info}) # Merge prev (global baseline) and current (per-user) MAD info into one dict; keys are prefixed ("previous_*" / "current_*") so they don't collide
-            except ValueError:
-                log("round_scoring", "An error occured")
+            except ValueError as e:
+                log("round_scoring", f"  [{u.display_label():<12}] SKIPPED ({e}) — using baseline as neutral fallback")
+                avg_accuracies.append(avg_prev_acc)
                 per_user_outlier_info.append({})
 
         norm_accuracies = normalize_contribution_scores_new(avg_accuracies, avg_prev_acc, 'accuracy')
@@ -988,7 +991,8 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                 ustatus = "PUNISHED" if avg_loss > avg_prev_loss else ("improved" if avg_loss < avg_prev_loss else "neutral")
                 log("round_scoring",f"  [{u.display_label():<12}] loss={avg_loss:.6f}  baseline={avg_prev_loss:.6f}  diff={pct_diff:+.2f}%  [{ustatus}]")
             except ValueError as e:
-                log("round_scoring", f"  [{u.display_label():<12}] SKIPPED ({e}) raw_losses={losses}")
+                log("round_scoring", f"  [{u.display_label():<12}] SKIPPED ({e}) raw_losses={losses} — using baseline as neutral fallback")
+                avg_losses.append(avg_prev_loss)
                 per_user_outlier_info.append({})
 
         norm_losses = normalize_contribution_scores_new(avg_losses, avg_prev_loss, 'loss')
@@ -1066,7 +1070,8 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                     ustatus = "PUNISHED (beyond ε)"
                 log("round_scoring",f"  [{u.display_label():<12}] loss={avg_loss:.6f}  baseline={avg_prev_loss:.6f}  diff={pct_diff:+.2f}%  margin_to_punish={pct_margin:+.2f}% ({margin:+.6f})  [{ustatus}]")
             except ValueError as e:
-                log("round_scoring", f"  [{u.display_label():<12}] SKIPPED ({e}) raw_losses={losses}")
+                log("round_scoring", f"  [{u.display_label():<12}] SKIPPED ({e}) raw_losses={losses} — using baseline as neutral fallback")
+                avg_losses.append(avg_prev_loss)
                 per_user_outlier_info.append({})
 
         norm_losses = normalize_contribution_scores_new(avg_losses, shifted_baseline, 'loss')
@@ -1141,7 +1146,8 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                     ustatus = "PUNISHED (beyond ε)"
                 log("round_scoring", f"  [{u.display_label():<12}] raw_loss={raw_avg_loss:.6f}  eff_loss={snapped_avg_loss:.6f}  baseline={avg_prev_loss:.6f}  diff={pct_diff:+.2f}%  margin_to_threshold={pct_margin:+.2f}% ({margin:+.6f})  [{ustatus}]")
             except ValueError as e:
-                log("round_scoring", f"  [{u.display_label():<12}] SKIPPED ({e}) raw_losses={losses}")
+                log("round_scoring", f"  [{u.display_label():<12}] SKIPPED ({e}) raw_losses={losses} — using baseline as neutral fallback")
+                avg_losses.append(avg_prev_loss)
                 per_user_outlier_info.append({})
 
         norm_losses = normalize_contribution_scores_new(avg_losses, avg_prev_loss, 'loss')
@@ -1849,6 +1855,9 @@ def remove_outliers_mad(arr, threshold=0.70, return_mask=False, collector=None, 
     # always flatten
     flat = arr.ravel()
 
+    if len(flat) == 0:
+        raise ValueError("remove_outliers_mad: empty input array")
+
     median = np.median(flat)
     abs_dev = np.abs(flat - median)
     mad = np.median(abs_dev)
@@ -1866,7 +1875,8 @@ def remove_outliers_mad(arr, threshold=0.70, return_mask=False, collector=None, 
             collector[f"{prefix}boundary"] = None
         if return_mask:
             return arr, mask
-        return flat[mask]
+        filtered = flat[mask]
+        return filtered if len(filtered) > 0 else flat
 
     # proper modified z-score
     z_val = 0.6745

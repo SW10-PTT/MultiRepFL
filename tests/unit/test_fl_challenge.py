@@ -1422,3 +1422,272 @@ class TestReporting:
 
         with patch.object(fl_challenge, 'get_events', return_value=expected_events):
             fl_challenge.print_round_summary(mock_receipt)
+
+
+class TestRemoveOutliersMADEmpty:
+    """Empty / all-filtered input handling for remove_outliers_mad."""
+
+    threshold = 1.1
+
+    def test_empty_input_raises_value_error(self):
+        with pytest.raises(ValueError, match="empty input"):
+            remove_outliers_mad([], self.threshold)
+
+    def test_empty_numpy_array_raises_value_error(self):
+        with pytest.raises(ValueError, match="empty input"):
+            remove_outliers_mad(np.array([]), self.threshold)
+
+    def test_empty_input_with_return_mask_raises(self):
+        with pytest.raises(ValueError, match="empty input"):
+            remove_outliers_mad([], self.threshold, return_mask=True)
+
+    def test_z_branch_falls_back_to_unfiltered_when_all_outliers(self):
+        # Negative threshold makes |z| <= threshold False for every element
+        # (including the median, which has z=0). Forces fallback path.
+        arr = [1, 2, 3, 4, 5]
+        result = remove_outliers_mad(arr, threshold=-1.0)
+        np.testing.assert_array_equal(result, np.asarray(arr))
+        assert len(result) > 0
+
+    def test_mad_zero_branch_falls_back_when_all_outliers(self):
+        # mad==0 path: median equals all values, abs_dev all zero, mask all True
+        # so fallback isn't needed for constant arrays. But construct a near-constant
+        # input where MAD is 0 yet a single odd value with abs_dev > threshold gets
+        # filtered. Verify fallback if mask becomes empty.
+        # Two equal values + one outlier: median=eq, mad=0, mask = abs_dev <= threshold
+        # threshold is in raw absolute-deviation units (mad==0 branch).
+        arr = [5, 5, 5, 100]
+        result = remove_outliers_mad(arr, threshold=0.5)
+        # 5s pass (abs_dev=0 <= 0.5), 100 filtered (abs_dev=95 > 0.5)
+        np.testing.assert_array_equal(result, np.asarray([5, 5, 5]))
+
+        # Construct case where every value gets filtered in mad==0 path → fallback
+        arr = [5, 5]
+        result = remove_outliers_mad(arr, threshold=-1.0)
+        # threshold=-1 → mask all False → fallback returns flat
+        np.testing.assert_array_equal(result, np.asarray(arr))
+
+
+class TestScoringEmptyDataFallback:
+    """Lone-merger / empty-loss-array scenarios must not crash with NaN.
+
+    Reproduces the production bug: when only one user is in the contributor list
+    and getAllLossesAbout returns an empty array for that user, mean of empty
+    produced NaN and crashed int(Decimal('NaN')) downstream. Fix appends baseline
+    as neutral fallback so user receives a score and pipeline continues.
+    """
+
+    def setup_method(self):
+        self.aggregator = MagicMock()
+        self.aggregator.pytorch_model = MagicMock()
+        self.aggregator.pytorch_model.round = 1
+        self.aggregator.use_outlier_detection = False
+        self.aggregator.loss_tolerance_pct = 0.05
+
+    def _build_users(self, count):
+        users = []
+        for i in range(count):
+            user = MagicMock()
+            user.address = f"0xAddressUser{i}"
+            user.display_label.return_value = f"user{i}"
+            users.append(user)
+        return users
+
+    def _wire_loss_only(self, prev_losses, per_user_losses):
+        self.aggregator.contract.functions.getAllPreviousAccuraciesAndLosses \
+            .return_value.call.return_value = ([], prev_losses)
+
+        addr_to_losses = {f"0xAddressUser{i}": l for i, l in enumerate(per_user_losses)}
+
+        def mock_get_losses(address):
+            m = MagicMock()
+            m.call.return_value = (None, addr_to_losses[address])
+            return m
+
+        self.aggregator.contract.functions.getAllLossesAbout.side_effect = mock_get_losses
+
+    def _wire_acc_only(self, prev_accs, per_user_accs):
+        self.aggregator.contract.functions.getAllPreviousAccuraciesAndLosses \
+            .return_value.call.return_value = (prev_accs, [])
+
+        addr_to_accs = {f"0xAddressUser{i}": a for i, a in enumerate(per_user_accs)}
+
+        def mock_get_accs(address):
+            m = MagicMock()
+            m.call.return_value = (None, addr_to_accs[address])
+            return m
+
+        self.aggregator.contract.functions.getAllAccuraciesAbout.side_effect = mock_get_accs
+
+    def _wire_acc_loss(self, prev_accs, prev_losses, per_user_accs, per_user_losses):
+        self.aggregator.contract.functions.getAllPreviousAccuraciesAndLosses \
+            .return_value.call.return_value = (prev_accs, prev_losses)
+
+        addr_to_data = {
+            f"0xAddressUser{i}": (per_user_accs[i], per_user_losses[i])
+            for i in range(len(per_user_accs))
+        }
+
+        def mock_get(address):
+            accs, losses = addr_to_data[address]
+            m = MagicMock()
+            m.call.return_value = (None, accs, losses)
+            return m
+
+        self.aggregator.contract.functions.getAllAccuraciesLossesAbout.side_effect = mock_get
+
+    # --- loss_tolerance_aware ---
+    def test_loss_tolerance_aware_single_user_empty_losses_does_not_crash(self):
+        """Reproduces the original NaN crash on lone merger with empty losses."""
+        users = self._build_users(1)
+        self._wire_loss_only(prev_losses=[228, 228, 228], per_user_losses=[[]])
+
+        scores = FLChallenge._calculate_scores_loss_tolerance_aware(
+            self.aggregator, users, mad_threshold=1.1
+        )
+
+        assert len(scores) == 1
+        assert all(isinstance(s, int) for s in scores)
+        # Neutral fallback: user treated as baseline → score is well-defined integer
+        assert not any(np.isnan(s) for s in scores if isinstance(s, float))
+
+    def test_loss_tolerance_aware_mixed_empty_and_real(self):
+        """User with empty losses gets baseline; others scored normally."""
+        users = self._build_users(3)
+        self._wire_loss_only(
+            prev_losses=[10, 10, 10],
+            per_user_losses=[[8], [], [12]],
+        )
+
+        scores = FLChallenge._calculate_scores_loss_tolerance_aware(
+            self.aggregator, users, mad_threshold=1.1
+        )
+
+        assert len(scores) == 3
+        assert all(isinstance(s, int) for s in scores)
+
+    # --- loss_tolerance_snap ---
+    def test_loss_tolerance_snap_single_user_empty_losses_does_not_crash(self):
+        users = self._build_users(1)
+        self._wire_loss_only(prev_losses=[228, 228, 228], per_user_losses=[[]])
+
+        scores = FLChallenge._calculate_scores_loss_tolerance_snap(
+            self.aggregator, users, mad_threshold=1.1
+        )
+
+        assert len(scores) == 1
+        assert all(isinstance(s, int) for s in scores)
+
+    def test_loss_tolerance_snap_mixed_empty_and_real(self):
+        users = self._build_users(3)
+        self._wire_loss_only(
+            prev_losses=[10, 10, 10],
+            per_user_losses=[[8], [], [12]],
+        )
+
+        scores = FLChallenge._calculate_scores_loss_tolerance_snap(
+            self.aggregator, users, mad_threshold=1.1
+        )
+
+        assert len(scores) == 3
+        assert all(isinstance(s, int) for s in scores)
+
+    # --- loss_only ---
+    def test_loss_only_single_user_empty_losses_does_not_crash(self):
+        users = self._build_users(1)
+        self._wire_loss_only(prev_losses=[228, 228, 228], per_user_losses=[[]])
+
+        scores = FLChallenge._calculate_scores_loss_only(
+            self.aggregator, users, mad_threshold=1.1
+        )
+
+        assert len(scores) == 1
+        assert all(isinstance(s, int) for s in scores)
+
+    def test_loss_only_mixed_empty_and_real(self):
+        users = self._build_users(3)
+        self._wire_loss_only(
+            prev_losses=[10, 10, 10],
+            per_user_losses=[[8], [], [12]],
+        )
+
+        scores = FLChallenge._calculate_scores_loss_only(
+            self.aggregator, users, mad_threshold=1.1
+        )
+
+        assert len(scores) == 3
+        assert all(isinstance(s, int) for s in scores)
+
+    # --- accuracy_only ---
+    def test_accuracy_only_single_user_empty_accs_does_not_crash(self):
+        users = self._build_users(1)
+        self._wire_acc_only(prev_accs=[80, 80, 80], per_user_accs=[[]])
+
+        scores = FLChallenge._calculate_scores_accuracy_only(
+            self.aggregator, users, mad_threshold=1.1
+        )
+
+        assert len(scores) == 1
+        assert all(isinstance(s, int) for s in scores)
+
+    def test_accuracy_only_mixed_empty_and_real(self):
+        users = self._build_users(3)
+        self._wire_acc_only(
+            prev_accs=[80, 80, 80],
+            per_user_accs=[[85], [], [70]],
+        )
+
+        scores = FLChallenge._calculate_scores_accuracy_only(
+            self.aggregator, users, mad_threshold=1.1
+        )
+
+        assert len(scores) == 3
+        assert all(isinstance(s, int) for s in scores)
+
+    # --- accuracy_loss ---
+    def test_accuracy_loss_single_user_empty_does_not_crash(self):
+        users = self._build_users(1)
+        self._wire_acc_loss(
+            prev_accs=[80, 80, 80],
+            prev_losses=[10, 10, 10],
+            per_user_accs=[[]],
+            per_user_losses=[[]],
+        )
+
+        scores = FLChallenge._calculate_scores_accuracy_loss(
+            self.aggregator, users, mad_threshold=1.1
+        )
+
+        assert len(scores) == 1
+        assert all(isinstance(s, int) for s in scores)
+
+    def test_accuracy_loss_mixed_empty_and_real(self):
+        users = self._build_users(3)
+        self._wire_acc_loss(
+            prev_accs=[80, 80, 80],
+            prev_losses=[10, 10, 10],
+            per_user_accs=[[85], [], [70]],
+            per_user_losses=[[8], [], [12]],
+        )
+
+        scores = FLChallenge._calculate_scores_accuracy_loss(
+            self.aggregator, users, mad_threshold=1.1
+        )
+
+        assert len(scores) == 3
+        assert all(isinstance(s, int) for s in scores)
+
+    # --- regression: lengths must match users to keep zip in contribution_score consistent ---
+    def test_avg_lists_aligned_with_users_when_some_empty(self):
+        """If lengths drift, zip(users, scores) silently truncates and submits wrong scores."""
+        users = self._build_users(4)
+        self._wire_loss_only(
+            prev_losses=[10, 10, 10],
+            per_user_losses=[[8], [], [12], []],
+        )
+
+        scores = FLChallenge._calculate_scores_loss_only(
+            self.aggregator, users, mad_threshold=1.1
+        )
+
+        assert len(scores) == len(users)
