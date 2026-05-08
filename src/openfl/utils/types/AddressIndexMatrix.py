@@ -1,7 +1,7 @@
 import numpy as np
 
 class AddressIndexMatrix:
-    def __init__(self, np_int_type = np.uint16, participants = None, external_address_list = None):
+    def __init__(self, np_int_type = np.uint16, participants = None, external_address_list = None, id_to_label = None):
         if external_address_list is None and participants is None:
             raise TypeError('both participants and externalAddressList cannot be None')
         if external_address_list is not None and participants is not None:
@@ -14,6 +14,9 @@ class AddressIndexMatrix:
                 p.id: i
                 for i, p in enumerate(participants)
             }
+            # Auto-build label map from User objects when not provided.
+            if id_to_label is None:
+                id_to_label = {p.id: p.display_label() for p in participants if hasattr(p, "display_label")}
         else:
             self._id_to_idx = external_address_list
             n = len(external_address_list)
@@ -22,6 +25,7 @@ class AddressIndexMatrix:
                 idx: user_id
                 for user_id, idx in self._id_to_idx.items()
             }
+        self._id_to_label = id_to_label or {}
         self._matrix = np.zeros((n, n), dtype=self.np_int_type)
 
     def __getitem__(self, key):
@@ -51,10 +55,18 @@ class AddressIndexMatrix:
             ] = min(value, np.iinfo(self.np_int_type).max)
 
     def _label(self, i: int) -> str:
-        return str(self._idx_to_id[i])[-6:]
-    
+        user_id = self._idx_to_id[i]
+        name = self._id_to_label.get(user_id)
+        if name:
+            return name
+        return str(user_id)[-6:]
+
     def _full_label(self, i: int) -> str:
-        return str(self._idx_to_id[i])
+        user_id = self._idx_to_id[i]
+        name = self._id_to_label.get(user_id)
+        if name:
+            return f"{name} ({user_id})"
+        return str(user_id)
 
     def __str__(self):
         n = len(self._idx_to_id)

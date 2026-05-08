@@ -211,7 +211,7 @@ class PytorchModel:
         p.val_tensors = preload_to_gpu(val_loader, DEVICE) if USE_CUDA else None
         self.participants.append(p)
 
-        log("setup_contracts","Participant added: {:<9} {}".format(rb(user.futureAttitude.name.upper()[0]+user.futureAttitude.name[1:]), rb(user.display_label())))
+        log("setup_contracts","Participant added: [{:<9}] {}".format(rb(user.futureAttitude.name.upper()[0]+user.futureAttitude.name[1:]), rb(user.display_label())))
 
     # seed/allow_overlap/replication_factor forward to DataPartition for reproducible, optionally overlapping splits.
     def prepare_data_for_users(self, users, dataset_name, seed=42, allow_overlap=False, replication_factor=1.0):
@@ -576,6 +576,7 @@ class PytorchModel:
                     self.round,
                      f"train_user_proc-run_sequential-{user.id}-{self.round}",
                     user.id,
+                    user.display_label(),
                     sd_cpu,
                     user.train.dataset,
                     user.val.dataset,
@@ -622,6 +623,7 @@ class PytorchModel:
                         train_user_proc,
                         (
                         user.id,
+                        user.display_label(),
                         sd_cpu,
                         user.train.dataset,
                         user.val.dataset,
@@ -829,7 +831,7 @@ class PytorchModel:
             _user.cheater = []
             for user in _user.userToEvaluate:
                 if not self.runRepo.get_hash(self.round, f"get_hash-verify_models-{user.id}", user.model.state_dict()) == on_chain_hashes[user.id]:
-                    log("round_models",red(f"Account {_user.number}: Account {user.address[0:16]}... could not provide the registered model"))
+                    log("round_models",red(f"Account {_user.display_label()} (#{_user.number}): Account {user.display_label()} ({user.address[0:16]}...) could not provide the registered model"))
                     _user.cheater.append(user)
 
         log("round_models", "-----------------------------------------------------------------------------------")
@@ -1103,7 +1105,7 @@ def add_noise(model, offset_from_end: int = 5) -> OrderedDict:
             new_sd[k] = t
     return new_sd
 
-def train_user_proc(user_addr, model_state, train_ds, val_ds, epochs, device_id, dataset, batchsize, pin_memory,
+def train_user_proc(user_addr, user_label, model_state, train_ds, val_ds, epochs, device_id, dataset, batchsize, pin_memory,
                     shuffle):
     # Multi-GPU Support
     # Select device
@@ -1135,7 +1137,7 @@ def train_user_proc(user_addr, model_state, train_ds, val_ds, epochs, device_id,
     del train_loader
     del val_loader
 
-    log("round_training", f"[{device_label(device, device_id)}] User {user_addr} done | Acc: {val_acc:.3f}, Loss: {val_loss:.3f}")
+    log("round_training", f"[{device_label(device, device_id)}] {user_label} ({user_addr}) done | Acc: {val_acc:.3f}, Loss: {val_loss:.3f}")
 
     # Ensure all GPU work is complete before worker exits
     if device.type == "cuda":
