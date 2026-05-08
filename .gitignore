@@ -158,6 +158,9 @@ runs/
 #Bytecode
 artifacts/bytecode/**
 
+# Compiled contract artifacts
+bin/contracts/
+
 #Data
 data/**
 experiment/data/**
