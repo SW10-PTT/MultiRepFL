@@ -276,22 +276,26 @@ contract JobListing {
         return IOpenFLChallengeTaskRep(challengeAddress).getTaskRepDeltaAndGRS();
     }
 
-    // Calculate and apply updated per-task (= per-dataset) TaskRep for every
-    // participant of the registered challenge. Called once per JobListing
-    // lifecycle.
+    // Calculate and apply the updated per-task (= per-dataset) TaskRep for
+    // every participant of the registered challenge. TaskRep is updated once
+    // per task on completion (not per round), so this runs at end-of-task.
+    //
+    // The formula computes the *new absolute TaskRep* for each participant
+    // (typically a weighted blend of their prior TaskRep and the rep earned
+    // for this task). The new value overwrites the previous TaskRep stored on
+    // OpenFLManager via setUserTaskRep.
     //
     // Inputs available to the formula (per participant `rep`):
     //   - rep.user                    : participant address
-    //   - rep.delta                   : signed taskRepDelta produced by this challenge round
+    //   - rep.delta                   : signed taskRepDelta produced by this task
+    //                                   (treat as "rep earned for this task")
     //   - rep.globalReputationScore   : participant's current GRS (collateral, not integrity rep)
     //   - tt                          : TaskType (= dataset) bound to this job
     //   - priorTaskRep                : participant's existing TaskRep for tt
     //                                   (from manager.getUserRep)
     //   - nrOfTasksParticipated       : from manager.getUserRep
     //
-    // The formula must produce a *signed delta* (`int256 newDelta`) to apply on
-    // top of the existing TaskRep. Negative deltas are saturated at zero by
-    // OpenFLManager.applyUserTaskRepDelta.
+    // Output: `uint256 newTaskRep` — the absolute replacement value.
     //
     // Auth: callable by the registered challenge contract (normal flow) or by
     // the JobListing publisher EOA (replay flow). Idempotent — taskRepsApplied
@@ -311,30 +315,34 @@ contract JobListing {
         for (uint i = 0; i < reps.length; i++) {
             IOpenFLChallengeTaskRep.TaskRep memory rep = reps[i];
 
-            // ============================================================
-            // TASK REP FORMULA — fill in below.
-            //
-            // Available locals: rep.user, rep.delta, rep.globalReputationScore,
-            //                   tt, priorTaskRep, nrOfTasksParticipated
-            //
-            // Compute `int256 newDelta` representing the signed change to apply
-            // to manager's GlobalTaskRep[user][tt].
-            // ============================================================
             (
                 uint priorTaskRep,
                 ,
                 uint nrOfTasksParticipated
             ) = manager.getUserRep(rep.user, tt);
 
+            // ============================================================
+            // TASK REP FORMULA — fill in below.
+            //
+            // Available locals: rep.user, rep.delta, rep.globalReputationScore,
+            //                   tt, priorTaskRep, nrOfTasksParticipated
+            //
+            // Example (weighted blend, 70% prior / 30% this task):
+            //   uint repForThisTask = rep.delta < 0 ? 0 : uint256(rep.delta);
+            //   uint newTaskRep = (priorTaskRep * 7 + repForThisTask * 3) / 10;
+            //
+            // Compute `uint256 newTaskRep` — the absolute replacement value
+            // that will overwrite manager's GlobalTaskRep[user][tt].
+            // ============================================================
+
             // PLACEHOLDER — replace with real formula.
-            int256 newDelta = rep.delta;
+            uint256 newTaskRep = priorTaskRep;
 
             // Suppress unused-variable warnings until formula uses them.
-            priorTaskRep;
             nrOfTasksParticipated;
             // ============================================================
 
-            manager.applyUserTaskRepDelta(rep.user, tt, newDelta);
+            manager.setUserTaskRep(rep.user, tt, newTaskRep);
         }
 
         taskRepsApplied = true;

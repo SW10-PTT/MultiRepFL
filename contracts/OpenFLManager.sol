@@ -118,28 +118,24 @@ contract OpenFLManager {
         uint256 newValue
     );
 
-    // Apply a signed delta to a user's per-task (= per-dataset) TaskRep.
-    // Only callable by a registered (valid) JobListing — register via registerJob().
-    // Saturates at 0 on negative deltas larger than the current balance to
-    // avoid underflow.
-    function applyUserTaskRepDelta(
+    // Replace a user's per-task (= per-dataset) TaskRep with a new value.
+    // TaskRep is updated once per task on completion, so the JobListing
+    // computes the full new value (typically as a weighted blend of the
+    // previous TaskRep and the rep earned for this task) and calls this
+    // setter to overwrite the stored value.
+    //
+    // Only callable by a registered (valid) JobListing — register via
+    // registerJob().
+    function setUserTaskRep(
         address user,
         TaskType taskType,
-        int256 delta
+        uint256 newValue
     ) external {
         require(validJobs[msg.sender], "OFLM: caller not valid job");
 
         uint256 current = users[user].GlobalTaskRep[taskType];
-        uint256 updated;
+        users[user].GlobalTaskRep[taskType] = newValue;
 
-        if (delta >= 0) {
-            updated = current + uint256(delta);
-        } else {
-            uint256 absDelta = uint256(-delta);
-            updated = absDelta >= current ? 0 : current - absDelta;
-        }
-
-        users[user].GlobalTaskRep[taskType] = updated;
-        emit UserTaskRepUpdated(user, taskType, current, updated);
+        emit UserTaskRepUpdated(user, taskType, current, newValue);
     }
 }
