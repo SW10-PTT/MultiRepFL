@@ -4,6 +4,7 @@ import socket
 import sys
 import threading
 
+from openfl.utils.require_env import require_env_var
 from openfl.utils.types.User import User
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -25,8 +26,7 @@ from openfl.api import globals
 from openfl.utils import printer, config
 from openfl.utils.printer import log
 
-#API = "https://dev.schnykjaer.com:22114/api"
-API = "https://devlocal.schnykjaer.com:22114/api"
+API = require_env_var("APIURL")
 
 worker_id = None
 
