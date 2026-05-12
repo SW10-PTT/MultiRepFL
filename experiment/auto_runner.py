@@ -1,4 +1,5 @@
 from pathlib import Path
+import pprint
 import socket
 import sys
 import threading
@@ -24,7 +25,8 @@ from openfl.api import globals
 from openfl.utils import printer, config
 from openfl.utils.printer import log
 
-API = "http://localhost:8080/api"
+#API = "https://dev.schnykjaer.com:22114/api"
+API = "https://devlocal.schnykjaer.com:22114/api"
 
 worker_id = None
 
@@ -207,6 +209,7 @@ def worker_loop():
                 config = json.loads(config)
 
             config = coerce_types(config)
+            #pprint.pp(config)
             config = ExperimentConfiguration(**config)
 
             start_heartbeat_loop()

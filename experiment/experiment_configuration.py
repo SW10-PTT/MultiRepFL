@@ -184,7 +184,12 @@ class ExperimentConfiguration:
     def _resolve_per_user_partitions(self, per_user_partitions):
         if per_user_partitions is None:
             return {}
-        return load_dataset_partition_specs(per_user_partitions)
+        if isinstance(per_user_partitions, str) and per_user_partitions.split(".")[-1] == "json":
+            return load_dataset_partition_specs(per_user_partitions)
+        
+        return load_dataset_partition_specs({
+            "presets": per_user_partitions
+        })
 
     # All datasets must list the same set of user indices. Per-dataset behavior
     # may still differ (e.g. user 0 honest on MNIST, malicious on CIFAR-10),
