@@ -6,7 +6,7 @@ from openfl.utils.config import get_print_config
 config = get_print_config()
 
 # PRITNS ONLY IF IT IS IN ENBALED_TAGES
-ENABLED_TAGS = set()
+ENABLED_TAGS = set(["autorunner"])
 
 def set_enabled_tags(tags):
     global ENABLED_TAGS
