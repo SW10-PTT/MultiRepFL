@@ -30,12 +30,13 @@ class EvaluationData:
             p.id: i
             for i, p in enumerate(participants)
         }
+        id_to_label = {p.id: p.display_label() for p in participants if hasattr(p, "display_label")}
 
-        feedback_matrix = AddressIndexMatrix(external_address_list=address_to_idx, np_int_type=np.int8)
-        accuracy_matrix = AddressIndexMatrix(external_address_list=address_to_idx)
-        loss_matrix = AddressIndexMatrix(external_address_list=address_to_idx)
-        prev_accs = AddressIndexList(external_address_list=address_to_idx)
-        prev_losses = AddressIndexList(external_address_list=address_to_idx)
+        feedback_matrix = AddressIndexMatrix(external_address_list=address_to_idx, np_int_type=np.int8, id_to_label=id_to_label)
+        accuracy_matrix = AddressIndexMatrix(external_address_list=address_to_idx, id_to_label=id_to_label)
+        loss_matrix = AddressIndexMatrix(external_address_list=address_to_idx, id_to_label=id_to_label)
+        prev_accs = AddressIndexList(external_address_list=address_to_idx, id_to_label=id_to_label)
+        prev_losses = AddressIndexList(external_address_list=address_to_idx, id_to_label=id_to_label)
 
         return cls(
             id_to_idx=address_to_idx,

@@ -137,6 +137,14 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
     def get_hashed_weights_of(self, user):
         return self.contract.functions.weightsOf(user.address,self.pytorch_model.round-1).call({"to": self.contractAddress})
     
+    def _label_for_address(self, addr):
+        # Resolve a participant/disqualified user's display_label() from on-chain
+        # event data (which only carries the address). Returns "?" when not found.
+        for u in self.pytorch_model.participants + self.pytorch_model.disqualified:
+            if u.address == addr:
+                return u.display_label()
+        return "?"
+
     def get_global_reputation_of_user(self, userAddr):
         user = self.contract.functions.users(userAddr).call()
         return user[1]
@@ -627,7 +635,8 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                 signed = w3.eth.account.sign_transaction(ex, private_key=acc.privateKey)
                 txHash = w3.eth.send_raw_transaction(signed.raw_transaction)
             txs.append(txHash)
-            log("experiment_end", "{:<17}   {} | {} | {:>27,.0f} WEI".format("Account exited:  ",
+            log("experiment_end", "{:<17}   {} ({}) | {} | {:>27,.0f} WEI".format("Account exited:  ",
+                                                             acc.display_label(),
                                                              acc.address[0:16] + "...",
                                                              txHash.hex()[0:6] + "...",
                                                              globals.w3.eth.get_balance(acc.address)
@@ -670,7 +679,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
             log("round_rewards", b("REWARDED USERS"))
             for ev in reward_events:
                 if ev["roundScore"] > 0:
-                        log("round_rewards", green(f"USER @ {ev['user']}"))
+                        log("round_rewards", green(f"USER @ {self._label_for_address(ev['user'])} ({ev['user']})"))
                         log("round_rewards", green(f"ROUND SCORE:      {ev['roundScore']:,}"))
                         total_reward = ev['win']
                         if not ev.get('is_reward', True):  # default True if key missing
@@ -689,7 +698,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                     ev["loss"],
                     next((i + 1 for i, x in enumerate(self.pytorch_model.participants) if x.address == ev["victim"]), 0),
                     ))
-                log("round_rewards", red(f"USER @ {ev['victim']}"))
+                log("round_rewards", red(f"USER @ {self._label_for_address(ev['victim'])} ({ev['victim']})"))
                 log("round_rewards", red(f"ROUND SCORE:      {ev['roundScore']:,}"))
                 log("round_rewards", red(f"TOTAL LOSS:       {ev['loss']:,}"))
                 log("round_rewards", red(f"NEW REPUTATION:   {ev['newReputation']:,}\n"))
@@ -713,7 +722,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                         self.pytorch_model.disqualified.append(user)
                         self.pytorch_model.participants.remove(user)
 
-                log("round_rewards", red(f"USER @ {ev['victim']}"))
+                log("round_rewards", red(f"USER @ {self._label_for_address(ev['victim'])} ({ev['victim']})"))
                 log("round_rewards", red(f"ROUND SCORE:      {ev['roundScore']:,}"))
                 log("round_rewards", red(f"TOTAL LOSS:       {ev['loss']:,}"))
                 log("round_rewards", red(f"NEW REPUTATION:   {ev['newReputation']:,}\n"))
@@ -768,7 +777,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                 tx_hash = globals.w3.eth.send_raw_transaction(signed.raw_transaction)
             txs.append(tx_hash)
 
-            log("round_scoring", green(f"\nUSER @ {u.number}"))
+            log("round_scoring", green(f"\nUSER @ {u.display_label()} (#{u.number})"))
             if u. is_contrib_score_negative:
                 log("round_scoring", green(f"{'NEGATIVE CONTRIBUTION SCORE:':25}{u.contribution_score}"))
             else:
@@ -1487,7 +1496,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
             for user in self.pytorch_model.participants + self.pytorch_model.disqualified:
                 user._globalrep.append(self.get_global_reputation_of_user(user.address))
                 i, j = user._globalrep[-2:]
-                log("round_boundary", b("{}  {:>25,.0f} -> {:>25,.0f}".format(user.address[0:16] + "...", i, j)))
+                log("round_boundary", b("{} ({})  {:>25,.0f} -> {:>25,.0f}".format(user.display_label(), user.address[0:16] + "...", i, j)))
 
             # self.print_round_summary(receipt)
             if receipt is not None:
@@ -1526,7 +1535,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
             globals.progress = int(
                 ((roundnr + 1) / rounds) * 100
             )
-            print(f"roundnr: {globals.progress}")
+            log("round_scoring",f"roundnr: {globals.progress}")
 
 
         log("round_scoring", f"Number of Shapley Axioms violated: {len(runtime_warnings)}\n")

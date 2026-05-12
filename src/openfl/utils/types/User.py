@@ -17,7 +17,6 @@ from openfl.utils.async_writer import AsyncWriter
 from openfl.utils.types.Attitude import Attitude
 from openfl.utils.types.Colors import RNG, get_color
 from openfl.utils.types.TrainingSpecsJobListing import TrainingSpecsJobListing, TrainingSpecsChallenge
-import openfl.api.globals as globals
 from openfl.utils.printer import log
   
 class User:

@@ -63,10 +63,10 @@ class PyTorchTrainer(ITestAndTrainer):
             self,
             round: int,
             tag: str,
-            user_id, model_state, train_ds, val_ds, epochs, device_id, dataset, batchsize, pin_memory, shuffle
+            user_id, user_label, model_state, train_ds, val_ds, epochs, device_id, dataset, batchsize, pin_memory, shuffle
     ):
         from openfl.ml.pytorch_model import train_user_proc
-        result = train_user_proc(user_id, model_state, train_ds, val_ds, epochs, device_id, dataset, batchsize, pin_memory,
+        result = train_user_proc(user_id, user_label, model_state, train_ds, val_ds, epochs, device_id, dataset, batchsize, pin_memory,
                                  shuffle)
         stripped_result = (result[0], result[2], result[3])
         if ReplayMode.Record in reuse_runs:

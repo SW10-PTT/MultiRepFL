@@ -5,13 +5,13 @@
     "in ExperimentConfiguration. In per_user mode the spec is the source of truth for",
     "behavior and contributor counts; number_of_*_contributors kwargs are ignored.",
     "",
-    "Two accepted JSON shapes:",
-    "  Multi-dataset (this file): {user_index: {name, datasets: {DATASET: spec}}}.",
+    "Canonical JSON shape (array of users under 'presets'):",
+    "  {\"presets\": [{\"id\": \"<guid>\", \"name\": ..., \"datasets\": {DATASET: spec, ...}}, ...]}",
     "    Active dataset is picked from experiment_config.dataset at runtime.",
     "    Dataset keys are case-insensitive ('MNIST'/'mnist'/'CIFAR-10'/'cifar-10' all OK).",
-    "  Single-dataset (legacy): {users: [...]} or {user_index: spec}, with the same",
-    "    fields flat on each user. Used as fallback when no dataset-specific entry",
-    "    matches the active dataset.",
+    "Legacy shapes still accepted:",
+    "  {\"users\": [...]} (array, single- or multi-dataset)",
+    "  {user_index: spec} (dict, single-dataset only)",
     "",
     "Semantics: each user takes a fair stratified share of every class equal to",
     "data_percent of the dataset, then drops samples whose label is not in the",
@@ -20,12 +20,13 @@
     "only_labels=[4,9] effectively trains on ~2% of dataset (2 of 10 classes",
     "kept) -- bump pct if you want full coverage on those classes.",
     "",
-    "Per-user fields (on the outer entry):",
+    "Per-user fields (on each preset entry):",
+    "  id                 (str, required)    Stable identifier (GUID or numeric string).",
+    "                                         Used as user_index for account allocation.",
     "  name               (str)              Human-readable label, kept on the user",
     "                                         for logs/plots. Optional.",
-    "  datasets           (dict)             Dataset name -> spec dict (multi-dataset",
-    "                                         shape). Each spec dict carries the",
-    "                                         per-dataset fields below.",
+    "  datasets           (dict)             Dataset name -> spec dict. Each spec dict",
+    "                                         carries the per-dataset fields below.",
     "",
     "Per-dataset fields (inside each datasets[<name>] block):",
     "  data_percent       (float, required)  Fair share of dataset before filtering.",
@@ -54,150 +55,159 @@
     "  flip_map           (dict[int->int])   Malicious label-flip map applied at dataset",
     "                                         read time.",
     "",
-    "Every dataset block must list the same set of user_index keys (the participant",
+    "Every dataset block must list the same set of preset ids (the participant",
     "roster is fixed across datasets). Behavior, noise_scale and start_round may differ",
-    "per dataset. user_index keys are opaque strings (GUIDs or numeric strings); the",
-    "runner allocates blockchain accounts in sorted-key order, so the same key set",
-    "produces the same account assignment across runs.",
+    "per dataset. The runner allocates blockchain accounts in sorted-id order, so the",
+    "same id set produces the same account assignment across runs.",
     ""
   ],
 
-  "49f1f8d6-306c-4e50-b159-e869243abf4d": {
-    "name": "User 0",
-    "datasets": {
-      "MNIST": {
-        "data_percent": 20.0, 
-        "behavior": "Honest"
-      },
-      "CIFAR-10": {
-        "data_percent": 15.0, 
-        "behavior": "Honest"
-      }
-    }
-  },
-  "041c30ac-9753-4fad-a2da-08fded8df5aa": {
-    "name": "User 1",
-    "datasets": {
-      "MNIST": {
-        "data_percent": 14.0,
-        "behavior": "Honest"
-      },
-      "CIFAR-10": {
-        "data_percent": 10.0,
-        "behavior": "Honest"
-      }
-    }
-  },
-  "e8708fb4-4bdd-4633-97f0-594989530d2d": {
-    "name": "User 2",
-    "datasets": {
-      "MNIST": {
-        "data_percent": 12.0,
-        "behavior": "Malicious",
-        "noise_scale": 1.0,
-        "start_round": 3,
-        "flip_map": {
-          "3": 8
-        }
-      },
-      "CIFAR-10": {
-        "data_percent": 8.0,
-        "behavior": "Malicious",
-        "noise_scale": 1.0,
-        "start_round": 3,
-        "flip_map": {
-          "3": 8
+  "presets": [
+    {
+      "id": "49f1f8d6-306c-4e50-b159-e869243abf4d",
+      "name": "User 0",
+      "datasets": {
+        "MNIST": {
+          "data_percent": 20.0,
+          "behavior": "Honest"
+        },
+        "CIFAR-10": {
+          "data_percent": 15.0,
+          "behavior": "Honest"
         }
       }
-    }
-  },
-  "e3caded8-a028-47bb-b807-f12952b829bd": {
-    "name": "User 3",
-    "datasets": {
-      "MNIST": {
-        "behavior": "Honest",
-        "data_percent": 12.0,
-        "label_distribution": {
-          "0": 0.9,
-          "1": 0.5,
-          "2": 1.0,
-          "4": 0.7,
-          "9": 0.3
-        }
-      },
-      "CIFAR-10": {
-        "data_percent": 10.0,
-        "behavior": "Honest",
-        "label_distribution": {
-          "0": 0.9,
-          "1": 0.5,
-          "2": 1.0,
-          "4": 0.7,
-          "9": 0.3
+    },
+    {
+      "id": "041c30ac-9753-4fad-a2da-08fded8df5aa",
+      "name": "User 1",
+      "datasets": {
+        "MNIST": {
+          "data_percent": 14.0,
+          "behavior": "Honest"
+        },
+        "CIFAR-10": {
+          "data_percent": 10.0,
+          "behavior": "Honest"
         }
       }
-    }
-  },
-  "5a25b310-85e4-4029-8a52-6f43a786d3ea": {
-    "name": "User 4",
-    "datasets": {
-      "MNIST": {
-        "data_percent": 6.0,
-        "only_labels": [0, 1],
-        "behavior": "Honest"
-      },
-      "CIFAR-10": {
-        "data_percent": 6.0,
-        "only_labels": [0, 1],
-        "behavior": "Free-rider", 
-        "noise_scale": 0.1,
-        "start_round": 3
+    },
+    {
+      "id": "e8708fb4-4bdd-4633-97f0-594989530d2d",
+      "name": "User 2",
+      "datasets": {
+        "MNIST": {
+          "data_percent": 12.0,
+          "behavior": "Malicious",
+          "noise_scale": 1.0,
+          "start_round": 3,
+          "flip_map": {
+            "3": 8
+          }
+        },
+        "CIFAR-10": {
+          "data_percent": 8.0,
+          "behavior": "Malicious",
+          "noise_scale": 1.0,
+          "start_round": 3,
+          "flip_map": {
+            "3": 8
+          }
+        }
+      }
+    },
+    {
+      "id": "e3caded8-a028-47bb-b807-f12952b829bd",
+      "name": "Kasper",
+      "datasets": {
+        "MNIST": {
+          "behavior": "Honest",
+          "data_percent": 12.0,
+          "label_distribution": {
+            "0": 0.9,
+            "1": 0.5,
+            "2": 1.0,
+            "4": 0.7,
+            "9": 0.3
+          }
+        },
+        "CIFAR-10": {
+          "data_percent": 10.0,
+          "behavior": "Honest",
+          "label_distribution": {
+            "0": 0.9,
+            "1": 0.5,
+            "2": 1.0,
+            "4": 0.7,
+            "9": 0.3
+          }
+        }
+      }
+    },
+    {
+      "id": "5a25b310-85e4-4029-8a52-6f43a786d3ea",
+      "name": "User 4",
+      "datasets": {
+        "MNIST": {
+          "data_percent": 6.0,
+          "only_labels": [0, 1],
+          "behavior": "Honest"
+        },
+        "CIFAR-10": {
+          "data_percent": 6.0,
+          "only_labels": [0, 1],
+          "behavior": "Free-rider",
+          "noise_scale": 0.1,
+          "start_round": 3
+        }
+      }
+    },
+    {
+      "id": "aefe1094-bd11-4b79-a81b-bc5d14ecd135",
+      "name": "User 5",
+      "datasets": {
+        "MNIST": {
+          "data_percent": 10.0,
+          "behavior": "Honest"
+        },
+        "CIFAR-10": {
+          "data_percent": 7.0,
+          "behavior": "Honest"
+        }
+      }
+    },
+    {
+      "id": "8a80a056-9f35-4a94-b7e2-5724d1042ab7",
+      "name": "User 6",
+      "datasets": {
+        "MNIST": {
+          "data_percent": 9.0,
+          "behavior": "Free-rider",
+          "noise_scale": 0.1,
+          "start_round": 3,
+          "only_labels": [4, 9]
+        },
+        "CIFAR-10": {
+          "data_percent": 5.0,
+          "behavior": "Free-rider",
+          "noise_scale": 0.1,
+          "start_round": 3,
+          "only_labels": [4, 9]
+        }
+      }
+    },
+    {
+      "id": "12209e45-482b-4962-a1bb-a03efb73f80e",
+      "name": "User 7",
+      "datasets": {
+        "MNIST": {
+          "data_percent": 5.0,
+          "behavior": "Honest"
+        },
+        "CIFAR-10": {
+          "data_percent": 9.00,
+          "behavior": "Honest"
+        }
       }
     }
-  },
-  "aefe1094-bd11-4b79-a81b-bc5d14ecd135": {
-    "name": "User 5",
-    "datasets": {
-      "MNIST": {
-        "data_percent": 10.0, 
-        "behavior": "Honest"
-      },
-      "CIFAR-10": {
-        "data_percent": 7.0,
-        "behavior": "Honest"
-      }
-    }
-  },
-  "8a80a056-9f35-4a94-b7e2-5724d1042ab7": {
-    "name": "User 6",
-    "datasets": {
-      "MNIST": {
-        "data_percent": 9.0,
-        "behavior": "Free-rider",
-        "noise_scale": 0.1,
-        "start_round": 3,
-        "only_labels": [4, 9]
-      },
-      "CIFAR-10": {
-        "data_percent": 5.0,
-        "behavior": "Free-rider",
-        "noise_scale": 0.1,
-        "start_round": 3,
-        "only_labels": [4, 9]
-      }
-    }
-  },
-  "12209e45-482b-4962-a1bb-a03efb73f80e": {
-    "name": "User 7",
-    "datasets": {
-      "MNIST": {
-        "data_percent": 5.0,
-        "behavior": "Honest"
-      },
-      "CIFAR-10": {
-        "data_percent": 9.00 ,
-        "behavior": "Honest"
-      }
-    }
-  }
+  ]
 }
