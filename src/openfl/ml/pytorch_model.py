@@ -1137,7 +1137,7 @@ def train_user_proc(user_addr, user_label, model_state, train_ds, val_ds, epochs
     del train_loader
     del val_loader
 
-    log("round_training", f"[{device_label(device, device_id)}] {user_label} ({user_addr}) done | Acc: {val_acc:.3f}, Loss: {val_loss:.3f}")
+    log("round_training", f"[{device_label(device, device_id)}] {user_label:<32} ({user_addr})  done | Acc: {val_acc:.3f}  Loss: {val_loss:.3f}")
 
     # Ensure all GPU work is complete before worker exits
     if device.type == "cuda":
