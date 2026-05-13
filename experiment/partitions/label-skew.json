@@ -9,10 +9,12 @@
       "name": "H1 Full Both",
       "datasets": {
         "MNIST": {
+          "behavior": "Honest",
           "data_percent": 10.0,
           "only_labels": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
         },
         "CIFAR-10": {
+          "behavior": "Honest",
           "data_percent": 10.0,
           "only_labels": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
         }
@@ -23,10 +25,12 @@
       "name": "H2 Full Both",
       "datasets": {
         "MNIST": {
+          "behavior": "Honest",
           "data_percent": 10.0,
           "only_labels": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
         },
         "CIFAR-10": {
+          "behavior": "Honest",
           "data_percent": 10.0,
           "only_labels": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
         }
@@ -37,10 +41,12 @@
       "name": "H3 Full Both",
       "datasets": {
         "MNIST": {
+          "behavior": "Honest",
           "data_percent": 10.0,
           "only_labels": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
         },
         "CIFAR-10": {
+          "behavior": "Honest",
           "data_percent": 10.0,
           "only_labels": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
         }
@@ -51,10 +57,12 @@
       "name": "H4 Full Both",
       "datasets": {
         "MNIST": {
+          "behavior": "Honest",
           "data_percent": 10.0,
           "only_labels": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
         },
         "CIFAR-10": {
+          "behavior": "Honest",
           "data_percent": 10.0,
           "only_labels": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
         }
@@ -65,10 +73,12 @@
       "name": "H5 Full Both",
       "datasets": {
         "MNIST": {
+          "behavior": "Honest",
           "data_percent": 10.0,
           "only_labels": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
         },
         "CIFAR-10": {
+          "behavior": "Honest",
           "data_percent": 10.0,
           "only_labels": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
         }
@@ -79,10 +89,12 @@
       "name": "H6 Full Both",
       "datasets": {
         "MNIST": {
+          "behavior": "Honest",
           "data_percent": 10.0,
           "only_labels": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
         },
         "CIFAR-10": {
+          "behavior": "Honest",
           "data_percent": 10.0,
           "only_labels": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
         }
@@ -93,10 +105,12 @@
       "name": "H7 Full MNIST, Gap CIFAR-10",
       "datasets": {
         "MNIST": {
+          "behavior": "Honest",
           "data_percent": 10.0,
           "only_labels": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
         },
         "CIFAR-10": {
+          "behavior": "Honest",
           "data_percent": 10.0,
           "only_labels": [0, 1, 2, 3, 4, 5, 6]
         }
@@ -107,10 +121,12 @@
       "name": "H8 Gap MNIST, Full CIFAR-10",
       "datasets": {
         "MNIST": {
+          "behavior": "Honest",
           "data_percent": 10.0,
           "only_labels": [0, 1, 2, 3]
         },
         "CIFAR-10": {
+          "behavior": "Honest",
           "data_percent": 10.0,
           "only_labels": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
         }
@@ -121,10 +137,12 @@
       "name": "H9 Weak MNIST, Full CIFAR-10",
       "datasets": {
         "MNIST": {
+          "behavior": "Honest",
           "data_percent": 10.0,
           "only_labels": [0, 1, 2]
         },
         "CIFAR-10": {
+          "behavior": "Honest",
           "data_percent": 10.0,
           "only_labels": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
         }
@@ -135,10 +153,12 @@
       "name": "H10 Full MNIST, Weak CIFAR-10",
       "datasets": {
         "MNIST": {
+          "behavior": "Honest",
           "data_percent": 10.0,
           "only_labels": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
         },
         "CIFAR-10": {
+          "behavior": "Honest",
           "data_percent": 10.0,
           "only_labels": [0, 1, 2]
         }

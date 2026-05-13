@@ -11,9 +11,11 @@
       "name": "H1 Strong MNIST, Weak CIFAR-10",
       "datasets": {
         "MNIST": {
+          "behavior": "Honest",
           "data_percent": 18.0
         },
         "CIFAR-10": {
+          "behavior": "Honest",
           "data_percent": 4.0
         }
       }
@@ -23,9 +25,11 @@
       "name": "H2 Strong MNIST, Weak CIFAR-10",
       "datasets": {
         "MNIST": {
+          "behavior": "Honest",
           "data_percent": 18.0
         },
         "CIFAR-10": {
+          "behavior": "Honest",
           "data_percent": 4.0
         }
       }
@@ -35,9 +39,11 @@
       "name": "H3 Strong MNIST, Weak CIFAR-10",
       "datasets": {
         "MNIST": {
+          "behavior": "Honest",
           "data_percent": 18.0
         },
         "CIFAR-10": {
+          "behavior": "Honest",
           "data_percent": 4.0
         }
       }
@@ -47,9 +53,11 @@
       "name": "H4 Weak MNIST, Strong CIFAR-10",
       "datasets": {
         "MNIST": {
+          "behavior": "Honest",
           "data_percent": 4.0
         },
         "CIFAR-10": {
+          "behavior": "Honest",
           "data_percent": 18.0
         }
       }
@@ -59,9 +67,11 @@
       "name": "H5 Weak MNIST, Strong CIFAR-10",
       "datasets": {
         "MNIST": {
+          "behavior": "Honest",
           "data_percent": 4.0
         },
         "CIFAR-10": {
+          "behavior": "Honest",
           "data_percent": 18.0
         }
       }
@@ -71,9 +81,11 @@
       "name": "H6 Weak MNIST, Strong CIFAR-10",
       "datasets": {
         "MNIST": {
+          "behavior": "Honest",
           "data_percent": 4.0
         },
         "CIFAR-10": {
+          "behavior": "Honest",
           "data_percent": 18.0
         }
       }
@@ -83,9 +95,11 @@
       "name": "H7 Balanced",
       "datasets": {
         "MNIST": {
+          "behavior": "Honest",
           "data_percent": 12.0
         },
         "CIFAR-10": {
+          "behavior": "Honest",
           "data_percent": 12.0
         }
       }
@@ -95,9 +109,11 @@
       "name": "H8 Balanced",
       "datasets": {
         "MNIST": {
+          "behavior": "Honest",
           "data_percent": 12.0
         },
         "CIFAR-10": {
+          "behavior": "Honest",
           "data_percent": 12.0
         }
       }
@@ -107,9 +123,11 @@
       "name": "H9 Narrow Both",
       "datasets": {
         "MNIST": {
+          "behavior": "Honest",
           "data_percent": 5.0
         },
         "CIFAR-10": {
+          "behavior": "Honest",
           "data_percent": 5.0
         }
       }
@@ -119,9 +137,11 @@
       "name": "H10 Narrow Both",
       "datasets": {
         "MNIST": {
+          "behavior": "Honest",
           "data_percent": 5.0
         },
         "CIFAR-10": {
+          "behavior": "Honest",
           "data_percent": 5.0
         }
       }

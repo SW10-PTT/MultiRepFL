@@ -39,7 +39,7 @@ config = ExperimentConfiguration(
     allow_overlap=False,
     replication_factor=1.0,
     partition_strategy="per_user", # Options: global, per_user
-    per_user_partitions="experiment/partitions/example.json"
+    per_user_partitions="experiment/partitions/quantity-skew.json"
     #data_percentages=[30, 10, 15, 15, 10, 20],
     # 0: {"only_labels": [0, 1, 2, 3, 4]}
     # 0: {"flip_map": {4: 9}}
