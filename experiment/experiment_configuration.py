@@ -55,8 +55,8 @@ class ExperimentConfiguration:
                  enabled_prints=None,
                  seed=123,
                  user_seeds=None,
-                 allow_overlap=False,
-                 replication_factor=1.0,
+                 allow_overlap=True,
+                 replication_factor=3.0,
                  partition_strategy="per_user", # Options: global, per_user
                  per_user_partitions="experiment/partitions/example.json", # Path to JSON file with per-user partition specs; see example.json for format. Or None. Example: "experiment/partitions/example.json"
                  vote_baseline="local_trained"): # Reference accuracy for +/-/neutral vote thresholds. Options: local_trained (giver's own post-training acc on giver val), prev_global (previous-round global model acc on giver val)

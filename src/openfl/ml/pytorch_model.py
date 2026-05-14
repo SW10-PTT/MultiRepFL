@@ -313,7 +313,12 @@ class PytorchModel:
         dataset_size = len(labels)
         num_classes = len(set(labels))
         per_class = dataset_size // num_classes
-        log("setup_data",f"Dataset: {dataset_name} | {dataset_size:,} total samples | {num_classes} classes | ~{per_class:,} per class")
+        rep_factor = float(getattr(self.config, "replication_factor", 1.0))
+        allow_overlap = bool(getattr(self.config, "allow_overlap", False))
+        overlap_active = allow_overlap and rep_factor > 1.0
+        effective_pool = int(dataset_size * rep_factor) if overlap_active else dataset_size
+        pool_suffix = f" | overlap ON, rep={rep_factor:g} -> effective pool {effective_pool:,}" if overlap_active else ""
+        log("setup_data",f"Dataset: {dataset_name} | {dataset_size:,} total samples | {num_classes} classes | ~{per_class:,} per class{pool_suffix}")
         log("setup_data")
         log("setup_data","Data split per user:")
         log("setup_data",
@@ -380,14 +385,29 @@ class PytorchModel:
                     self.ratio_percent(sum(val_flip_counts.values()), split["val_samples"]),
                 ))
 
-        lost_samples = dataset_size - total_samples
-        lost_percent = 100.0 * lost_samples / dataset_size
+        unique_ids = set()
+        for user in users:
+            split = user_splits[user.get_id_or_address()]
+            unique_ids.update(split["train_ids"])
+            unique_ids.update(split["val_ids"])
+        unique_count = len(unique_ids)
+        unmapped_unique = dataset_size - unique_count
+        unmapped_pct = 100.0 * unmapped_unique / dataset_size
 
         log("setup_data","-" * 90)
-        log("setup_data","Configured total: {:.2f}%".format(total_config_percent))
-        log("setup_data","Assigned: {:>7,} / {:,} samples  ({:.2f}%)".format(total_samples, dataset_size, total_actual_percent))
-        if lost_samples > 0:
-            log("setup_data", "Lost:     {:>7,} / {:,} samples  ({:.2f}%)  <- dropped due to only_labels".format(lost_samples, dataset_size, lost_percent))
+        log("setup_data","Configured total: {:.2f}%  (sum of Config % column)".format(total_config_percent))
+        if overlap_active:
+            pool_pct = 100.0 * total_samples / effective_pool
+            avg_dup = (total_samples / unique_count) if unique_count else 0.0
+            log("setup_data","Assigned: {:>7,} / {:,} effective slots  ({:.2f}% of inflated pool, {:.2f}% of base dataset)".format(
+                total_samples, effective_pool, pool_pct, total_actual_percent))
+            log("setup_data","Unique:   {:>7,} / {:,} base samples covered  (avg {:.2f}x replication per assigned sample)".format(
+                unique_count, dataset_size, avg_dup))
+        else:
+            log("setup_data","Assigned: {:>7,} / {:,} samples  ({:.2f}%)".format(total_samples, dataset_size, total_actual_percent))
+        if unmapped_unique > 0:
+            log("setup_data", "Unused:   {:>7,} / {:,} base samples  ({:.2f}%)  <- not assigned to any user (only_labels / label_distribution retention / pct<100)".format(
+                unmapped_unique, dataset_size, unmapped_pct))
         log("setup_data")
 
         col_w = 6
