@@ -620,29 +620,30 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
     
     
     def exit_system(self):
-      
+
         log("experiment_end", b(f"Terminating Model..."))
-       
+
         txs = []
+        label_w = max((len(acc.display_label()) for acc in self.pytorch_model.participants), default=12)
         for acc in self.pytorch_model.participants:
-            
+
             if globals.fork:
                 tx = super().build_tx(acc.address, self.contractAddress, 0)
                 txHash = self.contract.functions.exitModel().transact(tx) # Todo: use self.transact
             else:
-                w3 = ConnectionHelper.get_w3()          
-                nonce = w3.eth.get_transaction_count(acc.address) 
+                w3 = ConnectionHelper.get_w3()
+                nonce = w3.eth.get_transaction_count(acc.address)
                 ex = super().build_non_fork_tx(acc.address, nonce)
                 ex =  self.contract.functions.exitModel().build_transaction(ex)
                 signed = w3.eth.account.sign_transaction(ex, private_key=acc.privateKey)
                 txHash = w3.eth.send_raw_transaction(signed.raw_transaction)
             txs.append(txHash)
-            log("experiment_end", "{:<17}   {} ({}) | {} | {:>27,.0f} WEI".format("Account exited:  ",
+            log("experiment_end", "{:<17}  {:<{lw}} ({}) | {} | {:>32,.0f} WEI".format("Account exited:  ",
                                                              acc.display_label(),
                                                              acc.address[0:16] + "...",
                                                              txHash.hex()[0:6] + "...",
-                                                             globals.w3.eth.get_balance(acc.address)
-                                                             ))
+                                                             globals.w3.eth.get_balance(acc.address),
+                                                             lw=label_w))
         l = len(txs)
         for i, txHash in enumerate(txs):
             printer.print_bar("experiment_end", i, l)

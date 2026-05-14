@@ -15,8 +15,9 @@ from analysis import ExperimentLogger
 config = ExperimentConfiguration(
     min_buy_in=int(1e18),
     max_buy_in=int(1e18),
+    reward=int(8e18),
     contribution_score_strategy="loss_tolerance_aware", # Options: dotproduct, naive, accuracy_loss, accuracy_only, loss_only, loss_tolerance_aware, loss_tolerance_snap
-    loss_tolerance_pct=0.2, # ε = pct * avg_prev_loss; only used by loss_tolerance_* strategies
+    loss_tolerance_pct=0.1, # ε = pct * avg_prev_loss; only used by loss_tolerance_* strategies
     use_outlier_detection=True,
     minimum_rounds=3,
     epochs=1,
@@ -39,7 +40,8 @@ config = ExperimentConfiguration(
     allow_overlap=False,
     replication_factor=1.0,
     partition_strategy="per_user", # Options: global, per_user
-    per_user_partitions="experiment/partitions/quantity-skew.json"
+    per_user_partitions="experiment/partitions/quantity-skew.json", 
+    vote_baseline="local_trained"
     #data_percentages=[30, 10, 15, 15, 10, 20],
     # 0: {"only_labels": [0, 1, 2, 3, 4]}
     # 0: {"flip_map": {4: 9}}

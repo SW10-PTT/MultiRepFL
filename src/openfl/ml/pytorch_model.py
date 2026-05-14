@@ -872,6 +872,14 @@ class PytorchModel:
                 user_idx = user.id
                 prev_loss, prev_acc = self.runRepo.test(self.round,f"test-feedback-globalmodel-{giver_idx}-{user_idx}", self.global_model, valloader, DEVICE)
                 loss, accuracy = self.runRepo.test(self.round,f"test-feedback-usermodel-{giver_idx}-{user_idx}", user.model, valloader, DEVICE)
+
+                # Vote threshold reference (raw fraction). prev_acc gets scaled below for honest givers,
+                # so capture baseline first.
+                if self.config.vote_baseline == "prev_global":
+                    baseline_acc = prev_acc
+                else:
+                    baseline_acc = feedbackGiver.currentAcc
+
                 if not bad_att and not free_att:
                     prev_acc = round(prev_acc * 100 * scalar)
                     prev_loss = safe_scale(prev_loss, scalar, MAX_UINT16_SIZE)
@@ -902,14 +910,14 @@ class PytorchModel:
                     matrices.prev_accuracies[giver_idx] = prev_acc
                     matrices.prev_losses[giver_idx] = prev_loss
 
-                elif accuracy > feedbackGiver.currentAcc - 0.07:  # 7% Worse
+                elif accuracy > baseline_acc - 0.9:  # 7% Worse: 0.07
                     matrices.feedback_matrix[giver_idx, user_idx] = 1
                     matrices.accuracy_matrix[giver_idx, user_idx] = round(accuracy * 100 * scalar)
                     matrices.loss_matrix[giver_idx, user_idx] = safe_scale(loss, scalar, MAX_UINT16_SIZE)
                     matrices.prev_accuracies[giver_idx] = prev_acc
                     matrices.prev_losses[giver_idx] = prev_loss
 
-                elif accuracy > feedbackGiver.currentAcc - 0.14:  # 14% Worse
+                elif accuracy > baseline_acc - 0.17:  # 14% Worse: 0.14
                     matrices.feedback_matrix[giver_idx, user_idx] = 0
                     matrices.accuracy_matrix[giver_idx, user_idx] = round(accuracy * 100 * scalar)
                     matrices.loss_matrix[giver_idx, user_idx] = safe_scale(loss, scalar, MAX_UINT16_SIZE)

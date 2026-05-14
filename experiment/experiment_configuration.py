@@ -20,6 +20,7 @@ from openfl.utils.types.TrainingSpecsJobListing import TrainingSpecsJobListing
 
 
 VALID_PARTITION_STRATEGIES = ("global", "per_user")
+VALID_VOTE_BASELINES = ("local_trained", "prev_global")
 
 class ExperimentConfiguration:
     def __init__(self,
@@ -29,7 +30,7 @@ class ExperimentConfiguration:
                  number_of_bad_contributors=1,
                  number_of_freerider_contributors=1,
                  number_of_inactive_contributors=0,
-                 reward=int(1e18),
+                 reward=int(8e18),
                  minimum_rounds=5,
                  min_buy_in=int(1e18),
                  max_buy_in=int(1e18),
@@ -57,7 +58,8 @@ class ExperimentConfiguration:
                  allow_overlap=False,
                  replication_factor=1.0,
                  partition_strategy="per_user", # Options: global, per_user
-                 per_user_partitions="experiment/partitions/example.json"): # Path to JSON file with per-user partition specs; see example.json for format. Or None. Example: "experiment/partitions/example.json"
+                 per_user_partitions="experiment/partitions/example.json", # Path to JSON file with per-user partition specs; see example.json for format. Or None. Example: "experiment/partitions/example.json"
+                 vote_baseline="local_trained"): # Reference accuracy for +/-/neutral vote thresholds. Options: local_trained (giver's own post-training acc on giver val), prev_global (previous-round global model acc on giver val)
 
         self.name = name
         self.dataset = dataset
@@ -120,6 +122,12 @@ class ExperimentConfiguration:
                 f"partition_strategy must be one of {VALID_PARTITION_STRATEGIES}, got {partition_strategy!r}"
             )
         self.partition_strategy = partition_strategy
+
+        if vote_baseline not in VALID_VOTE_BASELINES:
+            raise ValueError(
+                f"vote_baseline must be one of {VALID_VOTE_BASELINES}, got {vote_baseline!r}"
+            )
+        self.vote_baseline = vote_baseline
         self.per_user_partitions = self._resolve_per_user_partitions(per_user_partitions)
 
         if self.partition_strategy == "per_user":
@@ -339,6 +347,7 @@ class ExperimentConfiguration:
             "replication_factor": self.replication_factor,
             "user_seeds": dict(sorted(self.user_seeds.items())),
             "partition_strategy": self.partition_strategy,
+            "vote_baseline": self.vote_baseline,
             "per_user_partitions": {
                 dataset_key: [
                     spec.fingerprint_dict()
