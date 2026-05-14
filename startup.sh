@@ -120,18 +120,29 @@ PRIVATE_KEYS=$(
 )
 
 # --------------------------------------------
-# Create env/.env.ganache
+# Create .env/.env.ganache
 # --------------------------------------------
-cat > env/.env.ganache <<EOF
-RPC_URL="http://127.0.0.1:8545"
-PRIVATE_KEYS="$PRIVATE_KEYS"
-EOF
+ENV_FILE="env/.env.ganache"
 
-echo "Created env/.env.ganache"
+touch "$ENV_FILE"
+
+# Update or insert PRIVATE_KEYS
+if grep -q '^PRIVATE_KEYS=' "$ENV_FILE"; then
+    sed -i "s|^PRIVATE_KEYS=.*|PRIVATE_KEYS=\"$PRIVATE_KEYS\"|" "$ENV_FILE"
+else
+    echo "PRIVATE_KEYS=\"$PRIVATE_KEYS\"" >> "$ENV_FILE"
+fi
+
+# Only add RPC_URL if missing
+if ! grep -q '^RPC_URL=' "$ENV_FILE"; then
+    echo 'RPC_URL="http://127.0.0.1:8545"' >> "$ENV_FILE"
+fi
+
+echo "Created .env/.env.ganache"
 
 # --------------------------------------------
 # Run experiments
 # --------------------------------------------
 echo "Starting experiments..."
 
-python experiments/auto_runner.py
+python experiment/auto_runner.py
