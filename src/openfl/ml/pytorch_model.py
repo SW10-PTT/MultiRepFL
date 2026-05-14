@@ -910,14 +910,14 @@ class PytorchModel:
                     matrices.prev_accuracies[giver_idx] = prev_acc
                     matrices.prev_losses[giver_idx] = prev_loss
 
-                elif accuracy > baseline_acc - 0.9:  # 7% Worse: 0.07
+                elif accuracy > baseline_acc - 0.07:  # 7% Worse: 0.07
                     matrices.feedback_matrix[giver_idx, user_idx] = 1
                     matrices.accuracy_matrix[giver_idx, user_idx] = round(accuracy * 100 * scalar)
                     matrices.loss_matrix[giver_idx, user_idx] = safe_scale(loss, scalar, MAX_UINT16_SIZE)
                     matrices.prev_accuracies[giver_idx] = prev_acc
                     matrices.prev_losses[giver_idx] = prev_loss
 
-                elif accuracy > baseline_acc - 0.17:  # 14% Worse: 0.14
+                elif accuracy > baseline_acc - 0.14:  # 14% Worse: 0.14
                     matrices.feedback_matrix[giver_idx, user_idx] = 0
                     matrices.accuracy_matrix[giver_idx, user_idx] = round(accuracy * 100 * scalar)
                     matrices.loss_matrix[giver_idx, user_idx] = safe_scale(loss, scalar, MAX_UINT16_SIZE)
