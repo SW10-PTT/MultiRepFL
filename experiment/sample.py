@@ -19,8 +19,8 @@ config = ExperimentConfiguration(
     contribution_score_strategy="loss_tolerance_snap", # Options: dotproduct, naive, accuracy_loss, accuracy_only, loss_only, loss_tolerance_aware, loss_tolerance_snap
     loss_tolerance_pct=0.05, # ε = pct * avg_prev_loss; only used by loss_tolerance_* strategies
     use_outlier_detection=True,
-    minimum_rounds=3,
-    epochs=2,
+    minimum_rounds=10,
+    epochs=3,
     punish_factor=3,
     punish_factor_contrib=3,
     number_of_good_contributors=4,
@@ -38,9 +38,9 @@ config = ExperimentConfiguration(
     seed=123,
     user_seeds=None,
     allow_overlap=True,
-    replication_factor=3.0,
+    replication_factor=1.0,
     partition_strategy="per_user", # Options: global, per_user
-    per_user_partitions="experiment/partitions/label-distribution-copy2.json", 
+    per_user_partitions="experiment/partitions/EXP-equal-distribution-30-users.json", 
     vote_baseline="local_trained" #Options: local_trained, prev_global
     #data_percentages=[30, 10, 15, 15, 10, 20],
     # 0: {"only_labels": [0, 1, 2, 3, 4]}

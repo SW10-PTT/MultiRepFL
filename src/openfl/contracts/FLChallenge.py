@@ -782,7 +782,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
 
             log("round_scoring", green(f"\nUSER @ {u.display_label()} (#{u.number})"))
             if u. is_contrib_score_negative:
-                log("round_scoring", green(f"{'NEGATIVE CONTRIBUTION SCORE:':25}{u.contribution_score}"))
+                log("round_scoring", red(f"{'NEGATIVE CONTRIBUTION SCORE:':25}{u.contribution_score}"))
             else:
                 log("round_scoring", green(f"{'CONTRIBUTION SCORE:':25}{u.contribution_score}"))
 
