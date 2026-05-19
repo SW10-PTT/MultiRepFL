@@ -12,11 +12,11 @@
       "datasets": {
         "MNIST": {
           "behavior": "Honest",
-          "data_percent": 18.0
+          "data_percent": 16.0
         },
         "CIFAR-10": {
           "behavior": "Honest",
-          "data_percent": 4.0
+          "data_percent": 6.0
         }
       }
     },
@@ -26,11 +26,11 @@
       "datasets": {
         "MNIST": {
           "behavior": "Honest",
-          "data_percent": 18.0
+          "data_percent": 16.0
         },
         "CIFAR-10": {
           "behavior": "Honest",
-          "data_percent": 4.0
+          "data_percent": 6.0
         }
       }
     },
@@ -40,11 +40,11 @@
       "datasets": {
         "MNIST": {
           "behavior": "Honest",
-          "data_percent": 18.0
+          "data_percent": 16.0
         },
         "CIFAR-10": {
           "behavior": "Honest",
-          "data_percent": 4.0
+          "data_percent": 6.0
         }
       }
     },
@@ -54,11 +54,11 @@
       "datasets": {
         "MNIST": {
           "behavior": "Honest",
-          "data_percent": 4.0
+          "data_percent": 6.0
         },
         "CIFAR-10": {
           "behavior": "Honest",
-          "data_percent": 18.0
+          "data_percent": 16.0
         }
       }
     },
@@ -68,11 +68,11 @@
       "datasets": {
         "MNIST": {
           "behavior": "Honest",
-          "data_percent": 4.0
+          "data_percent": 6.0
         },
         "CIFAR-10": {
           "behavior": "Honest",
-          "data_percent": 18.0
+          "data_percent": 16.0
         }
       }
     },
@@ -82,11 +82,11 @@
       "datasets": {
         "MNIST": {
           "behavior": "Honest",
-          "data_percent": 4.0
+          "data_percent": 6.0
         },
         "CIFAR-10": {
           "behavior": "Honest",
-          "data_percent": 18.0
+          "data_percent": 16.0
         }
       }
     },
@@ -96,11 +96,11 @@
       "datasets": {
         "MNIST": {
           "behavior": "Honest",
-          "data_percent": 12.0
+          "data_percent": 11.0
         },
         "CIFAR-10": {
           "behavior": "Honest",
-          "data_percent": 12.0
+          "data_percent": 11.0
         }
       }
     },
@@ -110,11 +110,11 @@
       "datasets": {
         "MNIST": {
           "behavior": "Honest",
-          "data_percent": 12.0
+          "data_percent": 11.0
         },
         "CIFAR-10": {
           "behavior": "Honest",
-          "data_percent": 12.0
+          "data_percent": 11.0
         }
       }
     },
@@ -124,11 +124,11 @@
       "datasets": {
         "MNIST": {
           "behavior": "Honest",
-          "data_percent": 5.0
+          "data_percent": 6.0
         },
         "CIFAR-10": {
           "behavior": "Honest",
-          "data_percent": 5.0
+          "data_percent": 6.0
         }
       }
     },
@@ -138,11 +138,11 @@
       "datasets": {
         "MNIST": {
           "behavior": "Honest",
-          "data_percent": 5.0
+          "data_percent": 6.0
         },
         "CIFAR-10": {
           "behavior": "Honest",
-          "data_percent": 5.0
+          "data_percent": 6.0
         }
       }
     }

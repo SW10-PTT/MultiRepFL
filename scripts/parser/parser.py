@@ -122,8 +122,8 @@ def parse_gas_stats(line: str) -> GasStats:
     if buf:
         parts.append(buf.strip())
 
-    if len(parts) != 7:
-        raise ValueError(f"Expected 7 list fields, got {len(parts)} in {line}")
+    if len(parts) != 8:
+        raise ValueError(f"Expected 8 list fields, got {len(parts)} in {line}")
 
     lists = [ast.literal_eval(p) for p in parts]
 
