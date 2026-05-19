@@ -364,7 +364,7 @@
       "name": "M2 Both",
       "datasets": {
         "MNIST": {
-          "behavior": "Malicious",
+          "behavior": "Honest",
           "noise_scale": 1.0,
           "start_round": 1,
           "data_percent": 3.3333333333
@@ -388,7 +388,7 @@
           "data_percent": 3.3333333333
         },
         "CIFAR-10": {
-          "behavior": "Malicious",
+          "behavior": "Honest",
           "noise_scale": 1.0,
           "start_round": 1,
           "data_percent": 3.3333333333
@@ -415,10 +415,10 @@
     },
     {
       "id": "dc7e82ef-0bba-4d24-95e2-87ccfe486c63",
-      "name": "F2 Both",
+      "name": "F2 CIFAR-10",
       "datasets": {
         "MNIST": {
-          "behavior": "Free-rider",
+          "behavior": "Honest",
           "noise_scale": 0.1,
           "start_round": 1,
           "data_percent": 3.3333333333
@@ -433,7 +433,7 @@
     },
     {
       "id": "6cde0707-c33a-471d-a90e-405caa94a955",
-      "name": "F3 Both",
+      "name": "F3 MNIST",
       "datasets": {
         "MNIST": {
           "behavior": "Free-rider",
@@ -442,7 +442,7 @@
           "data_percent": 3.3333333333
         },
         "CIFAR-10": {
-          "behavior": "Free-rider",
+          "behavior": "Honest",
           "noise_scale": 0.1,
           "start_round": 1,
           "data_percent": 3.3333333333
