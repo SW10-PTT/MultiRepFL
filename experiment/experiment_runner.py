@@ -374,6 +374,7 @@ def table_with_gas_and_transactions_latex(experiment):
   clo = model.gas_close, "settle round"
   slo = model.gas_slot, "reserve slot"
   wei = model.gas_weights, "provide weights**"
+  con = model.gas_contrib, "contribution score"
   dep = manager.gas_deploy, "deployment"
   dep = manager.gas_deploy, "deployment"
   ext = model.gas_exit, "exit"
@@ -382,7 +383,7 @@ def table_with_gas_and_transactions_latex(experiment):
   tot2 = 0
 
   log("latex_output", "\\begin{tabular}{ |c|c|c| }\n\\hline\nFunction & Gas Amount & Gas Costs*\\\\ \n\\hline")
-  for i, f in [reg,slo,wei,fed,clo]:
+  for i, f in [reg,slo,wei,fed,con,clo]:
       log("latex_output", "{} & {:,.0f} & {:.5f} ETH \\\\".format(f, sum(i)/len(i), sum(i)/len(i) * 20e9 / 1e18))
       tot += sum(i)/len(i)
       if i != clo[0]:

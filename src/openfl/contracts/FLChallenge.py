@@ -61,13 +61,14 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
         self.loss_tolerance_pct = getattr(training_specs, "loss_tolerance_pct", 0.05)
         self.use_outlier_detection = training_specs.outlier_detection
         self.scores = []
-        self.gas_feedback = [] 
-        self.gas_register = [] 
-        self.gas_slot     = [] 
-        self.gas_weights  = [] 
-        self.gas_close    = [] 
-        self.gas_deploy   = [] 
+        self.gas_feedback = []
+        self.gas_register = []
+        self.gas_slot     = []
+        self.gas_weights  = []
+        self.gas_close    = []
+        self.gas_deploy   = []
         self.gas_exit     = []
+        self.gas_contrib  = []
         self.txHashes     = []
 
         self._reward_balance = [self.REWARD]
@@ -235,7 +236,12 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                 raise 
                 
         assert(txHash != None)
-        
+
+        receipt = globals.w3.eth.wait_for_transaction_receipt(txHash, timeout=600, poll_latency=1)
+        self.gas_feedback.append(receipt["gasUsed"])
+        self.txHashes.append(("feedback", receipt["transactionHash"].hex(), receipt["gasUsed"]))
+        self._log_receipt(receipt, "feedback")
+
         if score == 1:
             target.roundRep += 1 * self.get_global_reputation_of_user(feedbackGiver.address)
             rep = "Positive"
@@ -473,15 +479,15 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
     def track_transaction(self, i, tx_hash, len_txs, receipt_type: str):  # formerly named log_receipt
         #   1. Prints a progress bar — i out of len_txs transactions done
         #   2. Waits for the transaction to be mined — blocks until the receipt comes back (up to 600s timeout)
-        #   3. Stores gas used — appends to self.gas_feedback
-        #   4. Stores the tx hash + gas — appends to self.txHashes along with the receipt_type label (e.g. "round_models", "contrib")
+        #   3. Stores gas used — appends to self.gas_contrib (sole caller is submitContributionScore)
+        #   4. Stores the tx hash + gas — appends to self.txHashes along with the receipt_type label (e.g. "contrib")
 
         printer.print_bar("round_scoring", i, len_txs)
         receipt = globals.w3.eth.wait_for_transaction_receipt(tx_hash,
                                                            timeout=600,
                                                            poll_latency=1)
 
-        self.gas_feedback.append(receipt["gasUsed"])
+        self.gas_contrib.append(receipt["gasUsed"])
         self.txHashes.append((receipt_type, receipt["transactionHash"].hex(), receipt["gasUsed"]))
         # Writer (old logger) uses this to log
 
@@ -1542,7 +1548,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                 log("round_scoring", colored(warn, 'yellow'))
             log("round_scoring", red("!" * 78))
 
-        self.writer.write_comment(f"$gasCosts${self.gas_feedback},{self.gas_register},{self.gas_slot},{self.gas_weights},{self.gas_close},{self.gas_deploy},{self.gas_exit}")
+        self.writer.write_comment(f"$gasCosts${self.gas_feedback},{self.gas_register},{self.gas_slot},{self.gas_weights},{self.gas_close},{self.gas_deploy},{self.gas_exit},{self.gas_contrib}")
         trs = self.pytorch_model.runRepo.get_task_rep_delta_and_GRS(-1, "get_task_rep_delta_and_GRS-simulate", self.contract, self.pytorch_model.get_participant)
         self.writer.write_comment(f"$trs${trs}")
         self._logger.log_trs(trs)
