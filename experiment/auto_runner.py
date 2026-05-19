@@ -26,7 +26,7 @@ from openfl.api import globals
 from openfl.utils import printer, config
 from openfl.utils.printer import log
 
-API = require_env_var("APIURL")
+API = require_env_var("API_URL")
 
 worker_id = None
 

@@ -57,7 +57,12 @@ class AddressIndexList:
         return str(user_id)
 
     def __str__(self):
-        rows = [f"{self._full_label(i)}: {int(self._list[i]):>12,}" for i in range(len(self._idx_to_id))]
+        n = len(self._idx_to_id)
+        if n == 0:
+            return "(empty)"
+        labels = [self._full_label(i) for i in range(n)]
+        label_w = max(len(l) for l in labels)
+        rows = [f"  {labels[i]:<{label_w}}  {int(self._list[i]):>12,}" for i in range(n)]
         return "\n".join(rows)
     
     def to_csv_cell(self):

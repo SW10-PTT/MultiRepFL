@@ -10,3 +10,4 @@ class GasStats:
     gas_close: List[int]
     gas_deploy: List[int]
     gas_exit: List[int]
+    gas_contrib: List[int]

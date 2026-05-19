@@ -1,0 +1,660 @@
+{
+  "_doc": [
+    "20-user experiment derived from the original per-class data skew setup.",
+    "There are 16 honest label-specialist users plus 2 Free-rider users and 2 Malicious users.",
+    "Each user has data_percent 5.0 so the total across 20 users is 100%.",
+    "Honest users keep the specialist label_distribution pattern: 1.0 for the assigned label and 0.2 for all other labels.",
+    "Free-rider users have behavior Free-rider, noise_scale 0.01, and start_round 1 on both MNIST and CIFAR-10.",
+    "Malicious users have behavior Malicious, noise_scale 1.0, and start_round 1 on both MNIST and CIFAR-10."
+  ],
+  "presets": [
+    {
+      "id": "e6a76fb5-a24a-4bcc-9c38-2aeef50ff589",
+      "name": "H1 Label 0 specialist",
+      "datasets": {
+        "MNIST": {
+          "data_percent": 5.0,
+          "label_distribution": {
+            "0": 1.0,
+            "1": 0.2,
+            "2": 0.2,
+            "3": 0.2,
+            "4": 0.2,
+            "5": 0.2,
+            "6": 0.2,
+            "7": 0.2,
+            "8": 0.2,
+            "9": 0.2
+          }
+        },
+        "CIFAR-10": {
+          "data_percent": 5.0,
+          "label_distribution": {
+            "0": 1.0,
+            "1": 0.2,
+            "2": 0.2,
+            "3": 0.2,
+            "4": 0.2,
+            "5": 0.2,
+            "6": 0.2,
+            "7": 0.2,
+            "8": 0.2,
+            "9": 0.2
+          }
+        }
+      }
+    },
+    {
+      "id": "f561df74-abfd-4678-8a32-000dae4dfeb9",
+      "name": "H2 Label 1 specialist",
+      "datasets": {
+        "MNIST": {
+          "data_percent": 5.0,
+          "label_distribution": {
+            "0": 0.2,
+            "1": 1.0,
+            "2": 0.2,
+            "3": 0.2,
+            "4": 0.2,
+            "5": 0.2,
+            "6": 0.2,
+            "7": 0.2,
+            "8": 0.2,
+            "9": 0.2
+          }
+        },
+        "CIFAR-10": {
+          "data_percent": 5.0,
+          "label_distribution": {
+            "0": 0.2,
+            "1": 1.0,
+            "2": 0.2,
+            "3": 0.2,
+            "4": 0.2,
+            "5": 0.2,
+            "6": 0.2,
+            "7": 0.2,
+            "8": 0.2,
+            "9": 0.2
+          }
+        }
+      }
+    },
+    {
+      "id": "70c90f89-401f-4186-ad84-a9a2fcfa7a21",
+      "name": "H3 Label 2 specialist",
+      "datasets": {
+        "MNIST": {
+          "data_percent": 5.0,
+          "label_distribution": {
+            "0": 0.2,
+            "1": 0.2,
+            "2": 1.0,
+            "3": 0.2,
+            "4": 0.2,
+            "5": 0.2,
+            "6": 0.2,
+            "7": 0.2,
+            "8": 0.2,
+            "9": 0.2
+          }
+        },
+        "CIFAR-10": {
+          "data_percent": 5.0,
+          "label_distribution": {
+            "0": 0.2,
+            "1": 0.2,
+            "2": 1.0,
+            "3": 0.2,
+            "4": 0.2,
+            "5": 0.2,
+            "6": 0.2,
+            "7": 0.2,
+            "8": 0.2,
+            "9": 0.2
+          }
+        }
+      }
+    },
+    {
+      "id": "646e55df-8b2f-4f4f-8330-91cd6a6fb048",
+      "name": "H4 Label 3 specialist",
+      "datasets": {
+        "MNIST": {
+          "data_percent": 5.0,
+          "label_distribution": {
+            "0": 0.2,
+            "1": 0.2,
+            "2": 0.2,
+            "3": 1.0,
+            "4": 0.2,
+            "5": 0.2,
+            "6": 0.2,
+            "7": 0.2,
+            "8": 0.2,
+            "9": 0.2
+          }
+        },
+        "CIFAR-10": {
+          "data_percent": 5.0,
+          "label_distribution": {
+            "0": 0.2,
+            "1": 0.2,
+            "2": 0.2,
+            "3": 1.0,
+            "4": 0.2,
+            "5": 0.2,
+            "6": 0.2,
+            "7": 0.2,
+            "8": 0.2,
+            "9": 0.2
+          }
+        }
+      }
+    },
+    {
+      "id": "f234e5dc-1c53-40bb-a503-1aeff533cc0f",
+      "name": "H5 Label 4 specialist",
+      "datasets": {
+        "MNIST": {
+          "data_percent": 5.0,
+          "label_distribution": {
+            "0": 0.2,
+            "1": 0.2,
+            "2": 0.2,
+            "3": 0.2,
+            "4": 1.0,
+            "5": 0.2,
+            "6": 0.2,
+            "7": 0.2,
+            "8": 0.2,
+            "9": 0.2
+          }
+        },
+        "CIFAR-10": {
+          "data_percent": 5.0,
+          "label_distribution": {
+            "0": 0.2,
+            "1": 0.2,
+            "2": 0.2,
+            "3": 0.2,
+            "4": 1.0,
+            "5": 0.2,
+            "6": 0.2,
+            "7": 0.2,
+            "8": 0.2,
+            "9": 0.2
+          }
+        }
+      }
+    },
+    {
+      "id": "079f6b41-c752-4f10-9d66-3259a059ce8a",
+      "name": "H6 Label 5 specialist",
+      "datasets": {
+        "MNIST": {
+          "data_percent": 5.0,
+          "label_distribution": {
+            "0": 0.2,
+            "1": 0.2,
+            "2": 0.2,
+            "3": 0.2,
+            "4": 0.2,
+            "5": 1.0,
+            "6": 0.2,
+            "7": 0.2,
+            "8": 0.2,
+            "9": 0.2
+          }
+        },
+        "CIFAR-10": {
+          "data_percent": 5.0,
+          "label_distribution": {
+            "0": 0.2,
+            "1": 0.2,
+            "2": 0.2,
+            "3": 0.2,
+            "4": 0.2,
+            "5": 1.0,
+            "6": 0.2,
+            "7": 0.2,
+            "8": 0.2,
+            "9": 0.2
+          }
+        }
+      }
+    },
+    {
+      "id": "3ed3e422-534e-43cd-b640-b1987c03241f",
+      "name": "H7 Label 6 specialist",
+      "datasets": {
+        "MNIST": {
+          "data_percent": 5.0,
+          "label_distribution": {
+            "0": 0.2,
+            "1": 0.2,
+            "2": 0.2,
+            "3": 0.2,
+            "4": 0.2,
+            "5": 0.2,
+            "6": 1.0,
+            "7": 0.2,
+            "8": 0.2,
+            "9": 0.2
+          }
+        },
+        "CIFAR-10": {
+          "data_percent": 5.0,
+          "label_distribution": {
+            "0": 0.2,
+            "1": 0.2,
+            "2": 0.2,
+            "3": 0.2,
+            "4": 0.2,
+            "5": 0.2,
+            "6": 1.0,
+            "7": 0.2,
+            "8": 0.2,
+            "9": 0.2
+          }
+        }
+      }
+    },
+    {
+      "id": "4dfc121f-a280-4b2d-8281-c460f8cf8cf1",
+      "name": "H8 Label 7 specialist",
+      "datasets": {
+        "MNIST": {
+          "data_percent": 5.0,
+          "label_distribution": {
+            "0": 0.2,
+            "1": 0.2,
+            "2": 0.2,
+            "3": 0.2,
+            "4": 0.2,
+            "5": 0.2,
+            "6": 0.2,
+            "7": 1.0,
+            "8": 0.2,
+            "9": 0.2
+          }
+        },
+        "CIFAR-10": {
+          "data_percent": 5.0,
+          "label_distribution": {
+            "0": 0.2,
+            "1": 0.2,
+            "2": 0.2,
+            "3": 0.2,
+            "4": 0.2,
+            "5": 0.2,
+            "6": 0.2,
+            "7": 1.0,
+            "8": 0.2,
+            "9": 0.2
+          }
+        }
+      }
+    },
+    {
+      "id": "bedabb71-aeba-40fc-8874-b33d1935a008",
+      "name": "H9 Label 8 specialist",
+      "datasets": {
+        "MNIST": {
+          "data_percent": 5.0,
+          "label_distribution": {
+            "0": 0.2,
+            "1": 0.2,
+            "2": 0.2,
+            "3": 0.2,
+            "4": 0.2,
+            "5": 0.2,
+            "6": 0.2,
+            "7": 0.2,
+            "8": 1.0,
+            "9": 0.2
+          }
+        },
+        "CIFAR-10": {
+          "data_percent": 5.0,
+          "label_distribution": {
+            "0": 0.2,
+            "1": 0.2,
+            "2": 0.2,
+            "3": 0.2,
+            "4": 0.2,
+            "5": 0.2,
+            "6": 0.2,
+            "7": 0.2,
+            "8": 1.0,
+            "9": 0.2
+          }
+        }
+      }
+    },
+    {
+      "id": "794927bc-8a80-4c7e-b2bb-74fd19a667c7",
+      "name": "H10 Label 9 specialist",
+      "datasets": {
+        "MNIST": {
+          "data_percent": 5.0,
+          "label_distribution": {
+            "0": 0.2,
+            "1": 0.2,
+            "2": 0.2,
+            "3": 0.2,
+            "4": 0.2,
+            "5": 0.2,
+            "6": 0.2,
+            "7": 0.2,
+            "8": 0.2,
+            "9": 1.0
+          }
+        },
+        "CIFAR-10": {
+          "data_percent": 5.0,
+          "label_distribution": {
+            "0": 0.2,
+            "1": 0.2,
+            "2": 0.2,
+            "3": 0.2,
+            "4": 0.2,
+            "5": 0.2,
+            "6": 0.2,
+            "7": 0.2,
+            "8": 0.2,
+            "9": 1.0
+          }
+        }
+      }
+    },
+    {
+      "id": "531c9db1-ec4b-46d1-90a1-ef209c1c7fe2",
+      "name": "H11 Label 0 specialist",
+      "datasets": {
+        "MNIST": {
+          "data_percent": 5.0,
+          "label_distribution": {
+            "0": 1.0,
+            "1": 0.2,
+            "2": 0.2,
+            "3": 0.2,
+            "4": 0.2,
+            "5": 0.2,
+            "6": 0.2,
+            "7": 0.2,
+            "8": 0.2,
+            "9": 0.2
+          }
+        },
+        "CIFAR-10": {
+          "data_percent": 5.0,
+          "label_distribution": {
+            "0": 1.0,
+            "1": 0.2,
+            "2": 0.2,
+            "3": 0.2,
+            "4": 0.2,
+            "5": 0.2,
+            "6": 0.2,
+            "7": 0.2,
+            "8": 0.2,
+            "9": 0.2
+          }
+        }
+      }
+    },
+    {
+      "id": "a2ccc68f-7379-4aab-bda8-a9584aad6636",
+      "name": "H12 Label 1 specialist",
+      "datasets": {
+        "MNIST": {
+          "data_percent": 5.0,
+          "label_distribution": {
+            "0": 0.2,
+            "1": 1.0,
+            "2": 0.2,
+            "3": 0.2,
+            "4": 0.2,
+            "5": 0.2,
+            "6": 0.2,
+            "7": 0.2,
+            "8": 0.2,
+            "9": 0.2
+          }
+        },
+        "CIFAR-10": {
+          "data_percent": 5.0,
+          "label_distribution": {
+            "0": 0.2,
+            "1": 1.0,
+            "2": 0.2,
+            "3": 0.2,
+            "4": 0.2,
+            "5": 0.2,
+            "6": 0.2,
+            "7": 0.2,
+            "8": 0.2,
+            "9": 0.2
+          }
+        }
+      }
+    },
+    {
+      "id": "49622de8-5fd7-4080-9df2-988dfe7d9fec",
+      "name": "H13 Label 2 specialist",
+      "datasets": {
+        "MNIST": {
+          "data_percent": 5.0,
+          "label_distribution": {
+            "0": 0.2,
+            "1": 0.2,
+            "2": 1.0,
+            "3": 0.2,
+            "4": 0.2,
+            "5": 0.2,
+            "6": 0.2,
+            "7": 0.2,
+            "8": 0.2,
+            "9": 0.2
+          }
+        },
+        "CIFAR-10": {
+          "data_percent": 5.0,
+          "label_distribution": {
+            "0": 0.2,
+            "1": 0.2,
+            "2": 1.0,
+            "3": 0.2,
+            "4": 0.2,
+            "5": 0.2,
+            "6": 0.2,
+            "7": 0.2,
+            "8": 0.2,
+            "9": 0.2
+          }
+        }
+      }
+    },
+    {
+      "id": "442a568c-e65f-4e39-b06f-293193d38515",
+      "name": "H14 Label 3 specialist",
+      "datasets": {
+        "MNIST": {
+          "data_percent": 5.0,
+          "label_distribution": {
+            "0": 0.2,
+            "1": 0.2,
+            "2": 0.2,
+            "3": 1.0,
+            "4": 0.2,
+            "5": 0.2,
+            "6": 0.2,
+            "7": 0.2,
+            "8": 0.2,
+            "9": 0.2
+          }
+        },
+        "CIFAR-10": {
+          "data_percent": 5.0,
+          "label_distribution": {
+            "0": 0.2,
+            "1": 0.2,
+            "2": 0.2,
+            "3": 1.0,
+            "4": 0.2,
+            "5": 0.2,
+            "6": 0.2,
+            "7": 0.2,
+            "8": 0.2,
+            "9": 0.2
+          }
+        }
+      }
+    },
+    {
+      "id": "86dc1719-4cfd-4580-aa11-fdce3926955e",
+      "name": "H15 Label 4 specialist",
+      "datasets": {
+        "MNIST": {
+          "data_percent": 5.0,
+          "label_distribution": {
+            "0": 0.2,
+            "1": 0.2,
+            "2": 0.2,
+            "3": 0.2,
+            "4": 1.0,
+            "5": 0.2,
+            "6": 0.2,
+            "7": 0.2,
+            "8": 0.2,
+            "9": 0.2
+          }
+        },
+        "CIFAR-10": {
+          "data_percent": 5.0,
+          "label_distribution": {
+            "0": 0.2,
+            "1": 0.2,
+            "2": 0.2,
+            "3": 0.2,
+            "4": 1.0,
+            "5": 0.2,
+            "6": 0.2,
+            "7": 0.2,
+            "8": 0.2,
+            "9": 0.2
+          }
+        }
+      }
+    },
+    {
+      "id": "4bc97890-4b1d-4964-96c4-5b15478fde1e",
+      "name": "H16 Label 5 specialist",
+      "datasets": {
+        "MNIST": {
+          "data_percent": 5.0,
+          "label_distribution": {
+            "0": 0.2,
+            "1": 0.2,
+            "2": 0.2,
+            "3": 0.2,
+            "4": 0.2,
+            "5": 1.0,
+            "6": 0.2,
+            "7": 0.2,
+            "8": 0.2,
+            "9": 0.2
+          }
+        },
+        "CIFAR-10": {
+          "data_percent": 5.0,
+          "label_distribution": {
+            "0": 0.2,
+            "1": 0.2,
+            "2": 0.2,
+            "3": 0.2,
+            "4": 0.2,
+            "5": 1.0,
+            "6": 0.2,
+            "7": 0.2,
+            "8": 0.2,
+            "9": 0.2
+          }
+        }
+      }
+    },
+    {
+      "id": "d609e180-c181-4a8c-943c-b9b6605de473",
+      "name": "F1 Free-rider",
+      "datasets": {
+        "MNIST": {
+          "behavior": "Free-rider",
+          "noise_scale": 0.01,
+          "start_round": 1,
+          "data_percent": 5.0
+        },
+        "CIFAR-10": {
+          "behavior": "Free-rider",
+          "noise_scale": 0.01,
+          "start_round": 1,
+          "data_percent": 5.0
+        }
+      }
+    },
+    {
+      "id": "d6d09f43-c348-4476-9c72-cc8c66644502",
+      "name": "F2 Free-rider",
+      "datasets": {
+        "MNIST": {
+          "behavior": "Free-rider",
+          "noise_scale": 0.01,
+          "start_round": 1,
+          "data_percent": 5.0
+        },
+        "CIFAR-10": {
+          "behavior": "Free-rider",
+          "noise_scale": 0.01,
+          "start_round": 1,
+          "data_percent": 5.0
+        }
+      }
+    },
+    {
+      "id": "803776d2-1aa9-451f-885a-a9d493bfb1ad",
+      "name": "M1 Malicious",
+      "datasets": {
+        "MNIST": {
+          "behavior": "Malicious",
+          "noise_scale": 1.0,
+          "start_round": 1,
+          "data_percent": 5.0
+        },
+        "CIFAR-10": {
+          "behavior": "Malicious",
+          "noise_scale": 1.0,
+          "start_round": 1,
+          "data_percent": 5.0
+        }
+      }
+    },
+    {
+      "id": "c628c2ea-3d40-4bce-8907-4dab83d7c13a",
+      "name": "M2 Malicious",
+      "datasets": {
+        "MNIST": {
+          "behavior": "Malicious",
+          "noise_scale": 1.0,
+          "start_round": 1,
+          "data_percent": 5.0
+        },
+        "CIFAR-10": {
+          "behavior": "Malicious",
+          "noise_scale": 1.0,
+          "start_round": 1,
+          "data_percent": 5.0
+        }
+      }
+    }
+  ]
+}

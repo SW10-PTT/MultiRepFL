@@ -4,7 +4,7 @@ totals = []
 def print_gas(rounds: list[Round], participants: dict[str, Participant], experiment_specs: ExperimentSpec, gasStats: GasStats, outDir):
     if gasStats is None:
         return
-    total = sum(gasStats.gas_close) + sum(gasStats.gas_deploy) + sum(gasStats.gas_exit) + sum(gasStats.gas_feedback) + sum(gasStats.gas_register) + sum(gasStats.gas_slot) + sum(gasStats.gas_weights) + sum(gasStats.gas_close)
+    total = sum(gasStats.gas_close) + sum(gasStats.gas_deploy) + sum(gasStats.gas_exit) + sum(gasStats.gas_feedback) + sum(gasStats.gas_register) + sum(gasStats.gas_slot) + sum(gasStats.gas_weights) + sum(gasStats.gas_contrib)
     print(f"gasclose {sum(gasStats.gas_close)}")
     print(f"gasdeploy {sum(gasStats.gas_deploy)}")
     print(f"gasexit {sum(gasStats.gas_exit)}")
@@ -12,7 +12,7 @@ def print_gas(rounds: list[Round], participants: dict[str, Participant], experim
     print(f"gasregister {sum(gasStats.gas_register)}")
     print(f"gasslot {sum(gasStats.gas_slot)}")
     print(f"gasweights {sum(gasStats.gas_weights)}")
-    print(f"gasclose {sum(gasStats.gas_close)}")
+    print(f"gascontrib {sum(gasStats.gas_contrib)}")
     print(f"Total {total}")
 
     print(type(rounds[0].gasTransactions[0].type))

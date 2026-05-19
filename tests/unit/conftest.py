@@ -143,6 +143,7 @@ def fl_challenge(request, mock_w3, mock_contract, mock_participants, monkeypatch
     challenge.gas_close = []
     challenge.gas_deploy = []
     challenge.gas_exit = []
+    challenge.gas_contrib = []
     challenge.txHashes = []
     challenge._reward_balance = []
     challenge._punishments = []

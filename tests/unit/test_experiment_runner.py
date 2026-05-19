@@ -66,6 +66,7 @@ class DummyChallenge:
         self.gas_slot = [4]
         self.gas_weights = [5]
         self.gas_exit = [6]
+        self.gas_contrib = [7]
         self.txHashes = [("register", b"\x00" * 32)]
         self.model = SimpleNamespace(address="0xmodel")
         self.w3 = SimpleNamespace(
