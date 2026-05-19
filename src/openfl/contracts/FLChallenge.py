@@ -22,7 +22,7 @@ from openfl.utils.types.TrainingSpecsJobListing import TrainingSpecsChallenge
 from openfl.utils.types.EvaluationData import EvaluationData
 from openfl.utils.types.Colors import rb, b, green, red, yellow
 from openfl.utils import printer, config
-from openfl.utils.printer import log
+from openfl.utils.printer import log, fmt_floats, fmt_scaled_scores
 from openfl.api.ConnectionHelper import ConnectionHelper
 from openfl.api import globals
 from openfl.utils.async_writer import AsyncWriter, NullWriter
@@ -61,13 +61,14 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
         self.loss_tolerance_pct = getattr(training_specs, "loss_tolerance_pct", 0.05)
         self.use_outlier_detection = training_specs.outlier_detection
         self.scores = []
-        self.gas_feedback = [] 
-        self.gas_register = [] 
-        self.gas_slot     = [] 
-        self.gas_weights  = [] 
-        self.gas_close    = [] 
-        self.gas_deploy   = [] 
+        self.gas_feedback = []
+        self.gas_register = []
+        self.gas_slot     = []
+        self.gas_weights  = []
+        self.gas_close    = []
+        self.gas_deploy   = []
         self.gas_exit     = []
+        self.gas_contrib  = []
         self.txHashes     = []
 
         self._reward_balance = [self.REWARD]
@@ -158,32 +159,33 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
 
     def users_provide_hashed_weights(self):
         txs = []
+        label_w = max((len(acc.display_label()) for acc in self.pytorch_model.participants), default=12)
         for acc in self.pytorch_model.participants:
             if acc.attitude == "inactive":
-                log("round_models", "{:<17}   {}  ({}) | {} | {:>25,.0f} WEI".format("Account inactive:",
+                log("round_models", "{:<17}  {:<{lw}} ({}) | {} | {:>25,.0f} WEI".format("Account inactive:",
                                                                          acc.display_label(),
                                                                          acc.address[0:16] + "...",
-                                                                         "   ...   ",
-                                                                         self.get_global_reputation_of_user(acc.address)
-                                                                         ))
+                                                                         "  ...  ",
+                                                                         self.get_global_reputation_of_user(acc.address),
+                                                                         lw=label_w))
                 continue
             if globals.fork:
                 tx = super().build_tx(acc.address, self.contractAddress, 0)
                 txHash = self.contract.functions.provideHashedWeights(acc.hashedModel, acc.secret).transact(tx) # Todo: use self.transact
 
-            else:          
-                nonce = globals.w3.eth.get_transaction_count(acc.address) 
+            else:
+                nonce = globals.w3.eth.get_transaction_count(acc.address)
                 hw = super().build_non_fork_tx(acc.address, nonce)
                 hw =  self.contract.functions.provideHashedWeights(acc.hashedModel, acc.secret).build_transaction(hw)
                 signed = globals.w3.eth.account.sign_transaction(hw, private_key=acc.privateKey)
                 txHash = globals.w3.eth.send_raw_transaction(signed.raw_transaction)
             txs.append(txHash)
-            log("round_models", "{:<17}   {} ({}) | {} | {:>25,.0f} WEI".format("Weights provided:",
+            log("round_models", "{:<17}  {:<{lw}} ({}) | {} | {:>25,.0f} WEI".format("Weights provided:",
                                                                          acc.display_label(),
                                                                          acc.address[0:16] + "...",
                                                                          txHash.hex()[0:6] + "...",
-                                                                         self.get_global_reputation_of_user(acc.address)
-                                                                         ))
+                                                                         self.get_global_reputation_of_user(acc.address),
+                                                                         lw=label_w))
         l = len(txs)
         for i, txHash in enumerate(txs):
             printer.print_bar("round_models", i, l)
@@ -234,7 +236,12 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                 raise 
                 
         assert(txHash != None)
-        
+
+        receipt = globals.w3.eth.wait_for_transaction_receipt(txHash, timeout=600, poll_latency=1)
+        self.gas_feedback.append(receipt["gasUsed"])
+        self.txHashes.append(("feedback", receipt["transactionHash"].hex(), receipt["gasUsed"]))
+        self._log_receipt(receipt, "feedback")
+
         if score == 1:
             target.roundRep += 1 * self.get_global_reputation_of_user(feedbackGiver.address)
             rep = "Positive"
@@ -472,15 +479,15 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
     def track_transaction(self, i, tx_hash, len_txs, receipt_type: str):  # formerly named log_receipt
         #   1. Prints a progress bar — i out of len_txs transactions done
         #   2. Waits for the transaction to be mined — blocks until the receipt comes back (up to 600s timeout)
-        #   3. Stores gas used — appends to self.gas_feedback
-        #   4. Stores the tx hash + gas — appends to self.txHashes along with the receipt_type label (e.g. "round_models", "contrib")
+        #   3. Stores gas used — appends to self.gas_contrib (sole caller is submitContributionScore)
+        #   4. Stores the tx hash + gas — appends to self.txHashes along with the receipt_type label (e.g. "contrib")
 
         printer.print_bar("round_scoring", i, len_txs)
         receipt = globals.w3.eth.wait_for_transaction_receipt(tx_hash,
                                                            timeout=600,
                                                            poll_latency=1)
 
-        self.gas_feedback.append(receipt["gasUsed"])
+        self.gas_contrib.append(receipt["gasUsed"])
         self.txHashes.append((receipt_type, receipt["transactionHash"].hex(), receipt["gasUsed"]))
         # Writer (old logger) uses this to log
 
@@ -572,14 +579,15 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
 
     def users_register_slot(self):
         txs = []
+        label_w = max((len(acc.display_label()) for acc in self.pytorch_model.participants), default=12)
         for acc in self.pytorch_model.participants:
             if acc.attitude == "inactive":
-                log("round_models","{:<17}   {} ({}) | {} | {:>25,.0f} WEI".format("Account inactive:",
+                log("round_models","{:<17}  {:<{lw}} ({}) | {} | {:>25,.0f} WEI".format("Account inactive:",
                                                                          acc.display_label(),
                                                                          acc.address[0:16] + "...",
-                                                                         "   ...   ",
-                                                                         self.get_global_reputation_of_user(acc.address)
-                                                                         ))
+                                                                         "  ...  ",
+                                                                         self.get_global_reputation_of_user(acc.address),
+                                                                         lw=label_w))
                 continue
 
             reservation = Web3.solidity_keccak(['bytes32', 'uint256', 'address'],
@@ -596,12 +604,12 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                 signed = w3.eth.account.sign_transaction(sl, private_key=acc.privateKey)
                 txHash = w3.eth.send_raw_transaction(signed.raw_transaction)
             txs.append(txHash)
-            log("round_models", "{:<17}   {} ({}) | {} | {:>25,.0f} WEI".format("Slot registered: ",
+            log("round_models", "{:<17}  {:<{lw}} ({}) | {} | {:>25,.0f} WEI".format("Slot registered: ",
                                                                          acc.display_label(),
                                                                          acc.address[0:16] + "...",
                                                                          txHash.hex()[0:6] + "...",
-                                                                         self.get_global_reputation_of_user(acc.address)
-                                                                         ))
+                                                                         self.get_global_reputation_of_user(acc.address),
+                                                                         lw=label_w))
         l = len(txs)
         for i, txHash in enumerate(txs):
             printer.print_bar("round_models", i, l)
@@ -618,29 +626,30 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
     
     
     def exit_system(self):
-      
+
         log("experiment_end", b(f"Terminating Model..."))
-       
+
         txs = []
+        label_w = max((len(acc.display_label()) for acc in self.pytorch_model.participants), default=12)
         for acc in self.pytorch_model.participants:
-            
+
             if globals.fork:
                 tx = super().build_tx(acc.address, self.contractAddress, 0)
                 txHash = self.contract.functions.exitModel().transact(tx) # Todo: use self.transact
             else:
-                w3 = ConnectionHelper.get_w3()          
-                nonce = w3.eth.get_transaction_count(acc.address) 
+                w3 = ConnectionHelper.get_w3()
+                nonce = w3.eth.get_transaction_count(acc.address)
                 ex = super().build_non_fork_tx(acc.address, nonce)
                 ex =  self.contract.functions.exitModel().build_transaction(ex)
                 signed = w3.eth.account.sign_transaction(ex, private_key=acc.privateKey)
                 txHash = w3.eth.send_raw_transaction(signed.raw_transaction)
             txs.append(txHash)
-            log("experiment_end", "{:<17}   {} ({}) | {} | {:>27,.0f} WEI".format("Account exited:  ",
+            log("experiment_end", "{:<17}  {:<{lw}} ({}) | {} | {:>32,.0f} WEI".format("Account exited:  ",
                                                              acc.display_label(),
                                                              acc.address[0:16] + "...",
                                                              txHash.hex()[0:6] + "...",
-                                                             globals.w3.eth.get_balance(acc.address)
-                                                             ))
+                                                             globals.w3.eth.get_balance(acc.address),
+                                                             lw=label_w))
         l = len(txs)
         for i, txHash in enumerate(txs):
             printer.print_bar("experiment_end", i, l)
@@ -779,7 +788,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
 
             log("round_scoring", green(f"\nUSER @ {u.display_label()} (#{u.number})"))
             if u. is_contrib_score_negative:
-                log("round_scoring", green(f"{'NEGATIVE CONTRIBUTION SCORE:':25}{u.contribution_score}"))
+                log("round_scoring", red(f"{'NEGATIVE CONTRIBUTION SCORE:':25}{u.contribution_score}"))
             else:
                 log("round_scoring", green(f"{'CONTRIBUTION SCORE:':25}{u.contribution_score}"))
 
@@ -856,6 +865,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
         avg_accuracies = [] # after loop: [30, 20, 30, 40]
         avg_losses = [] # after loop: [60, 70, 50, 80]
 
+        label_w = max((len(u.display_label()) for u in users), default=12)
         log("round_scoring",f"\naccuracy_loss: loss_baseline={avg_prev_loss:.6f}  acc_baseline={avg_prev_acc:.6f}  (punished at ANY loss worsening)")
 
         for u in users: # For loop to extract accuracies and loses.
@@ -876,9 +886,9 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                 avg_losses.append(avg_loss) # int
                 loss_pct_diff = (avg_loss - avg_prev_loss) / avg_prev_loss * 100 if avg_prev_loss != 0 else float('inf')
                 loss_status = "PUNISHED" if avg_loss > avg_prev_loss else ("improved" if avg_loss < avg_prev_loss else "neutral")
-                log("round_scoring",f"  [{u.display_label():<12}] loss={avg_loss:.6f}  baseline={avg_prev_loss:.6f}  diff={loss_pct_diff:+.2f}%  [{loss_status}]")
+                log("round_scoring",f"  [{u.display_label():<{label_w}}] loss={avg_loss:.6f}  baseline={avg_prev_loss:.6f}  diff={loss_pct_diff:+.2f}%  [{loss_status}]")
             except ValueError as e:
-                log("round_scoring", f"  [{u.display_label():<12}] SKIPPED ({e}) — using baseline as neutral fallback")
+                log("round_scoring", f"  [{u.display_label():<{label_w}}] SKIPPED ({e}) — using baseline as neutral fallback")
                 avg_accuracies.append(avg_prev_acc)
                 avg_losses.append(avg_prev_loss)
 
@@ -886,23 +896,20 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
         scores = []
 
         norm_accuracies = normalize_contribution_scores_old(avg_accuracies, avg_prev_acc)
-        log("round_scoring", f"normalized accuracies: {norm_accuracies}")
+        log("round_scoring", f"normalized accuracies: {fmt_floats(norm_accuracies)}")
 
         norm_losses = normalize_contribution_scores_old(avg_losses, avg_prev_loss)
-        log("round_scoring", f"normalized losses: {norm_losses}")
+        log("round_scoring", f"normalized losses:     {fmt_floats(norm_losses)}")
 
         sum_na = sum(norm_accuracies)
         sum_nl = sum(norm_losses)
-
-        log("round_scoring", f"sum_na: {sum_na}")
-        log("round_scoring", f"sum_nl: {sum_nl}")
 
         for i in range(len(norm_accuracies)):
             res = (norm_accuracies[i] + norm_losses[i]) / (sum_na + sum_nl)
             score = int(Decimal(res) * Decimal('1e18'))
             scores.append(score)
 
-        log("round_scoring", f"scores = {scores}")
+        log("round_scoring", f"scores (1e18-scaled):  {fmt_scaled_scores(scores)}")
         self._log_contribution_scores(users, scores, raw_values=None, outlier_info=None, previous_avg=None)
         return scores
     # Output: An array of user scores
@@ -926,6 +933,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
         avg_prev_acc = np.mean(mad_prev_accuracies)
         avg_accuracies = [] # after loop: [30, 20, 30, 40]
         per_user_outlier_info = []
+        label_w = max((len(u.display_label()) for u in users), default=12)
 
         for u in users: # For loop to extract accuracies.
             # All accuracies per user
@@ -940,12 +948,12 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                 avg_accuracies.append(avg_acc) # int
                 per_user_outlier_info.append({**prev_info, **info}) # Merge prev (global baseline) and current (per-user) MAD info into one dict; keys are prefixed ("previous_*" / "current_*") so they don't collide
             except ValueError as e:
-                log("round_scoring", f"  [{u.display_label():<12}] SKIPPED ({e}) — using baseline as neutral fallback")
+                log("round_scoring", f"  [{u.display_label():<{label_w}}] SKIPPED ({e}) — using baseline as neutral fallback")
                 avg_accuracies.append(avg_prev_acc)
                 per_user_outlier_info.append({})
 
         norm_accuracies = normalize_contribution_scores_new(avg_accuracies, avg_prev_acc, 'accuracy')
-        log("round_scoring", f"normalized accuracies: {norm_accuracies}")
+        log("round_scoring", f"normalized accuracies: {fmt_floats(norm_accuracies)}")
 
         # Validating Shapley Axioms (Runtime Guard)
         diffs = [v - avg_prev_acc for v in avg_accuracies]
@@ -958,7 +966,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
             self._log_warning(msg)
 
         scores = [int(Decimal(norm_accuracy_score) * Decimal('1e18')) for norm_accuracy_score in norm_accuracies]
-        log("round_scoring", f"scores = {scores}")
+        log("round_scoring", f"scores (1e18-scaled):  {fmt_scaled_scores(scores)}")
 
         self._log_contribution_scores(users, scores, avg_accuracies, per_user_outlier_info, avg_prev_acc)
 
@@ -981,6 +989,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
         avg_prev_loss = np.mean(mad_prev_losses)
         avg_losses = [] # after loop: [60, 70, 50, 80]
         per_user_outlier_info = []
+        label_w = max((len(u.display_label()) for u in users), default=12)
 
         log("round_scoring",f"\nloss_only: baseline={avg_prev_loss:.6f}  (punished at ANY worsening above baseline)")
 
@@ -998,18 +1007,14 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                 per_user_outlier_info.append({**prev_info, **info}) # Merge prev (global baseline) and current (per-user) MAD info into one dict; keys are prefixed ("previous_*" / "current_*") so they don't collide
                 pct_diff = (avg_loss - avg_prev_loss) / avg_prev_loss * 100 if avg_prev_loss != 0 else float('inf')
                 ustatus = "PUNISHED" if avg_loss > avg_prev_loss else ("improved" if avg_loss < avg_prev_loss else "neutral")
-                log("round_scoring",f"  [{u.display_label():<12}] loss={avg_loss:.6f}  baseline={avg_prev_loss:.6f}  diff={pct_diff:+.2f}%  [{ustatus}]")
+                log("round_scoring",f"  [{u.display_label():<{label_w}}] loss={avg_loss:.6f}  baseline={avg_prev_loss:.6f}  diff={pct_diff:+.2f}%  [{ustatus}]")
             except ValueError as e:
-                log("round_scoring", f"  [{u.display_label():<12}] SKIPPED ({e}) raw_losses={losses} — using baseline as neutral fallback")
+                log("round_scoring", f"  [{u.display_label():<{label_w}}] SKIPPED ({e}) raw_losses={losses} — using baseline as neutral fallback")
                 avg_losses.append(avg_prev_loss)
                 per_user_outlier_info.append({})
 
         norm_losses = normalize_contribution_scores_new(avg_losses, avg_prev_loss, 'loss')
-        log("round_scoring", f"normalized losses: {norm_losses}")
-
-        sum_nl = sum(norm_losses)
-
-        log("round_scoring", f"sum_nl: {sum_nl}")
+        log("round_scoring", f"normalized losses: {fmt_floats(norm_losses)}")
 
         # Validating Shapley Axioms (Runtime Guard)
         diffs = [v - avg_prev_loss for v in avg_losses]
@@ -1024,7 +1029,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
 
         scores = [int(Decimal(norm_accuracy_score) * Decimal('1e18')) for norm_accuracy_score in norm_losses]
 
-        log("round_scoring", f"scores = {scores}")
+        log("round_scoring", f"scores (1e18-scaled):  {fmt_scaled_scores(scores)}")
 
         self._log_contribution_scores(users, scores, avg_losses, per_user_outlier_info, avg_prev_loss)
 
@@ -1047,6 +1052,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
 
         avg_losses = []
         per_user_outlier_info = []
+        label_w = max((len(u.display_label()) for u in users), default=12)
 
         log("round_scoring", f"\nloss_tolerance_aware: baseline={avg_prev_loss:.6f}  ε={epsilon:.6f} ({self.loss_tolerance_pct*100:.1f}% of baseline)  punish_threshold={shifted_baseline:.6f}")
 
@@ -1077,17 +1083,14 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                     ustatus = "in-band (safe)"
                 else:
                     ustatus = "PUNISHED (beyond ε)"
-                log("round_scoring",f"  [{u.display_label():<12}] loss={avg_loss:.6f}  baseline={avg_prev_loss:.6f}  diff={pct_diff:+.2f}%  margin_to_punish={pct_margin:+.2f}% ({margin:+.6f})  [{ustatus}]")
+                log("round_scoring",f"  [{u.display_label():<{label_w}}] loss={avg_loss:.6f}  baseline={avg_prev_loss:.6f}  diff={pct_diff:+.2f}%  margin_to_punish={pct_margin:+.2f}% ({margin:+.6f})  [{ustatus}]")
             except ValueError as e:
-                log("round_scoring", f"  [{u.display_label():<12}] SKIPPED ({e}) raw_losses={losses} — using baseline as neutral fallback")
+                log("round_scoring", f"  [{u.display_label():<{label_w}}] SKIPPED ({e}) raw_losses={losses} — using baseline as neutral fallback")
                 avg_losses.append(avg_prev_loss)
                 per_user_outlier_info.append({})
 
         norm_losses = normalize_contribution_scores_new(avg_losses, shifted_baseline, 'loss')
-        log("round_scoring", f"normalized losses: {norm_losses}")
-
-        sum_nl = sum(norm_losses)
-        log("round_scoring", f"sum_nl: {sum_nl}")
+        log("round_scoring", f"normalized losses: {fmt_floats(norm_losses)}")
 
         diffs = [-(v - shifted_baseline) for v in avg_losses]
         success, errors = check_shapley_compliance(diffs, norm_losses)
@@ -1099,7 +1102,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
             self._log_warning(msg)
 
         scores = [int(Decimal(v) * Decimal('1e18')) for v in norm_losses]
-        log("round_scoring", f"scores = {scores}")
+        log("round_scoring", f"scores (1e18-scaled):  {fmt_scaled_scores(scores)}")
 
         self._log_contribution_scores(users, scores, avg_losses, per_user_outlier_info, shifted_baseline)
         return scores
@@ -1121,6 +1124,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
 
         avg_losses = []
         per_user_outlier_info = []
+        label_w = max((len(u.display_label()) for u in users), default=12)
 
         log("round_scoring", f"\nloss_tolerance_snap: baseline={avg_prev_loss:.6f}  ε={epsilon:.6f} ({self.loss_tolerance_pct*100:.1f}% of baseline)  snap_threshold={snap_threshold:.6f}")
 
@@ -1153,17 +1157,14 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                     ustatus = "SNAPPED to neutral (within ε)"
                 else:
                     ustatus = "PUNISHED (beyond ε)"
-                log("round_scoring", f"  [{u.display_label():<12}] raw_loss={raw_avg_loss:.6f}  eff_loss={snapped_avg_loss:.6f}  baseline={avg_prev_loss:.6f}  diff={pct_diff:+.2f}%  margin_to_threshold={pct_margin:+.2f}% ({margin:+.6f})  [{ustatus}]")
+                log("round_scoring", f"  [{u.display_label():<{label_w}}] raw_loss={raw_avg_loss:.6f}  eff_loss={snapped_avg_loss:.6f}  baseline={avg_prev_loss:.6f}  diff={pct_diff:+.2f}%  margin_to_threshold={pct_margin:+.2f}% ({margin:+.6f})  [{ustatus}]")
             except ValueError as e:
-                log("round_scoring", f"  [{u.display_label():<12}] SKIPPED ({e}) raw_losses={losses} — using baseline as neutral fallback")
+                log("round_scoring", f"  [{u.display_label():<{label_w}}] SKIPPED ({e}) raw_losses={losses} — using baseline as neutral fallback")
                 avg_losses.append(avg_prev_loss)
                 per_user_outlier_info.append({})
 
         norm_losses = normalize_contribution_scores_new(avg_losses, avg_prev_loss, 'loss')
-        log("round_scoring", f"normalized losses: {norm_losses}")
-
-        sum_nl = sum(norm_losses)
-        log("round_scoring", f"sum_nl: {sum_nl}")
+        log("round_scoring", f"normalized losses: {fmt_floats(norm_losses)}")
 
         diffs = [-(v - avg_prev_loss) for v in avg_losses]
         success, errors = check_shapley_compliance(diffs, norm_losses)
@@ -1175,7 +1176,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
             self._log_warning(msg)
 
         scores = [int(Decimal(v) * Decimal('1e18')) for v in norm_losses]
-        log("round_scoring", f"scores = {scores}")
+        log("round_scoring", f"scores (1e18-scaled):  {fmt_scaled_scores(scores)}")
 
         self._log_contribution_scores(users, scores, avg_losses, per_user_outlier_info, avg_prev_loss)
         return scores
@@ -1493,10 +1494,12 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
             receipt = self.close_round()
 
             log("round_boundary", b(f"Round {self.pytorch_model.round - 1} actually completed:"))
-            for user in self.pytorch_model.participants + self.pytorch_model.disqualified:
+            _all_users = self.pytorch_model.participants + self.pytorch_model.disqualified
+            _lw = max((len(u.display_label()) for u in _all_users), default=12)
+            for user in _all_users:
                 user._globalrep.append(self.get_global_reputation_of_user(user.address))
                 i, j = user._globalrep[-2:]
-                log("round_boundary", b("{} ({})  {:>25,.0f} -> {:>25,.0f}".format(user.display_label(), user.address[0:16] + "...", i, j)))
+                log("round_boundary", b("{:<{lw}} ({})  {:>25,.0f} -> {:>25,.0f}".format(user.display_label(), user.address[0:16] + "...", i, j, lw=_lw)))
 
             # self.print_round_summary(receipt)
             if receipt is not None:
@@ -1545,7 +1548,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                 log("round_scoring", colored(warn, 'yellow'))
             log("round_scoring", red("!" * 78))
 
-        self.writer.write_comment(f"$gasCosts${self.gas_feedback},{self.gas_register},{self.gas_slot},{self.gas_weights},{self.gas_close},{self.gas_deploy},{self.gas_exit}")
+        self.writer.write_comment(f"$gasCosts${self.gas_feedback},{self.gas_register},{self.gas_slot},{self.gas_weights},{self.gas_close},{self.gas_deploy},{self.gas_exit},{self.gas_contrib}")
         trs = self.pytorch_model.runRepo.get_task_rep_delta_and_GRS(-1, "get_task_rep_delta_and_GRS-simulate", self.contract, self.pytorch_model.get_participant)
         self.writer.write_comment(f"$trs${trs}")
         self._logger.log_trs(trs)
@@ -1808,14 +1811,18 @@ def normalize_contribution_scores_new(vals: list, prev_val: float, evaluation_me
        redistribute the excess proportionally across positive values.
     """
 
+    def _fmt(xs):
+        return "[" + ", ".join(f"{x:.6f}" for x in xs) + "]"
+
+    def _log_step(label, vals, sum_):
+        log("round_scoring", f"  {label:<24} sum={sum_:+.6f}  vals={_fmt(vals)}")
+
     # Step 1: subtract baseline, flip sign for loss
-    vals = [v - prev_val for v in vals] # Handle the subtraction of new minus prev here
+    vals = [v - prev_val for v in vals]
     if evaluation_metric == "loss":
         vals = [-1 * val for val in vals]
     sum_ = sum(vals)
-    log("round_scoring", "vals", vals)
-    log("round_scoring", "sum: ", sum_)
-
+    _log_step("1) shift+sign", vals, sum_)
 
     # Step 2: edge cases  TODO: 0 og -0.5
     max_val = max(vals)
@@ -1823,34 +1830,26 @@ def normalize_contribution_scores_new(vals: list, prev_val: float, evaluation_me
         vals = [1 if val == 0 else val for val in vals]
     elif max_val < 0:
         vals = [sum_ / val for val in vals]
-    # elif sum_ < 0:
-    # vals = [val / -sum_ for val in vals]
     sum_ = sum(vals)
-    log("round_scoring", "vals", vals)
-    log("round_scoring", "sum: ", sum_)
-
+    _log_step("2) edge cases", vals, sum_)
 
     # Step 3: clamp negatives to minimum -1
     if min(vals) < -1:
         divisor = -min(vals)
         vals = [val / divisor if val < 0 else val for val in vals]
     sum_ = sum(vals)
-    log("round_scoring", "vals", vals)
-    log("round_scoring", "sum: ", sum_)
-
+    _log_step("3) clamp neg >= -1", vals, sum_)
 
     # Step 4: normalize to sum = 1
-    if not sum_ == 1:  #
-        if min(vals) >= 0:  # if all positive
+    if not sum_ == 1:
+        if min(vals) >= 0:
             vals = [val / sum_ for val in vals]
         else:
             sum_of_positives = sum(val for val in vals if val > 0)
             excess_sum = sum_ - 1
             vals = [val + (val / sum_of_positives) * -excess_sum if val > 0 else val for val in vals]
         sum_ = sum(vals)
-
-    log("round_scoring", "vals", vals)
-    log("round_scoring", "sum: ", sum_)
+    _log_step("4) normalize sum=1", vals, sum_)
 
     return vals
 

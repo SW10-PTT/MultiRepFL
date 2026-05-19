@@ -61,6 +61,15 @@ class AddressIndexMatrix:
             return name
         return str(user_id)[-6:]
 
+    def _short_label(self, i: int) -> str:
+        # First whitespace-separated token, capped at 8 chars. Falls back
+        # to row index when label is empty.
+        label = self._label(i)
+        if not label:
+            return str(i)
+        first = label.split()[0]
+        return first[:8] if first else str(i)
+
     def _full_label(self, i: int) -> str:
         user_id = self._idx_to_id[i]
         name = self._id_to_label.get(user_id)
@@ -70,15 +79,21 @@ class AddressIndexMatrix:
 
     def __str__(self):
         n = len(self._idx_to_id)
-        labels = [self._label(i) for i in range(n)]
-        col_w = 10
-        row_label_w = 8
+        if n == 0:
+            return "(empty)"
 
-        header  = " " * row_label_w + "  ".join(f"{lbl:>{col_w}}" for lbl in labels)
-        divider = " " * row_label_w + "  ".join("-" * col_w for _ in labels)
+        row_labels  = [self._label(i) for i in range(n)]
+        col_labels  = [self._short_label(i) for i in range(n)]
+
+        value_w     = max((len(f"{int(v):,}") for v in self._matrix.flat), default=1)
+        col_w       = max(value_w, max(len(c) for c in col_labels))
+        row_label_w = max(len(r) for r in row_labels) + 2
+
+        header  = " " * row_label_w + "  ".join(f"{lbl:>{col_w}}" for lbl in col_labels)
+        divider = " " * row_label_w + "  ".join("-" * col_w for _ in col_labels)
         rows = [header, divider]
 
-        for i, row_label in enumerate(labels):
+        for i, row_label in enumerate(row_labels):
             values = "  ".join(f"{int(v):>{col_w},}" for v in self._matrix[i])
             rows.append(f"{row_label:<{row_label_w}}{values}")
 
