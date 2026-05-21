@@ -357,12 +357,17 @@ contract JobListing {
         uint256 reward,
         uint256 nrActive
     ) internal {
-        (uint256 priorK, , uint256 k) = manager.getUserRep(rep.user, tt);
+        (uint256 priorK, , uint256 priorTaskCount) = manager.getUserRep(
+            rep.user,
+            tt
+        );
         (uint256 priorE, uint256 priorF) = manager.getTaskRepCalcState(
             rep.user,
             tt
         );
 
+        // k is the current task index (1-based). Matches spreadsheet row-3 = k=1.
+        uint256 k = priorTaskCount + 1;
         uint256 J = _transformDelta(rep.delta, STAKE_WAD, reward, nrActive);
 
         (uint256 newE, uint256 newF) = _updateRunningStats(
@@ -379,6 +384,7 @@ contract JobListing {
 
         manager.setTaskRepCalcState(rep.user, tt, newE, newF);
         manager.setUserTaskRep(rep.user, tt, newK);
+        manager.incrementNumberOfTasksJoined(rep.user);
     }
 
     // Linearly maps a signed per-task reputation delta (wei) into a raw

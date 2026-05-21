@@ -1,0 +1,388 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.9;
+
+import "forge-std/Test.sol";
+import "../../contracts/JobListing.sol";
+import "../../contracts/OpenFLManager.sol";
+import "../../contracts/Types.sol";
+
+// Test harness — exposes JobListing's internal helpers + integration body for
+// direct unit testing.
+contract JobListingHarness is JobListing {
+    constructor(address mgr)
+        JobListing(1e18, 1.8e18, 1e18, 3, 3, 3, 50, mgr, TaskType.MNIST)
+    {}
+
+    function tTransformDelta(
+        int256 delta,
+        uint256 stake,
+        uint256 reward,
+        uint256 nrActive
+    ) external pure returns (uint256) {
+        return _transformDelta(delta, stake, reward, nrActive);
+    }
+
+    function tUpdateRunningStats(
+        uint256 J,
+        uint256 priorE,
+        uint256 priorF,
+        uint256 k
+    ) external pure returns (uint256, uint256) {
+        return _updateRunningStats(J, priorE, priorF, k);
+    }
+
+    function tComputeConfidence(uint256 k, uint256 s_k)
+        external
+        pure
+        returns (uint256)
+    {
+        return _computeConfidence(k, s_k);
+    }
+
+    function tUpdateContribScore(
+        uint256 priorK,
+        uint256 H,
+        uint256 J
+    ) external pure returns (uint256) {
+        return _updateContribScore(priorK, H, J);
+    }
+
+    function tApplyOne(
+        IOpenFLChallengeTaskRep.TaskRep memory rep,
+        TaskType tt,
+        uint256 reward,
+        uint256 nrActive
+    ) external {
+        _applyTaskRepCalc(rep, tt, reward, nrActive);
+    }
+}
+
+// Override variant — proves _computeConfidence is pluggable via virtual.
+contract JobListingFlatConfidence is JobListingHarness {
+    constructor(address mgr) JobListingHarness(mgr) {}
+
+    function _computeConfidence(uint256, uint256)
+        internal
+        pure
+        override
+        returns (uint256)
+    {
+        return 5e17;
+    }
+}
+
+contract TaskRepCalcTest is Test {
+    OpenFLManager manager;
+    JobListingHarness h;
+
+    uint256 constant WAD = 1e18;
+    uint256 constant ALPHA = 2e17;
+    uint256 constant N_BLEND = 2e17;
+
+    function setUp() public {
+        manager = new OpenFLManager();
+        h = new JobListingHarness(address(manager));
+    }
+
+    // ============================================================
+    // _transformDelta
+    // ============================================================
+
+    function testTransform_zeroDelta_mapsToStakeOverRange() public {
+        // stake=1, reward=10, nrActive=5 -> maxGain = 2*10/5 = 4
+        // range = 5, shifted = 1 -> J = 1/5 * WAD = 0.2e18
+        assertEq(h.tTransformDelta(0, 1e18, 10e18, 5), 2e17);
+    }
+
+    function testTransform_atMaxGain_returnsWAD() public {
+        assertEq(h.tTransformDelta(int256(4e18), 1e18, 10e18, 5), WAD);
+    }
+
+    function testTransform_aboveMaxGain_clipsToWAD() public {
+        assertEq(h.tTransformDelta(int256(100e18), 1e18, 10e18, 5), WAD);
+    }
+
+    function testTransform_minusStake_returnsZero() public {
+        assertEq(h.tTransformDelta(-int256(1e18), 1e18, 10e18, 5), 0);
+    }
+
+    function testTransform_belowMinusStake_clipsToZero() public {
+        assertEq(h.tTransformDelta(-int256(50e18), 1e18, 10e18, 5), 0);
+    }
+
+    function testTransform_nrActiveZero_capCollapsesToStakeOnly() public {
+        // maxGain=0, range=stake; delta=0 -> shifted=range -> J=WAD
+        assertEq(h.tTransformDelta(0, 1e18, 10e18, 0), WAD);
+    }
+
+    function testTransform_at1xAverage_isMidUpperBand() public {
+        // delta = reward/nrActive = 2; with 2x cap range=5, shifted=3 -> 0.6
+        assertEq(h.tTransformDelta(int256(2e18), 1e18, 10e18, 5), 6e17);
+    }
+
+    // ============================================================
+    // _updateRunningStats
+    // ============================================================
+
+    function testRunning_firstTask_seedsE_FzeroOnFreshUser() public {
+        (uint256 newE, uint256 newF) = h.tUpdateRunningStats(5e17, 0, 0, 1);
+        assertEq(newE, 5e17);
+        assertEq(newF, 0);
+    }
+
+    function testRunning_secondTask_EWMAblendMean() public {
+        // priorE=0.5, J=1: newE = 0.8*0.5 + 0.2*1 = 0.6
+        (uint256 newE, ) = h.tUpdateRunningStats(1e18, 5e17, 0, 2);
+        assertEq(newE, 6e17);
+    }
+
+    function testRunning_secondTask_variancePositive() public {
+        // priorE=0.5, J=1 -> newE=0.6, absDelta=0.5, absDelta2=0.4
+        // newF = (ALPHA * 0.5 * 0.4)/WAD^2 = (0.2 * 0.5 * 0.4) = 0.04 in WAD
+        (, uint256 newF) = h.tUpdateRunningStats(1e18, 5e17, 0, 2);
+        assertEq(newF, 4e16);
+    }
+
+    function testRunning_stableJEqualsPriorE_FdecaysOnly() public {
+        // J == priorE -> Delta=0 -> variance contribution=0; existing F decays.
+        (uint256 newE, uint256 newF) =
+            h.tUpdateRunningStats(5e17, 5e17, 1e17, 2);
+        assertEq(newE, 5e17);
+        assertEq(newF, 8e16); // 0.8 * 0.1
+    }
+
+    function testRunning_signSafe_negativeDeltaProducesSameVariance() public {
+        // |C*D| identical whether J above or below priorE (Welford symmetry).
+        (, uint256 fAbove) = h.tUpdateRunningStats(1e18, 5e17, 0, 2);
+        (, uint256 fBelow) = h.tUpdateRunningStats(0, 5e17, 0, 2);
+        assertEq(fAbove, fBelow);
+    }
+
+    // ============================================================
+    // _computeConfidence
+    // ============================================================
+
+    function testConfidence_kZero_returnsZero() public {
+        assertEq(h.tComputeConfidence(0, 0), 0);
+    }
+
+    function testConfidence_k1_sZero_oneOverSix() public {
+        assertEq(h.tComputeConfidence(1, 0), WAD / 6);
+    }
+
+    function testConfidence_largeK_approachesOne() public {
+        assertEq(h.tComputeConfidence(1000, 0), (1000 * WAD) / 1005);
+    }
+
+    function testConfidence_highVariance_drivesDown() public {
+        uint256 maturity = (10 * WAD) / 15;
+        uint256 stability = (WAD * WAD) / (WAD + 20 * WAD);
+        assertEq(h.tComputeConfidence(10, WAD), (maturity * stability) / WAD);
+    }
+
+    function testConfidence_monotoneInK_atFixedS() public {
+        uint256 prev = 0;
+        for (uint256 k = 1; k <= 50; k++) {
+            uint256 H = h.tComputeConfidence(k, 0);
+            assertGe(H, prev);
+            prev = H;
+        }
+    }
+
+    function testConfidence_monotoneNonIncreasingInS() public {
+        uint256 prev = type(uint256).max;
+        for (uint256 i = 0; i <= 10; i++) {
+            uint256 H = h.tComputeConfidence(10, i * 1e17);
+            assertLe(H, prev);
+            prev = H;
+        }
+    }
+
+    // ============================================================
+    // _updateContribScore
+    // ============================================================
+
+    function testContribScore_freshUser_firstTask() public {
+        uint256 H = WAD / 6;
+        uint256 J = 5e17;
+        uint256 weighted = (H * J) / WAD;
+        uint256 expected = (N_BLEND * weighted) / WAD;
+        assertEq(h.tUpdateContribScore(0, H, J), expected);
+    }
+
+    function testContribScore_zeroConfidence_decaysPrior20pct() public {
+        assertEq(h.tUpdateContribScore(5e17, 0, 1e18), 4e17);
+    }
+
+    function testContribScore_perfectInputs_holdsAtOne() public {
+        assertEq(h.tUpdateContribScore(1e18, 1e18, 1e18), 1e18);
+    }
+
+    // ============================================================
+    // Invariants over many rounds
+    // ============================================================
+
+    function testInvariant_outputsStayWithinWAD() public {
+        uint256 priorE = 0;
+        uint256 priorF = 0;
+        uint256 priorK = 0;
+        for (uint256 k = 1; k <= 60; k++) {
+            uint256 J = ((k * 137) % 11) * (WAD / 10);
+            if (J > WAD) J = WAD;
+            (uint256 newE, uint256 newF) =
+                h.tUpdateRunningStats(J, priorE, priorF, k);
+            uint256 H = h.tComputeConfidence(k, newF);
+            uint256 newK = h.tUpdateContribScore(priorK, H, J);
+            assertLe(H, WAD);
+            assertLe(newE, WAD);
+            assertLe(newK, WAD);
+            priorE = newE;
+            priorF = newF;
+            priorK = newK;
+        }
+    }
+
+    function testInvariant_perfectScoreConverges() public {
+        uint256 priorE = 0;
+        uint256 priorF = 0;
+        uint256 priorK = 0;
+        for (uint256 k = 1; k <= 100; k++) {
+            (uint256 newE, uint256 newF) =
+                h.tUpdateRunningStats(WAD, priorE, priorF, k);
+            uint256 H = h.tComputeConfidence(k, newF);
+            uint256 newK = h.tUpdateContribScore(priorK, H, WAD);
+            priorE = newE;
+            priorF = newF;
+            priorK = newK;
+        }
+        assertGt(priorK, 95e16);
+    }
+
+    function testInvariant_zeroScoreStaysZero() public {
+        uint256 priorE = 0;
+        uint256 priorF = 0;
+        uint256 priorK = 0;
+        for (uint256 k = 1; k <= 100; k++) {
+            (uint256 newE, uint256 newF) =
+                h.tUpdateRunningStats(0, priorE, priorF, k);
+            uint256 H = h.tComputeConfidence(k, newF);
+            uint256 newK = h.tUpdateContribScore(priorK, H, 0);
+            priorE = newE;
+            priorF = newF;
+            priorK = newK;
+        }
+        assertEq(priorK, 0);
+    }
+
+    // ============================================================
+    // Pluggable confidence
+    // ============================================================
+
+    function testPluggable_overrideTakesEffect() public {
+        JobListingFlatConfidence flat =
+            new JobListingFlatConfidence(address(manager));
+        assertEq(flat.tComputeConfidence(7, 0), 5e17);
+        assertEq(flat.tComputeConfidence(0, 999), 5e17);
+    }
+
+    // ============================================================
+    // Integration — _applyTaskRepCalc persists state on the manager
+    // ============================================================
+
+    function _registerAsValidJob(JobListingHarness target) internal {
+        manager.setJobListingCodeHash(address(target).codehash);
+        manager.registerJob(address(target));
+    }
+
+    function testIntegration_firstTask_seedsManagerState() public {
+        _registerAsValidJob(h);
+
+        TaskType tt = TaskType.MNIST;
+        address user = address(0xBEEF);
+
+        // delta=0, stake=1e18, reward=10e18, nrActive=5 -> J = 0.2e18
+        IOpenFLChallengeTaskRep.TaskRep memory rep = IOpenFLChallengeTaskRep
+            .TaskRep({user: user, delta: 0, globalReputationScore: 0});
+        h.tApplyOne(rep, tt, 10e18, 5);
+
+        (uint256 storedK, , uint256 nrTasks) = manager.getUserRep(user, tt);
+        (uint256 storedE, uint256 storedF) =
+            manager.getTaskRepCalcState(user, tt);
+
+        // k = 1 (first task), seeded E = J, F = 0
+        assertEq(nrTasks, 1, "task counter incremented");
+        assertEq(storedE, 2e17, "E_1 = J");
+        assertEq(storedF, 0, "F_1 = 0");
+
+        // H_1 = WAD/6, weighted = J/6, K_1 = N_BLEND * J/6 / WAD
+        uint256 H = WAD / 6;
+        uint256 weighted = (H * 2e17) / WAD;
+        uint256 expectedK = (N_BLEND * weighted) / WAD;
+        assertEq(storedK, expectedK);
+    }
+
+    function testIntegration_twoTasks_carriesState() public {
+        _registerAsValidJob(h);
+
+        TaskType tt = TaskType.MNIST;
+        address user = address(0xBEEF);
+
+        // Task 1: delta=2e18 -> J = 0.6e18
+        IOpenFLChallengeTaskRep.TaskRep memory rep1 = IOpenFLChallengeTaskRep
+            .TaskRep({user: user, delta: int256(2e18), globalReputationScore: 0});
+        h.tApplyOne(rep1, tt, 10e18, 5);
+
+        (uint256 k1, , uint256 nr1) = manager.getUserRep(user, tt);
+        (uint256 e1, uint256 f1) = manager.getTaskRepCalcState(user, tt);
+        assertEq(nr1, 1);
+        assertEq(e1, 6e17);
+        assertEq(f1, 0);
+
+        // Task 2: same delta -> same J = 0.6e18.
+        // priorE=0.6, J=0.6 -> newE = 0.6 (no movement); Delta=0 -> newF=0
+        h.tApplyOne(rep1, tt, 10e18, 5);
+
+        (uint256 k2, , uint256 nr2) = manager.getUserRep(user, tt);
+        (uint256 e2, uint256 f2) = manager.getTaskRepCalcState(user, tt);
+        assertEq(nr2, 2);
+        assertEq(e2, 6e17);
+        assertEq(f2, 0);
+
+        // k=2, s=0 -> H = (2/7) * 1 * WAD = 2*WAD/7
+        // weighted = H * 0.6e18 / WAD = (2/7) * 0.6e18 = 12e17/70 ≈ 1.71e17
+        // K2 = 0.8*k1 + 0.2*weighted
+        uint256 H = (2 * WAD) / 7;
+        uint256 weighted = (H * 6e17) / WAD;
+        uint256 expectedK = ((WAD - N_BLEND) * k1 + N_BLEND * weighted) / WAD;
+        assertEq(k2, expectedK);
+    }
+
+    function testIntegration_kickedUser_zeroJ_softDecay() public {
+        _registerAsValidJob(h);
+
+        TaskType tt = TaskType.MNIST;
+        address user = address(0xBEEF);
+
+        // Seed K with a strong prior via several positive tasks.
+        IOpenFLChallengeTaskRep.TaskRep memory good = IOpenFLChallengeTaskRep
+            .TaskRep({user: user, delta: int256(4e18), globalReputationScore: 0});
+        for (uint i = 0; i < 5; i++) {
+            h.tApplyOne(good, tt, 10e18, 5);
+        }
+        (uint256 priorK, , ) = manager.getUserRep(user, tt);
+        assertGt(priorK, 0);
+
+        // Simulate kick: delta = -stake, J clips to 0.
+        IOpenFLChallengeTaskRep.TaskRep memory kicked = IOpenFLChallengeTaskRep
+            .TaskRep({
+                user: user,
+                delta: -int256(1e18),
+                globalReputationScore: 0
+            });
+        h.tApplyOne(kicked, tt, 10e18, 5);
+
+        (uint256 newK, , ) = manager.getUserRep(user, tt);
+        // K_new = (1-N_BLEND)*priorK + N_BLEND * H * 0 = 0.8 * priorK
+        assertEq(newK, (priorK * (WAD - N_BLEND)) / WAD);
+    }
+}
