@@ -1,4 +1,5 @@
 from pathlib import Path
+import gc
 import pprint
 import socket
 import sys
@@ -188,6 +189,9 @@ def worker_loop():
     
 
     while True:
+        experiment = None
+        writer = None
+        logger = None
         try:
             if not check_worker_exists():
                 registerWorkerLoop()
@@ -216,7 +220,7 @@ def worker_loop():
 
             startTime = datetime.now().strftime("%d-%m-%y--%H_%M_%S")
             path = getPath(config, startTime, config.dataset, RESULTDATAFOLDER)
-            
+
             globals.repo_dir = path.parent
 
             writer = AsyncWriter(path, OUTPUTHEADERS, WRITERBUFFERSIZE, config, "sample")
@@ -252,7 +256,12 @@ def worker_loop():
             except Exception:
                 reset()
                 time.sleep(10)
-                continue
+        finally:
+            # Drop the prior run's PytorchModel + DataLoaders before claiming
+            # the next run, so persistent DataLoader workers (and their FDs)
+            # are reclaimed instead of accumulating across iterations.
+            del experiment, writer, logger
+            gc.collect()
 
 heartbeat_stop = None
 heartbeat_thread = None
