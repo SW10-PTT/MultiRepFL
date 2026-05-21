@@ -1,5 +1,6 @@
 import yaml
 import sys
+from datetime import datetime
 from openfl.utils.config import get_print_config
 
 
@@ -14,7 +15,8 @@ def set_enabled_tags(tags):
 
 def log(tag, *args, **kwargs):
     if tag in ENABLED_TAGS:
-        print(*args, **kwargs)
+        ts = datetime.now().strftime("[%m-%d %H:%M]")
+        print(ts, *args, **kwargs)
 
 
 def fmt_floats(values, precision=6, with_sum=True):
