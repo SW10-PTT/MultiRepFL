@@ -37,6 +37,11 @@ contract OpenFLManager {
         // as the dataset key (e.g. MNIST, CIFAR10). Mutated by valid
         // JobListings via applyUserTaskRepDelta after a challenge round.
         mapping(TaskType => uint256) GlobalTaskRep;
+        // Per-task running state for the TaskRepCalc formula. WAD-scaled (1e18).
+        // RunningCMean = E_k (EWMA mean of raw per-task contribution score J_k);
+        // M2 = F_k (EWMA squared-deviation accumulator, variance proxy s_k).
+        mapping(TaskType => uint256) RunningCMean;
+        mapping(TaskType => uint256) M2;
         uint256 GlobalIntegrityRep;
         uint128 TotalContribScore;
         uint128 NumberOfTasksJoined;
@@ -137,5 +142,40 @@ contract OpenFLManager {
         users[user].GlobalTaskRep[taskType] = newValue;
 
         emit UserTaskRepUpdated(user, taskType, current, newValue);
+    }
+
+    event TaskRepCalcStateUpdated(
+        address indexed user,
+        TaskType indexed taskType,
+        uint256 newRunningCMean,
+        uint256 newM2
+    );
+
+    // Read the per-(user, taskType) TaskRepCalc running state used by the
+    // JobListing's contribution-score formula. Both values are WAD-scaled.
+    function getTaskRepCalcState(
+        address addr,
+        TaskType taskType
+    ) public view returns (uint256 runningCMean, uint256 m2) {
+        return (
+            users[addr].RunningCMean[taskType],
+            users[addr].M2[taskType]
+        );
+    }
+
+    // Persist updated TaskRepCalc running state. Same auth model as
+    // setUserTaskRep — only callable by a registered (valid) JobListing.
+    function setTaskRepCalcState(
+        address user,
+        TaskType taskType,
+        uint256 newRunningCMean,
+        uint256 newM2
+    ) external {
+        require(validJobs[msg.sender], "OFLM: caller not valid job");
+
+        users[user].RunningCMean[taskType] = newRunningCMean;
+        users[user].M2[taskType] = newM2;
+
+        emit TaskRepCalcStateUpdated(user, taskType, newRunningCMean, newM2);
     }
 }

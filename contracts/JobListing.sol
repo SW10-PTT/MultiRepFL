@@ -15,9 +15,33 @@ interface IOpenFLChallengeTaskRep {
     function getTaskRepDeltaAndGRS() external view returns (TaskRep[] memory);
 
     function taskType() external view returns (TaskType);
+
+    function nrOfActiveParticipants() external view returns (uint);
 }
 
 contract JobListing {
+    uint256 private constant MAX_BIDS = 10;
+
+    // ---- TaskRepCalc fixed-point constants (WAD = 1e18) ----
+    // Values map 1:1 to the ContribScoreCalc.xlsx workbook:
+    //   ALPHA   = M3 = 0.2  (EWMA forgetting factor for mean + variance)
+    //   N_0     = M6 = 5    (maturity offset)
+    //   LAMBDA  = M9 = 20   (variance penalty weight; dimensionless on s_k)
+    //   N_BLEND = M12 = 0.2 (smoothing on the final ContribScore)
+    // STAKE_WAD is hardcoded to 1 ETH for now — should later read the actual
+    // collateral the participant locked when registering.
+    uint256 internal constant WAD = 1e18;
+    uint256 internal constant ALPHA = 2e17;
+    uint256 internal constant N_BLEND = 2e17;
+    uint256 internal constant N_0 = 5;
+    uint256 internal constant LAMBDA = 20;
+    uint256 internal constant STAKE_WAD = 1e18;
+    // Upper bound on per-task positive delta = GAIN_CAP_MULTIPLIER * (reward /
+    // nrActive). 1x flattens top performers (their J caps at the equal-share
+    // baseline). 2x gives outperformers headroom while keeping the average
+    // participant near the middle of [0, WAD]. Tune as needed.
+    uint256 internal constant GAIN_CAP_MULTIPLIER = 2;
+
     modifier onlyNotYetRegisteredUsers() {
         require(applicants[msg.sender].addr == address(0), "SAR");
         _;
@@ -311,41 +335,127 @@ contract JobListing {
             .getTaskRepDeltaAndGRS();
 
         TaskType tt = trainingSpecs.taskType;
+        uint256 reward = trainingSpecs.reward;
+        // Use the challenge's active (non-disqualified) count so the
+        // per-participant reward cap reflects the true distribution pool,
+        // not the inflated raw participant count.
+        uint256 nrActive = challenge.nrOfActiveParticipants();
 
         for (uint i = 0; i < reps.length; i++) {
-            IOpenFLChallengeTaskRep.TaskRep memory rep = reps[i];
-
-            (
-                uint priorTaskRep,
-                ,
-                uint nrOfTasksParticipated
-            ) = manager.getUserRep(rep.user, tt);
-
-            // ============================================================
-            // TASK REP FORMULA — fill in below.
-            //
-            // Available locals: rep.user, rep.delta, rep.globalReputationScore,
-            //                   tt, priorTaskRep, nrOfTasksParticipated
-            //
-            // Example (weighted blend, 70% prior / 30% this task):
-            //   uint repForThisTask = rep.delta < 0 ? 0 : uint256(rep.delta);
-            //   uint newTaskRep = (priorTaskRep * 7 + repForThisTask * 3) / 10;
-            //
-            // Compute `uint256 newTaskRep` — the absolute replacement value
-            // that will overwrite manager's GlobalTaskRep[user][tt].
-            // ============================================================
-
-            // PLACEHOLDER — replace with real formula.
-            uint256 newTaskRep = priorTaskRep;
-
-            // Suppress unused-variable warnings until formula uses them.
-            nrOfTasksParticipated;
-            // ============================================================
-
-            manager.setUserTaskRep(rep.user, tt, newTaskRep);
+            _applyTaskRepCalc(reps[i], tt, reward, nrActive);
         }
 
         taskRepsApplied = true;
         emit TaskRepsApplied(challengeAddress, tt, reps.length);
+    }
+
+    // Per-participant body of updateUserTaskReps, extracted so the loop's
+    // stack stays shallow enough for the compiler.
+    function _applyTaskRepCalc(
+        IOpenFLChallengeTaskRep.TaskRep memory rep,
+        TaskType tt,
+        uint256 reward,
+        uint256 nrActive
+    ) internal {
+        (uint256 priorK, , uint256 k) = manager.getUserRep(rep.user, tt);
+        (uint256 priorE, uint256 priorF) = manager.getTaskRepCalcState(
+            rep.user,
+            tt
+        );
+
+        uint256 J = _transformDelta(rep.delta, STAKE_WAD, reward, nrActive);
+
+        (uint256 newE, uint256 newF) = _updateRunningStats(
+            J,
+            priorE,
+            priorF,
+            k
+        );
+        uint256 newK = _updateContribScore(
+            priorK,
+            _computeConfidence(k, newF),
+            J
+        );
+
+        manager.setTaskRepCalcState(rep.user, tt, newE, newF);
+        manager.setUserTaskRep(rep.user, tt, newK);
+    }
+
+    // Linearly maps a signed per-task reputation delta (wei) into a raw
+    // contribution score J_k in [0, WAD]. Worst case (-stake) maps to 0,
+    // ceiling is GAIN_CAP_MULTIPLIER * (reward / nrActive) — anything above
+    // is clipped to WAD. nrActive is the non-disqualified count, so kicked
+    // participants do not deflate the per-participant reward share.
+    function _transformDelta(
+        int256 delta,
+        uint256 stake,
+        uint256 reward,
+        uint256 nrActive
+    ) internal pure returns (uint256) {
+        uint256 maxGain = nrActive == 0
+            ? 0
+            : (GAIN_CAP_MULTIPLIER * reward) / nrActive;
+        uint256 range = stake + maxGain;
+        if (range == 0) return 0;
+
+        int256 shifted = delta + int256(stake);
+        if (shifted <= 0) return 0;
+
+        uint256 num = uint256(shifted);
+        if (num >= range) return WAD;
+        return (num * WAD) / range;
+    }
+
+    // EWMA running mean (E_k = RunningCMean) and variance proxy
+    // (F_k = M2). On the first task (k == 1) E is seeded directly from J
+    // (no smoothing) — matches the workbook's row-3 seed semantics; F stays 0
+    // because Delta2 = J - E_k = 0.
+    //
+    // Welford identity: D = (1-ALPHA)*C, so C*D >= 0 always — safe to compute
+    // with unsigned absolutes.
+    function _updateRunningStats(
+        uint256 J,
+        uint256 priorE,
+        uint256 priorF,
+        uint256 k
+    ) internal pure returns (uint256 newE, uint256 newF) {
+        if (k <= 1) {
+            newE = J;
+        } else {
+            newE = ((WAD - ALPHA) * priorE + ALPHA * J) / WAD;
+        }
+
+        uint256 absDelta = J > priorE ? J - priorE : priorE - J;
+        uint256 absDelta2 = J > newE ? J - newE : newE - J;
+
+        newF =
+            ((WAD - ALPHA) * priorF) /
+            WAD +
+            (ALPHA * absDelta * absDelta2) /
+            (WAD * WAD);
+    }
+
+    // Confidence weight H_k in [0, WAD]. Combines maturity k/(k+N_0) with
+    // stability 1/(1 + LAMBDA * s_k). Marked `virtual` so a subclass can
+    // swap in a different confidence formula without touching the rest of
+    // the update logic.
+    function _computeConfidence(
+        uint256 k,
+        uint256 s_k
+    ) internal pure virtual returns (uint256) {
+        if (k == 0) return 0;
+        uint256 maturity = (k * WAD) / (k + N_0);
+        uint256 stability = (WAD * WAD) / (WAD + LAMBDA * s_k);
+        return (maturity * stability) / WAD;
+    }
+
+    // EWMA-smoothed ContribScore (TaskRepCalc = K_k).
+    function _updateContribScore(
+        uint256 priorK,
+        uint256 H,
+        uint256 J
+    ) internal pure returns (uint256) {
+        uint256 weighted = (H * J) / WAD;
+        return ((WAD - N_BLEND) * priorK + N_BLEND * weighted) / WAD;
     }
 }
