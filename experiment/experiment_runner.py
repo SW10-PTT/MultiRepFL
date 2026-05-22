@@ -196,6 +196,8 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
   log("experiment_end", "="*75 + "\n")
 
   if logger is not None:
+      _log_task_rep_calc(logger, newChallenge, manager, new_job_listing, pytorch_model)
+
       try:
           import torch
           gpu_name = torch.cuda.get_device_name(0) if torch.cuda.is_available() else "None"
@@ -392,6 +394,41 @@ def table_with_gas_and_transactions_latex(experiment):
   log("latex_output", "\\hline\n\\hline")
   log("latex_output", "complete round & {:,.0f} & {:.5f} \\ ".format(tot, tot * 20e9 / 1e18))
   log("latex_output", "\\hline\n\\end{tabular}")
+
+def _log_task_rep_calc(logger, challenge, manager, job_listing, pytorch_model):
+    """Read per-participant TaskRepCalc state from the manager contract after
+    updateUserTaskReps has fired and log it as the task_rep_calc table.
+
+    Columns with WAD-normalised values (running_c_mean, m2, global_task_rep)
+    are stored as floats in [0, 1]. All other on-chain integers are stored raw.
+    """
+    WAD = 10 ** 18
+    task_type = job_listing.get_task_type()
+
+    # getTaskRepDeltaAndGRS returns [(address, int256 delta, uint grs), ...]
+    # for all participants registered in the challenge contract.
+    trs_raw = challenge.contract.functions.getTaskRepDeltaAndGRS().call()
+    trs_by_addr = {entry[0].lower(): (entry[1], entry[2]) for entry in trs_raw}
+
+    all_participants = pytorch_model.participants + pytorch_model.disqualified
+    for user in all_participants:
+        addr = user.address
+        e, f = manager.contract.functions.getTaskRepCalcState(addr, task_type).call()
+        task_rep_wad, integrity_rep, nr_tasks = manager.contract.functions.getUserRep(addr, task_type).call()
+        delta, grs = trs_by_addr.get(addr.lower(), (None, None))
+        logger.log_task_rep_calc(
+            address=addr,
+            user_id=str(user.id),
+            task_type=task_type,
+            k=nr_tasks,
+            running_c_mean=e / WAD,
+            m2=f / WAD,
+            global_task_rep=task_rep_wad / WAD,
+            global_integrity_rep=integrity_rep / WAD,
+            task_rep_delta=delta,
+            final_grs=grs,
+        )
+
 
 class Experiment:
   def __init__(self, model, manager):

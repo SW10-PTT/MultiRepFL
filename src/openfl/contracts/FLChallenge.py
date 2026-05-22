@@ -1551,7 +1551,6 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
         self.writer.write_comment(f"$gasCosts${self.gas_feedback},{self.gas_register},{self.gas_slot},{self.gas_weights},{self.gas_close},{self.gas_deploy},{self.gas_exit},{self.gas_contrib}")
         trs = self.pytorch_model.runRepo.get_task_rep_delta_and_GRS(-1, "get_task_rep_delta_and_GRS-simulate", self.contract, self.pytorch_model.get_participant)
         self.writer.write_comment(f"$trs${trs}")
-        self._logger.log_trs(trs)
         self.pytorch_model.runRepo.flush()
         self.exit_system()
 

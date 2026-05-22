@@ -7,15 +7,16 @@ import pandas as pd
 
 @dataclass
 class RunData:
-    experiment_id: str
-    metadata:      dict
-    setup:         dict
-    rounds_global: pd.DataFrame
-    rounds_users:  pd.DataFrame
-    votes:         pd.DataFrame
-    receipts:      pd.DataFrame
-    contributions: pd.DataFrame
-    warnings:      pd.DataFrame
+    experiment_id:  str
+    metadata:       dict
+    setup:          dict
+    rounds_global:  pd.DataFrame
+    rounds_users:   pd.DataFrame
+    votes:          pd.DataFrame
+    receipts:       pd.DataFrame
+    contributions:  pd.DataFrame
+    warnings:       pd.DataFrame
+    task_rep_calc:  pd.DataFrame
 
 
 def load_run(path: Path) -> RunData:
@@ -25,15 +26,16 @@ def load_run(path: Path) -> RunData:
 
     tables = payload["tables"]
     return RunData(
-        experiment_id=payload["experiment_id"],
-        metadata=     payload["metadata"],
-        setup=        payload.get("setup", {}),
-        rounds_global=tables.get("global",        pd.DataFrame()),
-        rounds_users= tables.get("users",         pd.DataFrame()),
-        votes=        tables.get("votes",         pd.DataFrame()),
-        receipts=     tables.get("receipts",      pd.DataFrame()),
-        contributions=tables.get("contributions", pd.DataFrame()),
-        warnings=     tables.get("warnings", pd.DataFrame())
+        experiment_id= payload["experiment_id"],
+        metadata=      payload["metadata"],
+        setup=         payload.get("setup", {}),
+        rounds_global= tables.get("global",          pd.DataFrame()),
+        rounds_users=  tables.get("users",           pd.DataFrame()),
+        votes=         tables.get("votes",           pd.DataFrame()),
+        receipts=      tables.get("receipts",        pd.DataFrame()),
+        contributions= tables.get("contributions",   pd.DataFrame()),
+        warnings=      tables.get("warnings",        pd.DataFrame()),
+        task_rep_calc= tables.get("task_rep_calc",   pd.DataFrame()),
     )
 
 
