@@ -361,28 +361,29 @@ contract JobListing {
             rep.user,
             tt
         );
-        (uint256 priorE, uint256 priorF) = manager.getTaskRepCalcState(
+        (uint256 priorRunningCMean, uint256 priorM2) = manager.getTaskRepCalcState(
             rep.user,
             tt
         );
 
-        // k is the current task index (1-based). Matches spreadsheet row-3 = k=1.
+        // k is the current task index (1-based)
         uint256 k = priorTaskCount + 1;
+        // maps raw delta to contribution score J in [0, WAD]
         uint256 J = _transformDelta(rep.delta, STAKE_WAD, reward, nrActive);
 
-        (uint256 newE, uint256 newF) = _updateRunningStats(
+        (uint256 newRunningCMean, uint256 newM2) = _updateRunningStats(
             J,
-            priorE,
-            priorF,
+            priorRunningCMean,
+            priorM2,
             k
         );
         uint256 newK = _updateContribScore(
             priorK,
-            _computeConfidence(k, newF),
+            _computeConfidence(k, newM2),
             J
         );
 
-        manager.setTaskRepCalcState(rep.user, tt, newE, newF);
+        manager.setTaskRepCalcState(rep.user, tt, newRunningCMean, newM2);
         manager.setUserTaskRep(rep.user, tt, newK);
         manager.incrementNumberOfTasksJoined(rep.user);
     }
@@ -421,21 +422,21 @@ contract JobListing {
     // with unsigned absolutes.
     function _updateRunningStats(
         uint256 J,
-        uint256 priorE,
-        uint256 priorF,
+        uint256 priorRunningCMean,
+        uint256 priorM2,
         uint256 k
-    ) internal pure returns (uint256 newE, uint256 newF) {
+    ) internal pure returns (uint256 newRunningCMean, uint256 newM2) {
         if (k <= 1) {
-            newE = J;
+            newRunningCMean = J;
         } else {
-            newE = ((WAD - ALPHA) * priorE + ALPHA * J) / WAD;
+            newRunningCMean = ((WAD - ALPHA) * priorRunningCMean + ALPHA * J) / WAD;
         }
 
-        uint256 absDelta = J > priorE ? J - priorE : priorE - J;
-        uint256 absDelta2 = J > newE ? J - newE : newE - J;
+        uint256 absDelta = J > priorRunningCMean ? J - priorRunningCMean : priorRunningCMean - J;
+        uint256 absDelta2 = J > newRunningCMean ? J - newRunningCMean : newRunningCMean - J;
 
-        newF =
-            ((WAD - ALPHA) * priorF) /
+        newM2 =
+            ((WAD - ALPHA) * priorM2) /
             WAD +
             (ALPHA * absDelta * absDelta2) /
             (WAD * WAD);

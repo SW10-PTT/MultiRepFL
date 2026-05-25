@@ -24,11 +24,11 @@ contract JobListingHarness is JobListing {
 
     function tUpdateRunningStats(
         uint256 J,
-        uint256 priorE,
-        uint256 priorF,
+        uint256 priorRunningCMean,
+        uint256 priorM2,
         uint256 k
     ) external pure returns (uint256, uint256) {
-        return _updateRunningStats(J, priorE, priorF, k);
+        return _updateRunningStats(J, priorRunningCMean, priorM2, k);
     }
 
     function tComputeConfidence(uint256 k, uint256 s_k)
@@ -125,34 +125,34 @@ contract TaskRepCalcTest is Test {
     // ============================================================
 
     function testRunning_firstTask_seedsE_FzeroOnFreshUser() public {
-        (uint256 newE, uint256 newF) = h.tUpdateRunningStats(5e17, 0, 0, 1);
-        assertEq(newE, 5e17);
-        assertEq(newF, 0);
+        (uint256 newRunningCMean, uint256 newM2) = h.tUpdateRunningStats(5e17, 0, 0, 1);
+        assertEq(newRunningCMean, 5e17);
+        assertEq(newM2, 0);
     }
 
     function testRunning_secondTask_EWMAblendMean() public {
-        // priorE=0.5, J=1: newE = 0.8*0.5 + 0.2*1 = 0.6
-        (uint256 newE, ) = h.tUpdateRunningStats(1e18, 5e17, 0, 2);
-        assertEq(newE, 6e17);
+        // priorRunningCMean=0.5, J=1: newRunningCMean = 0.8*0.5 + 0.2*1 = 0.6
+        (uint256 newRunningCMean, ) = h.tUpdateRunningStats(1e18, 5e17, 0, 2);
+        assertEq(newRunningCMean, 6e17);
     }
 
     function testRunning_secondTask_variancePositive() public {
-        // priorE=0.5, J=1 -> newE=0.6, absDelta=0.5, absDelta2=0.4
-        // newF = (ALPHA * 0.5 * 0.4)/WAD^2 = (0.2 * 0.5 * 0.4) = 0.04 in WAD
-        (, uint256 newF) = h.tUpdateRunningStats(1e18, 5e17, 0, 2);
-        assertEq(newF, 4e16);
+        // priorRunningCMean=0.5, J=1 -> newRunningCMean=0.6, absDelta=0.5, absDelta2=0.4
+        // newM2 = (ALPHA * 0.5 * 0.4)/WAD^2 = (0.2 * 0.5 * 0.4) = 0.04 in WAD
+        (, uint256 newM2) = h.tUpdateRunningStats(1e18, 5e17, 0, 2);
+        assertEq(newM2, 4e16);
     }
 
-    function testRunning_stableJEqualsPriorE_FdecaysOnly() public {
-        // J == priorE -> Delta=0 -> variance contribution=0; existing F decays.
-        (uint256 newE, uint256 newF) =
+    function testRunning_stableJEqualspriorRunningCMean_FdecaysOnly() public {
+        // J == priorRunningCMean -> Delta=0 -> variance contribution=0; existing F decays.
+        (uint256 newRunningCMean, uint256 newM2) =
             h.tUpdateRunningStats(5e17, 5e17, 1e17, 2);
-        assertEq(newE, 5e17);
-        assertEq(newF, 8e16); // 0.8 * 0.1
+        assertEq(newRunningCMean, 5e17);
+        assertEq(newM2, 8e16); // 0.8 * 0.1
     }
 
     function testRunning_signSafe_negativeDeltaProducesSameVariance() public {
-        // |C*D| identical whether J above or below priorE (Welford symmetry).
+        // |C*D| identical whether J above or below priorRunningCMean (Welford symmetry).
         (, uint256 fAbove) = h.tUpdateRunningStats(1e18, 5e17, 0, 2);
         (, uint256 fBelow) = h.tUpdateRunningStats(0, 5e17, 0, 2);
         assertEq(fAbove, fBelow);
@@ -223,52 +223,52 @@ contract TaskRepCalcTest is Test {
     // ============================================================
 
     function testInvariant_outputsStayWithinWAD() public {
-        uint256 priorE = 0;
-        uint256 priorF = 0;
+        uint256 priorRunningCMean = 0;
+        uint256 priorM2 = 0;
         uint256 priorK = 0;
         for (uint256 k = 1; k <= 60; k++) {
             uint256 J = ((k * 137) % 11) * (WAD / 10);
             if (J > WAD) J = WAD;
-            (uint256 newE, uint256 newF) =
-                h.tUpdateRunningStats(J, priorE, priorF, k);
-            uint256 H = h.tComputeConfidence(k, newF);
+            (uint256 newRunningCMean, uint256 newM2) =
+                h.tUpdateRunningStats(J, priorRunningCMean, priorM2, k);
+            uint256 H = h.tComputeConfidence(k, newM2);
             uint256 newK = h.tUpdateContribScore(priorK, H, J);
             assertLe(H, WAD);
-            assertLe(newE, WAD);
+            assertLe(newRunningCMean, WAD);
             assertLe(newK, WAD);
-            priorE = newE;
-            priorF = newF;
+            priorRunningCMean = newRunningCMean;
+            priorM2 = newM2;
             priorK = newK;
         }
     }
 
     function testInvariant_perfectScoreConverges() public {
-        uint256 priorE = 0;
-        uint256 priorF = 0;
+        uint256 priorRunningCMean = 0;
+        uint256 priorM2 = 0;
         uint256 priorK = 0;
         for (uint256 k = 1; k <= 100; k++) {
-            (uint256 newE, uint256 newF) =
-                h.tUpdateRunningStats(WAD, priorE, priorF, k);
-            uint256 H = h.tComputeConfidence(k, newF);
+            (uint256 newRunningCMean, uint256 newM2) =
+                h.tUpdateRunningStats(WAD, priorRunningCMean, priorM2, k);
+            uint256 H = h.tComputeConfidence(k, newM2);
             uint256 newK = h.tUpdateContribScore(priorK, H, WAD);
-            priorE = newE;
-            priorF = newF;
+            priorRunningCMean = newRunningCMean;
+            priorM2 = newM2;
             priorK = newK;
         }
         assertGt(priorK, 95e16);
     }
 
     function testInvariant_zeroScoreStaysZero() public {
-        uint256 priorE = 0;
-        uint256 priorF = 0;
+        uint256 priorRunningCMean = 0;
+        uint256 priorM2 = 0;
         uint256 priorK = 0;
         for (uint256 k = 1; k <= 100; k++) {
-            (uint256 newE, uint256 newF) =
-                h.tUpdateRunningStats(0, priorE, priorF, k);
-            uint256 H = h.tComputeConfidence(k, newF);
+            (uint256 newRunningCMean, uint256 newM2) =
+                h.tUpdateRunningStats(0, priorRunningCMean, priorM2, k);
+            uint256 H = h.tComputeConfidence(k, newM2);
             uint256 newK = h.tUpdateContribScore(priorK, H, 0);
-            priorE = newE;
-            priorF = newF;
+            priorRunningCMean = newRunningCMean;
+            priorM2 = newM2;
             priorK = newK;
         }
         assertEq(priorK, 0);
@@ -339,7 +339,7 @@ contract TaskRepCalcTest is Test {
         assertEq(f1, 0);
 
         // Task 2: same delta -> same J = 0.6e18.
-        // priorE=0.6, J=0.6 -> newE = 0.6 (no movement); Delta=0 -> newF=0
+        // priorRunningCMean=0.6, J=0.6 -> newRunningCMean = 0.6 (no movement); Delta=0 -> newM2=0
         h.tApplyOne(rep1, tt, 10e18, 5);
 
         (uint256 k2, , uint256 nr2) = manager.getUserRep(user, tt);
