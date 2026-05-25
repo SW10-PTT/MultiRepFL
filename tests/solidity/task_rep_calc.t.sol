@@ -23,12 +23,12 @@ contract JobListingHarness is JobListing {
     }
 
     function tUpdateRunningStats(
-        uint256 J,
+        uint256 ContributionScore,
         uint256 priorRunningCMean,
         uint256 priorM2,
         uint256 k
     ) external pure returns (uint256, uint256) {
-        return _updateRunningStats(J, priorRunningCMean, priorM2, k);
+        return _updateRunningStats(ContributionScore, priorRunningCMean, priorM2, k);
     }
 
     function tComputeConfidence(uint256 k, uint256 s_k)
@@ -40,11 +40,11 @@ contract JobListingHarness is JobListing {
     }
 
     function tUpdateContribScore(
-        uint256 priorK,
-        uint256 H,
-        uint256 J
+        uint256 PriorTaskRep,
+        uint256 Confidence,
+        uint256 ContributionScore
     ) external pure returns (uint256) {
-        return _updateContribScore(priorK, H, J);
+        return _updateContribScore(PriorTaskRep, Confidence, ContributionScore);
     }
 
     function tApplyOne(
@@ -90,7 +90,7 @@ contract TaskRepCalcTest is Test {
 
     function testTransform_zeroDelta_mapsToStakeOverRange() public {
         // stake=1, reward=10, nrActive=5 -> maxGain = 2*10/5 = 4
-        // range = 5, shifted = 1 -> J = 1/5 * WAD = 0.2e18
+        // range = 5, shifted = 1 -> ContributionScore = 1/5 * WAD = 0.2e18
         assertEq(h.tTransformDelta(0, 1e18, 10e18, 5), 2e17);
     }
 
@@ -111,7 +111,7 @@ contract TaskRepCalcTest is Test {
     }
 
     function testTransform_nrActiveZero_capCollapsesToStakeOnly() public {
-        // maxGain=0, range=stake; delta=0 -> shifted=range -> J=WAD
+        // maxGain=0, range=stake; delta=0 -> shifted=range -> ContributionScore=WAD
         assertEq(h.tTransformDelta(0, 1e18, 10e18, 0), WAD);
     }
 
@@ -131,20 +131,20 @@ contract TaskRepCalcTest is Test {
     }
 
     function testRunning_secondTask_EWMAblendMean() public {
-        // priorRunningCMean=0.5, J=1: newRunningCMean = 0.8*0.5 + 0.2*1 = 0.6
+        // priorRunningCMean=0.5, ContributionScore=1: newRunningCMean = 0.8*0.5 + 0.2*1 = 0.6
         (uint256 newRunningCMean, ) = h.tUpdateRunningStats(1e18, 5e17, 0, 2);
         assertEq(newRunningCMean, 6e17);
     }
 
     function testRunning_secondTask_variancePositive() public {
-        // priorRunningCMean=0.5, J=1 -> newRunningCMean=0.6, absDelta=0.5, absDelta2=0.4
+        // priorRunningCMean=0.5, ContributionScore=1 -> newRunningCMean=0.6, absDelta=0.5, absDelta2=0.4
         // newM2 = (ALPHA * 0.5 * 0.4)/WAD^2 = (0.2 * 0.5 * 0.4) = 0.04 in WAD
         (, uint256 newM2) = h.tUpdateRunningStats(1e18, 5e17, 0, 2);
         assertEq(newM2, 4e16);
     }
 
     function testRunning_stableJEqualspriorRunningCMean_FdecaysOnly() public {
-        // J == priorRunningCMean -> Delta=0 -> variance contribution=0; existing F decays.
+        // ContributionScore == priorRunningCMean -> Delta=0 -> variance contribution=0; existing F decays.
         (uint256 newRunningCMean, uint256 newM2) =
             h.tUpdateRunningStats(5e17, 5e17, 1e17, 2);
         assertEq(newRunningCMean, 5e17);
@@ -152,7 +152,7 @@ contract TaskRepCalcTest is Test {
     }
 
     function testRunning_signSafe_negativeDeltaProducesSameVariance() public {
-        // |C*D| identical whether J above or below priorRunningCMean (Welford symmetry).
+        // |C*D| identical whether ContributionScore above or below priorRunningCMean (Welford symmetry).
         (, uint256 fAbove) = h.tUpdateRunningStats(1e18, 5e17, 0, 2);
         (, uint256 fBelow) = h.tUpdateRunningStats(0, 5e17, 0, 2);
         assertEq(fAbove, fBelow);
@@ -183,18 +183,18 @@ contract TaskRepCalcTest is Test {
     function testConfidence_monotoneInK_atFixedS() public {
         uint256 prev = 0;
         for (uint256 k = 1; k <= 50; k++) {
-            uint256 H = h.tComputeConfidence(k, 0);
-            assertGe(H, prev);
-            prev = H;
+            uint256 Confidence = h.tComputeConfidence(k, 0);
+            assertGe(Confidence, prev);
+            prev = Confidence;
         }
     }
 
     function testConfidence_monotoneNonIncreasingInS() public {
         uint256 prev = type(uint256).max;
         for (uint256 i = 0; i <= 10; i++) {
-            uint256 H = h.tComputeConfidence(10, i * 1e17);
-            assertLe(H, prev);
-            prev = H;
+            uint256 Confidence = h.tComputeConfidence(10, i * 1e17);
+            assertLe(Confidence, prev);
+            prev = Confidence;
         }
     }
 
@@ -203,11 +203,11 @@ contract TaskRepCalcTest is Test {
     // ============================================================
 
     function testContribScore_freshUser_firstTask() public {
-        uint256 H = WAD / 6;
-        uint256 J = 5e17;
-        uint256 weighted = (H * J) / WAD;
+        uint256 Confidence = WAD / 6;
+        uint256 ContributionScore = 5e17;
+        uint256 weighted = (Confidence * ContributionScore) / WAD;
         uint256 expected = (N_BLEND * weighted) / WAD;
-        assertEq(h.tUpdateContribScore(0, H, J), expected);
+        assertEq(h.tUpdateContribScore(0, Confidence, ContributionScore), expected);
     }
 
     function testContribScore_zeroConfidence_decaysPrior20pct() public {
@@ -225,53 +225,53 @@ contract TaskRepCalcTest is Test {
     function testInvariant_outputsStayWithinWAD() public {
         uint256 priorRunningCMean = 0;
         uint256 priorM2 = 0;
-        uint256 priorK = 0;
+        uint256 PriorTaskRep = 0;
         for (uint256 k = 1; k <= 60; k++) {
-            uint256 J = ((k * 137) % 11) * (WAD / 10);
-            if (J > WAD) J = WAD;
+            uint256 ContributionScore = ((k * 137) % 11) * (WAD / 10);
+            if (ContributionScore > WAD) ContributionScore = WAD;
             (uint256 newRunningCMean, uint256 newM2) =
-                h.tUpdateRunningStats(J, priorRunningCMean, priorM2, k);
-            uint256 H = h.tComputeConfidence(k, newM2);
-            uint256 newK = h.tUpdateContribScore(priorK, H, J);
-            assertLe(H, WAD);
+                h.tUpdateRunningStats(ContributionScore, priorRunningCMean, priorM2, k);
+            uint256 Confidence = h.tComputeConfidence(k, newM2);
+            uint256 newK = h.tUpdateContribScore(PriorTaskRep, Confidence, ContributionScore);
+            assertLe(Confidence, WAD);
             assertLe(newRunningCMean, WAD);
             assertLe(newK, WAD);
             priorRunningCMean = newRunningCMean;
             priorM2 = newM2;
-            priorK = newK;
+            PriorTaskRep = newK;
         }
     }
 
     function testInvariant_perfectScoreConverges() public {
         uint256 priorRunningCMean = 0;
         uint256 priorM2 = 0;
-        uint256 priorK = 0;
+        uint256 PriorTaskRep = 0;
         for (uint256 k = 1; k <= 100; k++) {
             (uint256 newRunningCMean, uint256 newM2) =
                 h.tUpdateRunningStats(WAD, priorRunningCMean, priorM2, k);
-            uint256 H = h.tComputeConfidence(k, newM2);
-            uint256 newK = h.tUpdateContribScore(priorK, H, WAD);
+            uint256 Confidence = h.tComputeConfidence(k, newM2);
+            uint256 newK = h.tUpdateContribScore(PriorTaskRep, Confidence, WAD);
             priorRunningCMean = newRunningCMean;
             priorM2 = newM2;
-            priorK = newK;
+            PriorTaskRep = newK;
         }
-        assertGt(priorK, 95e16);
+        assertGt(PriorTaskRep, 95e16);
     }
 
     function testInvariant_zeroScoreStaysZero() public {
         uint256 priorRunningCMean = 0;
         uint256 priorM2 = 0;
-        uint256 priorK = 0;
+        uint256 PriorTaskRep = 0;
         for (uint256 k = 1; k <= 100; k++) {
             (uint256 newRunningCMean, uint256 newM2) =
                 h.tUpdateRunningStats(0, priorRunningCMean, priorM2, k);
-            uint256 H = h.tComputeConfidence(k, newM2);
-            uint256 newK = h.tUpdateContribScore(priorK, H, 0);
+            uint256 Confidence = h.tComputeConfidence(k, newM2);
+            uint256 newK = h.tUpdateContribScore(PriorTaskRep, Confidence, 0);
             priorRunningCMean = newRunningCMean;
             priorM2 = newM2;
-            priorK = newK;
+            PriorTaskRep = newK;
         }
-        assertEq(priorK, 0);
+        assertEq(PriorTaskRep, 0);
     }
 
     // ============================================================
@@ -300,7 +300,7 @@ contract TaskRepCalcTest is Test {
         TaskType tt = TaskType.MNIST;
         address user = address(0xBEEF);
 
-        // delta=0, stake=1e18, reward=10e18, nrActive=5 -> J = 0.2e18
+        // delta=0, stake=1e18, reward=10e18, nrActive=5 -> ContributionScore = 0.2e18
         IOpenFLChallengeTaskRep.TaskRep memory rep = IOpenFLChallengeTaskRep
             .TaskRep({user: user, delta: 0, globalReputationScore: 0});
         h.tApplyOne(rep, tt, 10e18, 5);
@@ -309,14 +309,15 @@ contract TaskRepCalcTest is Test {
         (uint256 storedE, uint256 storedF) =
             manager.getTaskRepCalcState(user, tt);
 
-        // k = 1 (first task), seeded E = J, F = 0
+        // k = 1 (first task), seeded E = ContributionScore, F = 0
         assertEq(nrTasks, 1, "task counter incremented");
-        assertEq(storedE, 2e17, "E_1 = J");
+        assertEq(storedE, 2e17, "E_1 = ContributionScore");
         assertEq(storedF, 0, "F_1 = 0");
 
-        // H_1 = WAD/6, weighted = J/6, K_1 = N_BLEND * J/6 / WAD
-        uint256 H = WAD / 6;
-        uint256 weighted = (H * 2e17) / WAD;
+        // Confidence_1 = WAD/6, weighted = ContributionScore/6,
+        // K_1 = N_BLEND * ContributionScore/6 / WAD
+        uint256 Confidence = WAD / 6;
+        uint256 weighted = (Confidence * 2e17) / WAD;
         uint256 expectedK = (N_BLEND * weighted) / WAD;
         assertEq(storedK, expectedK);
     }
@@ -327,7 +328,7 @@ contract TaskRepCalcTest is Test {
         TaskType tt = TaskType.MNIST;
         address user = address(0xBEEF);
 
-        // Task 1: delta=2e18 -> J = 0.6e18
+        // Task 1: delta=2e18 -> ContributionScore = 0.6e18
         IOpenFLChallengeTaskRep.TaskRep memory rep1 = IOpenFLChallengeTaskRep
             .TaskRep({user: user, delta: int256(2e18), globalReputationScore: 0});
         h.tApplyOne(rep1, tt, 10e18, 5);
@@ -338,8 +339,8 @@ contract TaskRepCalcTest is Test {
         assertEq(e1, 6e17);
         assertEq(f1, 0);
 
-        // Task 2: same delta -> same J = 0.6e18.
-        // priorRunningCMean=0.6, J=0.6 -> newRunningCMean = 0.6 (no movement); Delta=0 -> newM2=0
+        // Task 2: same delta -> same ContributionScore = 0.6e18.
+        // priorRunningCMean=0.6, ContributionScore=0.6 -> newRunningCMean = 0.6 (no movement); Delta=0 -> newM2=0
         h.tApplyOne(rep1, tt, 10e18, 5);
 
         (uint256 k2, , uint256 nr2) = manager.getUserRep(user, tt);
@@ -348,11 +349,11 @@ contract TaskRepCalcTest is Test {
         assertEq(e2, 6e17);
         assertEq(f2, 0);
 
-        // k=2, s=0 -> H = (2/7) * 1 * WAD = 2*WAD/7
-        // weighted = H * 0.6e18 / WAD = (2/7) * 0.6e18 = 12e17/70 ≈ 1.71e17
+        // k=2, s=0 -> Confidence = (2/7) * 1 * WAD = 2*WAD/7
+        // weighted = Confidence * 0.6e18 / WAD = (2/7) * 0.6e18 = 12e17/70 ≈ 1.71e17
         // K2 = 0.8*k1 + 0.2*weighted
-        uint256 H = (2 * WAD) / 7;
-        uint256 weighted = (H * 6e17) / WAD;
+        uint256 Confidence = (2 * WAD) / 7;
+        uint256 weighted = (Confidence * 6e17) / WAD;
         uint256 expectedK = ((WAD - N_BLEND) * k1 + N_BLEND * weighted) / WAD;
         assertEq(k2, expectedK);
     }
@@ -369,10 +370,10 @@ contract TaskRepCalcTest is Test {
         for (uint i = 0; i < 5; i++) {
             h.tApplyOne(good, tt, 10e18, 5);
         }
-        (uint256 priorK, , ) = manager.getUserRep(user, tt);
-        assertGt(priorK, 0);
+        (uint256 PriorTaskRep, , ) = manager.getUserRep(user, tt);
+        assertGt(PriorTaskRep, 0);
 
-        // Simulate kick: delta = -stake, J clips to 0.
+        // Simulate kick: delta = -stake, ContributionScore clips to 0.
         IOpenFLChallengeTaskRep.TaskRep memory kicked = IOpenFLChallengeTaskRep
             .TaskRep({
                 user: user,
@@ -382,7 +383,7 @@ contract TaskRepCalcTest is Test {
         h.tApplyOne(kicked, tt, 10e18, 5);
 
         (uint256 newK, , ) = manager.getUserRep(user, tt);
-        // K_new = (1-N_BLEND)*priorK + N_BLEND * H * 0 = 0.8 * priorK
-        assertEq(newK, (priorK * (WAD - N_BLEND)) / WAD);
+        // K_new = (1-N_BLEND)*PriorTaskRep + N_BLEND * Confidence * 0 = 0.8 * PriorTaskRep
+        assertEq(newK, (PriorTaskRep * (WAD - N_BLEND)) / WAD);
     }
 }

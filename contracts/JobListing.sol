@@ -37,9 +37,9 @@ contract JobListing {
     uint256 internal constant LAMBDA = 20;
     uint256 internal constant STAKE_WAD = 1e18;
     // Upper bound on per-task positive delta = GAIN_CAP_MULTIPLIER * (reward /
-    // nrActive). 1x flattens top performers (their J caps at the equal-share
-    // baseline). 2x gives outperformers headroom while keeping the average
-    // participant near the middle of [0, WAD]. Tune as needed.
+    // nrActive). 1x flattens top performers (their ContributionScore caps at
+    // the equal-share baseline). 2x gives outperformers headroom while keeping
+    // the average participant near the middle of [0, WAD]. Tune as needed.
     uint256 internal constant GAIN_CAP_MULTIPLIER = 2;
 
     modifier onlyNotYetRegisteredUsers() {
@@ -357,7 +357,7 @@ contract JobListing {
         uint256 reward,
         uint256 nrActive
     ) internal {
-        (uint256 priorK, , uint256 priorTaskCount) = manager.getUserRep(
+        (uint256 PriorTaskRep, , uint256 priorTaskCount) = manager.getUserRep(
             rep.user,
             tt
         );
@@ -368,19 +368,19 @@ contract JobListing {
 
         // k is the current task index (1-based)
         uint256 k = priorTaskCount + 1;
-        // maps raw delta to contribution score J in [0, WAD]
-        uint256 J = _transformDelta(rep.delta, STAKE_WAD, reward, nrActive);
+        // maps raw delta to ContributionScore in [0, WAD]
+        uint256 ContributionScore = _transformDelta(rep.delta, STAKE_WAD, reward, nrActive);
 
         (uint256 newRunningCMean, uint256 newM2) = _updateRunningStats(
-            J,
+            ContributionScore,
             priorRunningCMean,
             priorM2,
             k
         );
         uint256 newK = _updateContribScore(
-            priorK,
+            PriorTaskRep,
             _computeConfidence(k, newM2),
-            J
+            ContributionScore
         );
 
         manager.setTaskRepCalcState(rep.user, tt, newRunningCMean, newM2);
@@ -389,7 +389,7 @@ contract JobListing {
     }
 
     // Linearly maps a signed per-task reputation delta (wei) into a raw
-    // contribution score J_k in [0, WAD]. Worst case (-stake) maps to 0,
+    // ContributionScore in [0, WAD]. Worst case (-stake) maps to 0,
     // ceiling is GAIN_CAP_MULTIPLIER * (reward / nrActive) — anything above
     // is clipped to WAD. nrActive is the non-disqualified count, so kicked
     // participants do not deflate the per-participant reward share.
@@ -414,26 +414,26 @@ contract JobListing {
     }
 
     // EWMA running mean (E_k = RunningCMean) and variance proxy
-    // (F_k = M2). On the first task (k == 1) E is seeded directly from J
-    // (no smoothing) — matches the workbook's row-3 seed semantics; F stays 0
-    // because Delta2 = J - E_k = 0.
+    // (F_k = M2). On the first task (k == 1) E is seeded directly from
+    // ContributionScore (no smoothing) — matches the workbook's row-3 seed
+    // semantics; F stays 0 because Delta2 = ContributionScore - E_k = 0.
     //
     // Welford identity: D = (1-ALPHA)*C, so C*D >= 0 always — safe to compute
     // with unsigned absolutes.
     function _updateRunningStats(
-        uint256 J,
+        uint256 ContributionScore,
         uint256 priorRunningCMean,
         uint256 priorM2,
         uint256 k
     ) internal pure returns (uint256 newRunningCMean, uint256 newM2) {
         if (k <= 1) {
-            newRunningCMean = J;
+            newRunningCMean = ContributionScore;
         } else {
-            newRunningCMean = ((WAD - ALPHA) * priorRunningCMean + ALPHA * J) / WAD;
+            newRunningCMean = ((WAD - ALPHA) * priorRunningCMean + ALPHA * ContributionScore) / WAD;
         }
 
-        uint256 absDelta = J > priorRunningCMean ? J - priorRunningCMean : priorRunningCMean - J;
-        uint256 absDelta2 = J > newRunningCMean ? J - newRunningCMean : newRunningCMean - J;
+        uint256 absDelta = ContributionScore > priorRunningCMean ? ContributionScore - priorRunningCMean : priorRunningCMean - ContributionScore;
+        uint256 absDelta2 = ContributionScore > newRunningCMean ? ContributionScore - newRunningCMean : newRunningCMean - ContributionScore;
 
         newM2 =
             ((WAD - ALPHA) * priorM2) /
@@ -442,7 +442,7 @@ contract JobListing {
             (WAD * WAD);
     }
 
-    // Confidence weight H_k in [0, WAD]. Combines maturity k/(k+N_0) with
+    // Confidence in [0, WAD]. Combines maturity k/(k+N_0) with
     // stability 1/(1 + LAMBDA * s_k). Marked `virtual` so a subclass can
     // swap in a different confidence formula without touching the rest of
     // the update logic.
@@ -458,11 +458,11 @@ contract JobListing {
 
     // EWMA-smoothed ContribScore (TaskRepCalc = K_k).
     function _updateContribScore(
-        uint256 priorK,
-        uint256 H,
-        uint256 J
-    ) internal pure returns (uint256) {
-        uint256 weighted = (H * J) / WAD;
-        return ((WAD - N_BLEND) * priorK + N_BLEND * weighted) / WAD;
+        uint256 PriorTaskRep,
+        uint256 Confidence,
+        uint256 ContributionScore
+    ) internal pure returns (uint256) { // Return New TaskRep
+        uint256 weighted = (Confidence * ContributionScore) / WAD;
+        return ((WAD - N_BLEND) * PriorTaskRep + N_BLEND * weighted) / WAD;
     }
 }
