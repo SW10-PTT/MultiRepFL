@@ -40,7 +40,7 @@ config = ExperimentConfiguration(
     allow_overlap=True,
     replication_factor=1.0,
     partition_strategy="per_user", # Options: global, per_user
-    per_user_partitions="experiment/partitions/EXP-equal-distribution-30-users.json", 
+    per_user_partitions="experiment/partitions/EXP-strong-task-hoppers-30-users.json", 
     vote_baseline="local_trained" #Options: local_trained, prev_global
     #data_percentages=[30, 10, 15, 15, 10, 20],
     # 0: {"only_labels": [0, 1, 2, 3, 4]}

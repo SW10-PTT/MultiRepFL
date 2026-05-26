@@ -47,6 +47,14 @@ contract JobListingHarness is JobListing {
         return _updateContribScore(PriorTaskRep, Confidence, ContributionScore);
     }
 
+    function tUpdateIntegrityRep(
+        uint256 priorIntegrityRep,
+        uint256 positiveVotes,
+        uint256 totalVotes
+    ) external pure returns (uint256) {
+        return _updateIntegrityRep(priorIntegrityRep, positiveVotes, totalVotes);
+    }
+
     function tApplyOne(
         IOpenFLChallengeTaskRep.TaskRep memory rep,
         TaskType tt,
@@ -219,6 +227,108 @@ contract TaskRepCalcTest is Test {
     }
 
     // ============================================================
+    // _updateIntegrityRep (Global Integrity Reputation)
+    // ============================================================
+
+    function testGIR_zeroTotalVotes_decaysPrior() public {
+        // V = 0 when no votes received -> GIR = (1-LR)*prior
+        // LR = 0.2 -> GIR = 0.8 * prior
+        assertEq(h.tUpdateIntegrityRep(5e17, 0, 0), 4e17);
+    }
+
+    function testGIR_allPositive_sendsTowardsOne() public {
+        // V = (5/5)^2 = 1 -> GIR = 0.8*0.5 + 0.2*1 = 0.6
+        assertEq(h.tUpdateIntegrityRep(5e17, 5, 5), 6e17);
+    }
+
+    function testGIR_zeroPositive_decaysPriorOnly() public {
+        // V = (0/5)^2 = 0 -> GIR = 0.8*0.5 + 0.2*0 = 0.4
+        assertEq(h.tUpdateIntegrityRep(5e17, 0, 5), 4e17);
+    }
+
+    function testGIR_halfPositive_squared() public {
+        // V = (1/2)^2 = 0.25 -> GIR = 0.8*0 + 0.2*0.25 = 0.05
+        assertEq(h.tUpdateIntegrityRep(0, 1, 2), 5e16);
+    }
+
+    function testGIR_perfectPriorAllPositive_holdsAtOne() public {
+        assertEq(h.tUpdateIntegrityRep(1e18, 7, 7), 1e18);
+    }
+
+    function testGIR_convergesToOne_underAllPositive() public {
+        uint256 prior = 0;
+        for (uint256 i = 0; i < 100; i++) {
+            prior = h.tUpdateIntegrityRep(prior, 5, 5);
+        }
+        assertGt(prior, 99e16);
+    }
+
+    function testGIR_decaysToZero_underNoSignal() public {
+        // No votes received every task -> V always 0 -> prior decays geometrically.
+        uint256 prior = 1e18;
+        for (uint256 i = 0; i < 100; i++) {
+            prior = h.tUpdateIntegrityRep(prior, 0, 0);
+        }
+        assertLt(prior, 1e16);
+    }
+
+    function testGIR_stayswithinWAD_fuzzPattern() public {
+        uint256 prior = 0;
+        for (uint256 i = 1; i <= 60; i++) {
+            uint256 total = (i % 7) + 1;
+            uint256 positive = (i * 13) % (total + 1);
+            prior = h.tUpdateIntegrityRep(prior, positive, total);
+            assertLe(prior, 1e18);
+        }
+    }
+
+    // ============================================================
+    // Integration — _applyTaskRepCalc persists GIR on the manager
+    // ============================================================
+
+    function testIntegration_appliesGIR_perfectVotes() public {
+        _registerAsValidJob(h);
+
+        TaskType tt = TaskType.MNIST;
+        address user = address(0xCAFE);
+
+        // 5/5 positive votes -> V = 1 -> GIR = 0.2 (with prior = 0)
+        IOpenFLChallengeTaskRep.TaskRep memory rep = IOpenFLChallengeTaskRep
+            .TaskRep({
+                user: user,
+                delta: 0,
+                globalReputationScore: 0,
+                positiveVotes: 5,
+                totalVotes: 5
+            });
+        h.tApplyOne(rep, tt, 10e18, 5);
+
+        (, uint256 storedGIR, ) = manager.getUserRep(user, tt);
+        assertEq(storedGIR, 2e17);
+    }
+
+    function testIntegration_appliesGIR_noVotes_initialState() public {
+        _registerAsValidJob(h);
+
+        TaskType tt = TaskType.MNIST;
+        address user = address(0xC0DE);
+
+        // Prior GIR = 0, totalVotes = 0 -> V = 0 -> new GIR = 0 (0.8*0 + 0.2*0).
+        IOpenFLChallengeTaskRep.TaskRep memory rep = IOpenFLChallengeTaskRep
+            .TaskRep({
+                user: user,
+                delta: 0,
+                globalReputationScore: 0,
+                positiveVotes: 0,
+                totalVotes: 0
+            });
+        h.tApplyOne(rep, tt, 10e18, 5);
+
+        (, uint256 storedGIR, ) = manager.getUserRep(user, tt);
+        assertEq(storedGIR, 0);
+    }
+
+    // ============================================================
     // Invariants over many rounds
     // ============================================================
 
@@ -302,7 +412,13 @@ contract TaskRepCalcTest is Test {
 
         // delta=0, stake=1e18, reward=10e18, nrActive=5 -> ContributionScore = 0.2e18
         IOpenFLChallengeTaskRep.TaskRep memory rep = IOpenFLChallengeTaskRep
-            .TaskRep({user: user, delta: 0, globalReputationScore: 0});
+            .TaskRep({
+                user: user,
+                delta: 0,
+                globalReputationScore: 0,
+                positiveVotes: 0,
+                totalVotes: 0
+            });
         h.tApplyOne(rep, tt, 10e18, 5);
 
         (uint256 storedK, , uint256 nrTasks) = manager.getUserRep(user, tt);
@@ -330,7 +446,13 @@ contract TaskRepCalcTest is Test {
 
         // Task 1: delta=2e18 -> ContributionScore = 0.6e18
         IOpenFLChallengeTaskRep.TaskRep memory rep1 = IOpenFLChallengeTaskRep
-            .TaskRep({user: user, delta: int256(2e18), globalReputationScore: 0});
+            .TaskRep({
+                user: user,
+                delta: int256(2e18),
+                globalReputationScore: 0,
+                positiveVotes: 0,
+                totalVotes: 0
+            });
         h.tApplyOne(rep1, tt, 10e18, 5);
 
         (uint256 k1, , uint256 nr1) = manager.getUserRep(user, tt);
@@ -366,7 +488,13 @@ contract TaskRepCalcTest is Test {
 
         // Seed K with a strong prior via several positive tasks.
         IOpenFLChallengeTaskRep.TaskRep memory good = IOpenFLChallengeTaskRep
-            .TaskRep({user: user, delta: int256(4e18), globalReputationScore: 0});
+            .TaskRep({
+                user: user,
+                delta: int256(4e18),
+                globalReputationScore: 0,
+                positiveVotes: 0,
+                totalVotes: 0
+            });
         for (uint i = 0; i < 5; i++) {
             h.tApplyOne(good, tt, 10e18, 5);
         }
@@ -378,7 +506,9 @@ contract TaskRepCalcTest is Test {
             .TaskRep({
                 user: user,
                 delta: -int256(1e18),
-                globalReputationScore: 0
+                globalReputationScore: 0,
+                positiveVotes: 0,
+                totalVotes: 0
             });
         h.tApplyOne(kicked, tt, 10e18, 5);
 

@@ -186,4 +186,23 @@ contract OpenFLManager {
         require(validJobs[msg.sender], "OFLM: caller not valid job");
         users[user].NumberOfTasksJoined += 1;
     }
+
+    event UserIntegrityRepUpdated(
+        address indexed user,
+        uint256 oldValue,
+        uint256 newValue
+    );
+
+    // Replace a user's Global Integrity Reputation (GIR). Same auth model as
+    // setUserTaskRep — only callable by a registered (valid) JobListing.
+    // GIR is WAD-scaled in [0, WAD]; the JobListing computes the EWMA-blended
+    // value off the per-task vote tallies at end-of-task and writes it here.
+    function setUserIntegrityRep(address user, uint256 newValue) external {
+        require(validJobs[msg.sender], "OFLM: caller not valid job");
+
+        uint256 current = users[user].GlobalIntegrityRep;
+        users[user].GlobalIntegrityRep = newValue;
+
+        emit UserIntegrityRepUpdated(user, current, newValue);
+    }
 }

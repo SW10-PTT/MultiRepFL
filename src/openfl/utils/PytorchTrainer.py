@@ -49,8 +49,10 @@ class PyTorchTrainer(ITestAndTrainer):
 
     def get_task_rep_delta_and_GRS(self, round, tag, contract: Contract, get_participant_func):
         data = contract.functions.getTaskRepDeltaAndGRS.call()
+        # On-chain TaskRep struct is (addr, delta, grs, positiveVotes, totalVotes).
+        # Persist all five so the replay path can reconstruct GIR inputs.
         formatted_data = [
-            (str(get_participant_func(u[0]).id), u[1], u[2])
+            (str(get_participant_func(u[0]).id), u[1], u[2], u[3], u[4])
             for u in data
             if get_participant_func(u[0]) is not None
         ]

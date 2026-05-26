@@ -24,13 +24,18 @@ class ExperimentLogger:
     def log_task_rep_calc(self, address=None, user_id=None, task_type=None,
                           k=None, running_c_mean=None, m2=None,
                           global_task_rep=None, global_integrity_rep=None,
-                          task_rep_delta=None, final_grs=None):
+                          task_rep_delta=None, final_grs=None,
+                          positive_votes=None, total_votes=None):
         """One row per participant at end-of-task.
 
         WAD-normalised floats (divided by 1e18, range [0, 1]):
             running_c_mean, m2, global_task_rep, global_integrity_rep
         Raw on-chain integers:
-            task_rep_delta (int256 wei, signed), final_grs (uint256 wei)
+            task_rep_delta (int256 wei, signed), final_grs (uint256 wei),
+            positive_votes / total_votes (cross-round vote tallies for this
+            participant, with votes from kicked voters already removed —
+            these are the inputs to V = (positive/total)^2 inside the GIR
+            EWMA update).
         k: NumberOfTasksJoined after this task completes — equals the k index
            used in the confidence formula for this task.
         Disqualified users are included: final_grs=0 (zeroed on disqualification),
@@ -48,6 +53,8 @@ class ExperimentLogger:
             "global_integrity_rep": global_integrity_rep,
             "task_rep_delta":       task_rep_delta,
             "final_grs":            final_grs,
+            "positive_votes":       positive_votes,
+            "total_votes":          total_votes,
         })
 
     # -------- GLOBAL ROUND --------
@@ -225,7 +232,7 @@ class NullExperimentLogger:
     def log_contribution_scores(self, round=None, user_numbers=None, user_addresses=None, scores=None, raw_values=None, outlier_info=None, previous_avg=None): pass
     def log_receipt(self, round=None, tx_type=None, tx_hash=None, gas_used=None): pass
     def log_warning(self, round=None, message=None): pass
-    def log_task_rep_calc(self, address=None, user_id=None, task_type=None, k=None, running_c_mean=None, m2=None, global_task_rep=None, global_integrity_rep=None, task_rep_delta=None, final_grs=None): pass
+    def log_task_rep_calc(self, address=None, user_id=None, task_type=None, k=None, running_c_mean=None, m2=None, global_task_rep=None, global_integrity_rep=None, task_rep_delta=None, final_grs=None, positive_votes=None, total_votes=None): pass
     def log_setup(self, total_experiment_time=None, hardware=None, config=None): pass
     def finalize(self): pass
     def save(self, path=None): pass

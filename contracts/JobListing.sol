@@ -10,6 +10,8 @@ interface IOpenFLChallengeTaskRep {
         address user;
         int256 delta;
         uint globalReputationScore;
+        uint256 positiveVotes;
+        uint256 totalVotes;
     }
 
     function getTaskRepDeltaAndGRS() external view returns (TaskRep[] memory);
@@ -36,6 +38,10 @@ contract JobListing {
     uint256 internal constant N_0 = 5;
     uint256 internal constant LAMBDA = 20;
     uint256 internal constant STAKE_WAD = 1e18;
+    // EWMA learning rate on the Global Integrity Reputation (GIR).
+    // GIR = (1 - INTEGRITY_LEARNING_RATE) * priorGIR + INTEGRITY_LEARNING_RATE * V,
+    // V = (positiveVotes / totalVotes)^2 in [0, WAD].
+    uint256 internal constant INTEGRITY_LEARNING_RATE = 2e17;
     // Upper bound on per-task positive delta = GAIN_CAP_MULTIPLIER * (reward /
     // nrActive). 1x flattens top performers (their ContributionScore caps at
     // the equal-share baseline). 2x gives outperformers headroom while keeping
@@ -351,25 +357,39 @@ contract JobListing {
 
     // Per-participant body of updateUserTaskReps, extracted so the loop's
     // stack stays shallow enough for the compiler.
+    // Thin dispatcher: each sub-step runs in its own frame to keep this loop
+    // body under the EVM's 16-slot stack limit.
     function _applyTaskRepCalc(
         IOpenFLChallengeTaskRep.TaskRep memory rep,
         TaskType tt,
         uint256 reward,
         uint256 nrActive
     ) internal {
+        _applyContribAndStats(rep.user, tt, rep.delta, reward, nrActive);
+        _applyIntegrityCalc(rep.user, tt, rep.positiveVotes, rep.totalVotes);
+    }
+
+    // TaskRepCalc body: updates RunningCMean, M2, TaskRep + bumps task count.
+    function _applyContribAndStats(
+        address user,
+        TaskType tt,
+        int256 rawDelta,
+        uint256 reward,
+        uint256 nrActive
+    ) internal {
         (uint256 PriorTaskRep, , uint256 priorTaskCount) = manager.getUserRep(
-            rep.user,
+            user,
             tt
         );
         (uint256 priorRunningCMean, uint256 priorM2) = manager.getTaskRepCalcState(
-            rep.user,
+            user,
             tt
         );
 
         // k is the current task index (1-based)
         uint256 k = priorTaskCount + 1;
         // maps raw delta to ContributionScore in [0, WAD]
-        uint256 ContributionScore = _transformDelta(rep.delta, STAKE_WAD, reward, nrActive);
+        uint256 ContributionScore = _transformDelta(rawDelta, STAKE_WAD, reward, nrActive);
 
         (uint256 newRunningCMean, uint256 newM2) = _updateRunningStats(
             ContributionScore,
@@ -383,9 +403,51 @@ contract JobListing {
             ContributionScore
         );
 
-        manager.setTaskRepCalcState(rep.user, tt, newRunningCMean, newM2);
-        manager.setUserTaskRep(rep.user, tt, newK);
-        manager.incrementNumberOfTasksJoined(rep.user);
+        manager.setTaskRepCalcState(user, tt, newRunningCMean, newM2);
+        manager.setUserTaskRep(user, tt, newK);
+        manager.incrementNumberOfTasksJoined(user);
+    }
+
+    // End-of-task GIR write. Reads the participant's current Global Integrity
+    // Reputation off the manager, blends in V = (positive/total)^2, and
+    // persists the updated value.
+    function _applyIntegrityCalc(
+        address user,
+        TaskType tt,
+        uint256 positiveVotes,
+        uint256 totalVotes
+    ) internal {
+        (, uint256 priorIntegrityRep, ) = manager.getUserRep(user, tt);
+        uint256 newIntegrityRep = _updateIntegrityRep(
+            priorIntegrityRep,
+            positiveVotes,
+            totalVotes
+        );
+        manager.setUserIntegrityRep(user, newIntegrityRep);
+    }
+
+    // Global Integrity Reputation (GIR) EWMA update.
+    //   V   = (positiveVotes / totalVotes)^2 in [0, WAD]
+    //   GIR = (1 - INTEGRITY_LEARNING_RATE) * priorGIR + INTEGRITY_LEARNING_RATE * V
+    // totalVotes == 0 (no votes received this task) collapses V to 0 — prior
+    // GIR simply decays toward 0 with no new evidence.
+    function _updateIntegrityRep(
+        uint256 priorIntegrityRep,
+        uint256 positiveVotes,
+        uint256 totalVotes
+    ) internal pure returns (uint256) {
+        uint256 V;
+        if (totalVotes == 0) {
+            V = 0;
+        } else {
+            uint256 ratio = (positiveVotes * WAD) / totalVotes; // [0, WAD]
+            V = (ratio * ratio) / WAD;                          // [0, WAD]
+        }
+        return
+            ((WAD - INTEGRITY_LEARNING_RATE) *
+                priorIntegrityRep +
+                INTEGRITY_LEARNING_RATE *
+                V) / WAD;
     }
 
     // Linearly maps a signed per-task reputation delta (wei) into a raw

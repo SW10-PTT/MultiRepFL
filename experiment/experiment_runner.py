@@ -405,17 +405,23 @@ def _log_task_rep_calc(logger, challenge, manager, job_listing, pytorch_model):
     WAD = 10 ** 18
     task_type = job_listing.get_task_type()
 
-    # getTaskRepDeltaAndGRS returns [(address, int256 delta, uint grs), ...]
+    # getTaskRepDeltaAndGRS returns
+    #   [(address, int256 delta, uint grs, uint positiveVotes, uint totalVotes), ...]
     # for all participants registered in the challenge contract.
     trs_raw = challenge.contract.functions.getTaskRepDeltaAndGRS().call()
-    trs_by_addr = {entry[0].lower(): (entry[1], entry[2]) for entry in trs_raw}
+    trs_by_addr = {
+        entry[0].lower(): (entry[1], entry[2], entry[3], entry[4])
+        for entry in trs_raw
+    }
 
     all_participants = pytorch_model.participants + pytorch_model.disqualified
     for user in all_participants:
         addr = user.address
         e, f = manager.contract.functions.getTaskRepCalcState(addr, task_type).call()
         task_rep_wad, integrity_rep, nr_tasks = manager.contract.functions.getUserRep(addr, task_type).call()
-        delta, grs = trs_by_addr.get(addr.lower(), (None, None))
+        delta, grs, positive_votes, total_votes = trs_by_addr.get(
+            addr.lower(), (None, None, None, None)
+        )
         logger.log_task_rep_calc(
             address=addr,
             user_id=str(user.id),
@@ -427,6 +433,8 @@ def _log_task_rep_calc(logger, challenge, manager, job_listing, pytorch_model):
             global_integrity_rep=integrity_rep / WAD,
             task_rep_delta=delta,
             final_grs=grs,
+            positive_votes=positive_votes,
+            total_votes=total_votes,
         )
 
 
