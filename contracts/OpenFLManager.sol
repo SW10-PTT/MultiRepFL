@@ -306,14 +306,6 @@ contract OpenFLManager {
         emit TaskRepCalcStateUpdated(user, key, newRunningCMean, newM2);
     }
 
-    // Increment a user's lifetime task-participation counter by 1. Called by
-    // the JobListing at end-of-task for each participant so that
-    // `NumberOfTasksJoined` reflects the round index used by TaskRepCalc.
-    function incrementNumberOfTasksJoined(address user) external {
-        require(validJobs[msg.sender], "OFLM: caller not valid job");
-        users[user].NumberOfTasksJoined += 1;
-    }
-
     event UserIntegrityRepUpdated(
         address indexed user,
         uint256 oldValue,

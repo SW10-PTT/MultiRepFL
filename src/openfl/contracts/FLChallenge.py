@@ -292,7 +292,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                     continue
                 if user.attitude == "inactive":
                     continue
-                txHash = self.giveFeedback(user, self.pytorch_model.participants[ix], int(vote))
+                txHash = self.give_feedback(user, self.pytorch_model.participants[ix], int(vote))
                 txs.append(txHash)
            
         l = len(txs)
@@ -1462,7 +1462,6 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                 "globalLoss": self.pytorch_model.loss[-1] or 0,
                 "conctractBalanceRewards": self._reward_balance[-1],
                 "round_rewards": [],
-                "round_rewards": [],
                 "accAvgPerUser": [],
                 "lossAvgPerUser": [],
                 "feedbackMatrix": None,
@@ -1538,7 +1537,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                 "globalAcc": self.pytorch_model.accuracy[-1] or 0, # Checks out
                 "globalLoss": self.pytorch_model.loss[-1] or 0, # Checks out
                 "conctractBalanceRewards": self._reward_balance[-1],
-                "round_rewards": round_punishment,
+                "round_punishments": round_punishment,
                 "round_rewards": self.get_round_rewards(receipt),
                 "accAvgPerUser": self.evaluation.prev_accuracies, # Check - Should come from am
                 "lossAvgPerUser": self.evaluation.prev_losses, # Check - Should come from lm
@@ -1561,9 +1560,9 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                 log("round_scoring", colored(warn, 'yellow'))
             log("round_scoring", red("!" * 78))
         if self.writer is not None:
-            self.writer.writeComment(f"$gasCosts${self.gas_feedback},{self.gas_register},{self.gas_slot},{self.gas_weights},{self.gas_close},{self.gas_deploy},{self.gas_exit}")
+            self.writer.write_comment(f"$gasCosts${self.gas_feedback},{self.gas_register},{self.gas_slot},{self.gas_weights},{self.gas_close},{self.gas_deploy},{self.gas_exit}")
         trs = self.pytorch_model.runRepo.get_task_rep_delta_and_GRS(-1, "get_task_rep_delta_and_GRS-simulate", self.contract, self.pytorch_model.get_participant)
-        self.writer.writeComment(f"$trs${trs}")
+        self.writer.write_comment(f"$trs${trs}")
         self._logger.log_trs(trs)
         self.pytorch_model.runRepo.flush()
 

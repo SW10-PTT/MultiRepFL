@@ -25,7 +25,8 @@ class MultirepRunConfig:
         fork=True,
         seed=123,
         allow_overlap=False,
-        replication_factor=1.0):
+        replication_factor=1.0,
+        training_mode=None):  # TrainingMode.LOCAL | REMOTE | MIXED; None defaults to LOCAL
     self.partition_file = partition_file
     self.dataset = dataset.replace(".", "-").lower()
     self.reward = reward
@@ -63,6 +64,11 @@ class MultirepRunConfig:
     self.seed = seed
     self.allow_overlap = allow_overlap
     self.replication_factor = replication_factor
+
+    from experiment.multirep.training_mode import TrainingMode
+    self.training_mode: TrainingMode = (
+        training_mode if training_mode is not None else TrainingMode.LOCAL
+    )
 
   def _base_config_kwargs(self):
     return dict(
@@ -102,14 +108,17 @@ class MultirepRunConfig:
         per_user_partitions=self.partition_file,
     )
 
-  def to_experiment_config_with_partitions(self, partitions):
-    """Build ExperimentConfiguration from a pre-parsed {dataset_key: {user_index: UserPartitionSpec}} dict.
+  def to_experiment_config_with_partitions(self, specs: dict):
+    """Build ExperimentConfiguration from a flat {user_index: UserPartitionSpec} dict.
 
-    Used by multirep to create a per-run config containing only the selected
-    participants' specs, so contributor counts and fingerprints are correct.
+    Wraps *specs* under the normalised dataset key (e.g. "mnist", "cifar-10")
+    so ExperimentConfiguration.get_partition_specs() can look them up by the
+    active dataset name rather than falling back to the ANY_DATASET wildcard.
     """
     from experiment.experiment_configuration import ExperimentConfiguration
+    from openfl.ml.partition_spec import normalize_dataset_name
+    dataset_key = normalize_dataset_name(self.dataset)
     return ExperimentConfiguration(
         **self._base_config_kwargs(),
-        per_user_partitions=partitions,
+        per_user_partitions={dataset_key: specs},
     )

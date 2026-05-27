@@ -7,10 +7,11 @@ from openfl.api import ConnectionHelper, globals
 from openfl.utils.printer import log
 
 class FLManager(ConnectionHelper):
+    REPUTATION_MODE_PER_TASK = 0
+    REPUTATION_MODE_GLOBAL_ONLY = 1
+
     def __init__(self, publisher, manual_ganache_setup=False, global_rep_only=False):
-        REPUTATION_MODE_PER_TASK = 0
-        REPUTATION_MODE_GLOBAL_ONLY = 1
-        
+
         self.latestBlock = None
         self.contract = None
         self.challenge_contract = None
@@ -207,7 +208,7 @@ class FLManager(ConnectionHelper):
         self.challenge_templete_hash = Web3.keccak(code)
 
         log("setup_contracts", "Challenge template deployed at:", contract.address)
-        log("setup_contracts", "Challenge template hash:", self.job_template_hash.hex())
+        log("setup_contracts", "Challenge template hash:", self.challenge_templete_hash.hex())
 
     def update_reputations_from_challenge(self, challenge_address: str, task_type: int):
         """Sync reputation data from a completed challenge into the manager (Python/replay path).

@@ -18,6 +18,7 @@ class ExperimentLogger:
         self._contribution_rows = []
         self._warning_rows = []
         self._task_rep_calc_rows = []
+        self._trs = []
 
     # -------- TASK REP CALC --------
 
@@ -74,6 +75,9 @@ class ExperimentLogger:
 
             # Add
         })
+
+    def log_trs(self, trs):
+        self._trs.append(trs)
 
     # -------- USER ROUND --------
 
@@ -207,6 +211,7 @@ class ExperimentLogger:
             "contributions":   pd.DataFrame(self._contribution_rows),
             "warnings":        pd.DataFrame(self._warning_rows),
             "task_rep_calc":   pd.DataFrame(self._task_rep_calc_rows),
+            "trs":             pd.DataFrame(self._trs),
         }
 
     # -------- SAVE --------

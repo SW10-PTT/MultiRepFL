@@ -80,7 +80,7 @@ contract JobListing {
     struct User {
         uint globalTaskRep; // 32
         uint globalIntegrity; // 32
-        uint128 qValue; // 16  — Q-value from manager at registration time
+        uint qValue; // 32  — Q-value from manager at registration time
         address addr; // 20
         bool isSelected; // 1
     }
@@ -173,11 +173,10 @@ contract JobListing {
 
         // TaskRep is per-task (TaskType acts as dataset key) — getUserRep
         // returns the user's TaskRep specifically for this job's task.
-        (
-            uint taskRep,
-            uint globalIntegrity,
-            uint128 qValue
-        ) = manager.getUserRep(userAddr, trainingSpecs.taskType);
+        (uint taskRep, uint globalIntegrity, uint qValue) = manager.getUserRep(
+            userAddr,
+            trainingSpecs.taskType
+        );
 
         user.globalTaskRep = taskRep;
         user.globalIntegrity = globalIntegrity;
@@ -216,16 +215,19 @@ contract JobListing {
         selectedParticipants = selected;
 
         // Update Q-values: patience bonus for non-selected, reset for selected.
-        manager.updateQValuesAfterSelection(applicantAddresses, selected, trainingSpecs.taskType);
+        manager.updateQValuesAfterSelection(
+            applicantAddresses,
+            selected,
+            trainingSpecs.taskType
+        );
 
         emit SelectionComplete(selected);
     }
 
-
     function _selectionScore(User storage u) internal view returns (uint) {
         // score = max(1, qValue) * (taskRep * 6 + globalIntegrity * 4) / 10
         uint q = u.qValue > 0 ? uint(u.qValue) : 1;
-        return q * (u.globalTaskRep * 6 + u.globalIntegrity * 4) / 10;
+        return (q * (u.globalTaskRep * 6 + u.globalIntegrity * 4)) / 10;
     }
 
     function getTopN(uint N) public view returns (address[] memory) {
@@ -312,7 +314,8 @@ contract JobListing {
         returns (IOpenFLChallengeTaskRep.TaskRep[] memory)
     {
         require(challengeAddress != address(0), "JL: challenge not registered");
-        return IOpenFLChallengeTaskRep(challengeAddress).getTaskRepDeltaAndGRS();
+        return
+            IOpenFLChallengeTaskRep(challengeAddress).getTaskRepDeltaAndGRS();
     }
 
     // Calculate and apply the updated per-task (= per-dataset) TaskRep for
@@ -384,7 +387,12 @@ contract JobListing {
     ) internal {
         _applyContribAndStats(rep.user, tt, rep.delta, reward, nrActive);
         if (applyGIR) {
-            _applyIntegrityCalc(rep.user, tt, rep.positiveVotes, rep.totalVotes);
+            _applyIntegrityCalc(
+                rep.user,
+                tt,
+                rep.positiveVotes,
+                rep.totalVotes
+            );
         }
     }
 
@@ -400,15 +408,18 @@ contract JobListing {
             user,
             tt
         );
-        (uint256 priorRunningCMean, uint256 priorM2) = manager.getTaskRepCalcState(
-            user,
-            tt
-        );
+        (uint256 priorRunningCMean, uint256 priorM2) = manager
+            .getTaskRepCalcState(user, tt);
 
         // k is the current task index (1-based)
         uint256 k = priorTaskCount + 1;
         // maps raw delta to ContributionScore in [0, WAD]
-        uint256 ContributionScore = _transformDelta(rawDelta, STAKE_WAD, reward, nrActive);
+        uint256 ContributionScore = _transformDelta(
+            rawDelta,
+            STAKE_WAD,
+            reward,
+            nrActive
+        );
 
         (uint256 newRunningCMean, uint256 newM2) = _updateRunningStats(
             ContributionScore,
@@ -424,7 +435,7 @@ contract JobListing {
 
         manager.setTaskRepCalcState(user, tt, newRunningCMean, newM2);
         manager.setUserTaskRep(user, tt, newK);
-        manager.incrementNumberOfTasksJoined(user);
+        //manager.incrementNumberOfTasksJoined(user); //Todo check
     }
 
     // End-of-task GIR write. Reads the participant's current Global Integrity
@@ -460,7 +471,7 @@ contract JobListing {
             V = 0;
         } else {
             uint256 ratio = (positiveVotes * WAD) / totalVotes; // [0, WAD]
-            V = (ratio * ratio) / WAD;                          // [0, WAD]
+            V = (ratio * ratio) / WAD; // [0, WAD]
         }
         return
             ((WAD - INTEGRITY_LEARNING_RATE) *
@@ -510,11 +521,20 @@ contract JobListing {
         if (k <= 1) {
             newRunningCMean = ContributionScore;
         } else {
-            newRunningCMean = ((WAD - ALPHA) * priorRunningCMean + ALPHA * ContributionScore) / WAD;
+            newRunningCMean =
+                ((WAD - ALPHA) *
+                    priorRunningCMean +
+                    ALPHA *
+                    ContributionScore) /
+                WAD;
         }
 
-        uint256 absDelta = ContributionScore > priorRunningCMean ? ContributionScore - priorRunningCMean : priorRunningCMean - ContributionScore;
-        uint256 absDelta2 = ContributionScore > newRunningCMean ? ContributionScore - newRunningCMean : newRunningCMean - ContributionScore;
+        uint256 absDelta = ContributionScore > priorRunningCMean
+            ? ContributionScore - priorRunningCMean
+            : priorRunningCMean - ContributionScore;
+        uint256 absDelta2 = ContributionScore > newRunningCMean
+            ? ContributionScore - newRunningCMean
+            : newRunningCMean - ContributionScore;
 
         newM2 =
             ((WAD - ALPHA) * priorM2) /
@@ -542,7 +562,8 @@ contract JobListing {
         uint256 PriorTaskRep,
         uint256 Confidence,
         uint256 ContributionScore
-    ) internal pure returns (uint256) { // Return New TaskRep
+    ) internal pure returns (uint256) {
+        // Return New TaskRep
         uint256 weighted = (Confidence * ContributionScore) / WAD;
         return ((WAD - N_BLEND) * PriorTaskRep + N_BLEND * weighted) / WAD;
     }

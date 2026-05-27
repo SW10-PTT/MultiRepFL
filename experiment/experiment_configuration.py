@@ -138,16 +138,18 @@ class ExperimentConfiguration:
                 raise ValueError(
                     "partition_strategy='per_user' requires per_user_partitions to be provided"
                 )
-            if data_percentages is not None:
+            if data_percentages is not None and len(data_percentages) > 0:
                 raise ValueError(
                     "data_percentages is not allowed when partition_strategy='per_user'; "
                     "set data_percent inside the per-user spec instead"
                 )
-            if label_rules is not None:
+            if label_rules is not None and len(label_rules) > 0:
                 raise ValueError(
                     "label_rules is not allowed when partition_strategy='per_user'; "
                     "set only_labels/flip_map inside the per-user spec instead"
                 )
+            data_percentages = None
+            label_rules = None
             self._validate_per_user_index_set()
             self._refresh_counts_from_specs()
             self.data_percentages = []
