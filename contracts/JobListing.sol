@@ -346,9 +346,12 @@ contract JobListing {
         // per-participant reward cap reflects the true distribution pool,
         // not the inflated raw participant count.
         uint256 nrActive = challenge.nrOfActiveParticipants();
+        // Cache the manager's reputation mode once so the per-participant
+        // loop doesn't repeat an external call on every iteration.
+        bool applyGIR = manager.reputationMode() == ReputationMode.PerTask;
 
         for (uint i = 0; i < reps.length; i++) {
-            _applyTaskRepCalc(reps[i], tt, reward, nrActive);
+            _applyTaskRepCalc(reps[i], tt, reward, nrActive, applyGIR);
         }
 
         taskRepsApplied = true;
@@ -359,14 +362,21 @@ contract JobListing {
     // stack stays shallow enough for the compiler.
     // Thin dispatcher: each sub-step runs in its own frame to keep this loop
     // body under the EVM's 16-slot stack limit.
+    //
+    // GIR is intentionally skipped when the manager is configured for
+    // ReputationMode.GlobalOnly — votes are still cast and tallied on the
+    // challenge contract, they just don't update the on-chain GIR value.
     function _applyTaskRepCalc(
         IOpenFLChallengeTaskRep.TaskRep memory rep,
         TaskType tt,
         uint256 reward,
-        uint256 nrActive
+        uint256 nrActive,
+        bool applyGIR
     ) internal {
         _applyContribAndStats(rep.user, tt, rep.delta, reward, nrActive);
-        _applyIntegrityCalc(rep.user, tt, rep.positiveVotes, rep.totalVotes);
+        if (applyGIR) {
+            _applyIntegrityCalc(rep.user, tt, rep.positiveVotes, rep.totalVotes);
+        }
     }
 
     // TaskRepCalc body: updates RunningCMean, M2, TaskRep + bumps task count.

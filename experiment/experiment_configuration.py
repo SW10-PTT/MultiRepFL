@@ -59,7 +59,8 @@ class ExperimentConfiguration:
                  replication_factor=3.0,
                  partition_strategy="per_user", # Options: global, per_user
                  per_user_partitions="experiment/partitions/example.json", # Path to JSON file with per-user partition specs; see example.json for format. Or None. Example: "experiment/partitions/example.json"
-                 vote_baseline="local_trained"): # Reference accuracy for +/-/neutral vote thresholds. Options: local_trained (giver's own post-training acc on giver val), prev_global (previous-round global model acc on giver val)
+                 vote_baseline="local_trained", # Reference accuracy for +/-/neutral vote thresholds. Options: local_trained (giver's own post-training acc on giver val), prev_global (previous-round global model acc on giver val)
+                 global_rep_only=False): # If True, OpenFLManager is deployed in GlobalOnly mode: a single TaskRep slot per user (shared across all TaskTypes) and GIR updates are disabled. Voting still happens but does not feed GIR.
 
         self.name = name
         self.dataset = dataset
@@ -128,6 +129,7 @@ class ExperimentConfiguration:
                 f"vote_baseline must be one of {VALID_VOTE_BASELINES}, got {vote_baseline!r}"
             )
         self.vote_baseline = vote_baseline
+        self.global_rep_only = bool(global_rep_only)
         self.per_user_partitions = self._resolve_per_user_partitions(per_user_partitions)
 
         if self.partition_strategy == "per_user":
@@ -360,6 +362,7 @@ class ExperimentConfiguration:
             "user_seeds": dict(sorted(self.user_seeds.items())),
             "partition_strategy": self.partition_strategy,
             "vote_baseline": self.vote_baseline,
+            "global_rep_only": self.global_rep_only,
             "per_user_partitions": {
                 dataset_key: [
                     spec.fingerprint_dict()

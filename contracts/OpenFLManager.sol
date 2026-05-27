@@ -55,16 +55,42 @@ contract OpenFLManager {
     bytes32 public challengeCodeHash;
     address public publisher;
 
-    constructor() {
+    // Reputation mode is fixed at deploy time. PerTask preserves the original
+    // per-dataset behaviour (one TaskRep slot per TaskType, GIR updated each
+    // task). GlobalOnly collapses all TaskType-keyed reads/writes onto a
+    // single sentinel slot per user (TaskType.template) and disables GIR
+    // updates so the GIR value remains at its prior value (default 0).
+    ReputationMode public immutable reputationMode;
+
+    // Sentinel TaskType used by _repKey when reputationMode == GlobalOnly.
+    // template is unused for real tasks (it marks the uninitialised default),
+    // so reusing its slot to hold the global reputation bucket cannot collide
+    // with per-task data.
+    TaskType internal constant GLOBAL_KEY = TaskType.template;
+
+    constructor(ReputationMode _reputationMode) {
         publisher = msg.sender;
+        reputationMode = _reputationMode;
+    }
+
+    // Maps a caller-supplied TaskType to the storage slot used for TaskRep
+    // (and TaskRepCalc running state). Per-task mode passes the TaskType
+    // through unchanged; global-only mode redirects every key onto the
+    // shared sentinel slot.
+    function _repKey(TaskType taskType) internal view returns (TaskType) {
+        return
+            reputationMode == ReputationMode.GlobalOnly
+                ? GLOBAL_KEY
+                : taskType;
     }
 
     function getUserRep(
         address addr,
         TaskType taskType
     ) public view returns (uint, uint, uint) {
+        TaskType key = _repKey(taskType);
         return (
-            users[addr].GlobalTaskRep[taskType],
+            users[addr].GlobalTaskRep[key],
             users[addr].GlobalIntegrityRep,
             users[addr].NumberOfTasksJoined
         );
@@ -138,10 +164,11 @@ contract OpenFLManager {
     ) external {
         require(validJobs[msg.sender], "OFLM: caller not valid job");
 
-        uint256 current = users[user].GlobalTaskRep[taskType];
-        users[user].GlobalTaskRep[taskType] = newValue;
+        TaskType key = _repKey(taskType);
+        uint256 current = users[user].GlobalTaskRep[key];
+        users[user].GlobalTaskRep[key] = newValue;
 
-        emit UserTaskRepUpdated(user, taskType, current, newValue);
+        emit UserTaskRepUpdated(user, key, current, newValue);
     }
 
     event TaskRepCalcStateUpdated(
@@ -157,9 +184,10 @@ contract OpenFLManager {
         address addr,
         TaskType taskType
     ) public view returns (uint256 runningCMean, uint256 m2) {
+        TaskType key = _repKey(taskType);
         return (
-            users[addr].RunningCMean[taskType],
-            users[addr].M2[taskType]
+            users[addr].RunningCMean[key],
+            users[addr].M2[key]
         );
     }
 
@@ -173,10 +201,11 @@ contract OpenFLManager {
     ) external {
         require(validJobs[msg.sender], "OFLM: caller not valid job");
 
-        users[user].RunningCMean[taskType] = newRunningCMean;
-        users[user].M2[taskType] = newM2;
+        TaskType key = _repKey(taskType);
+        users[user].RunningCMean[key] = newRunningCMean;
+        users[user].M2[key] = newM2;
 
-        emit TaskRepCalcStateUpdated(user, taskType, newRunningCMean, newM2);
+        emit TaskRepCalcStateUpdated(user, key, newRunningCMean, newM2);
     }
 
     // Increment a user's lifetime task-participation counter by 1. Called by

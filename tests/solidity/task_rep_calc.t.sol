@@ -61,7 +61,8 @@ contract JobListingHarness is JobListing {
         uint256 reward,
         uint256 nrActive
     ) external {
-        _applyTaskRepCalc(rep, tt, reward, nrActive);
+        bool applyGIR = manager.reputationMode() == ReputationMode.PerTask;
+        _applyTaskRepCalc(rep, tt, reward, nrActive, applyGIR);
     }
 }
 
@@ -88,7 +89,7 @@ contract TaskRepCalcTest is Test {
     uint256 constant N_BLEND = 2e17;
 
     function setUp() public {
-        manager = new OpenFLManager();
+        manager = new OpenFLManager(ReputationMode.PerTask);
         h = new JobListingHarness(address(manager));
     }
 

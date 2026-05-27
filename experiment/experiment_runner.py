@@ -24,7 +24,7 @@ from openfl.utils.types.User import User
 from openfl.utils.printer import set_enabled_tags, log
 
 
-def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration, writer: AsyncWriter=None, logger=None, path=None):
+def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration, writer: AsyncWriter=None, logger=None, path=None, shared_manager_contract=None):
   set_enabled_tags(experiment_config.enabled_prints)
 
   dataset_name = dataset_name.replace(".", "-")
@@ -107,13 +107,16 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
   RPC_ENDPOINT = get_RPC_Endpoint()
   PRIVKEYS = get_PRIVKEYS(experiment_config) # TODO : HUH, private keys?
 
-  manager = Manager(pytorch_model, publisher,True).init(experiment_config.number_of_good_contributors,
+  manager = Manager(pytorch_model, publisher, True,
+                    global_rep_only=experiment_config.global_rep_only).init(
+                                              experiment_config.number_of_good_contributors,
                                               experiment_config.number_of_bad_contributors,
                                               experiment_config.number_of_freerider_contributors,
                                               experiment_config.number_of_inactive_contributors,
                                               experiment_config.minimum_rounds,
                                               RPC_ENDPOINT,
-                                              PRIVKEYS)
+                                              PRIVKEYS,
+                                              existing_contract=shared_manager_contract)
 
 
   training_specs = experiment_config.get_training_specs(manager.contract.address, pytorch_model.get_global_model_hash())
@@ -240,6 +243,7 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
           "seed":                              cfg.seed,
           "allow_overlap":                     cfg.allow_overlap,
           "replication_factor":                cfg.replication_factor,
+          "global_rep_only":                   cfg.global_rep_only,
           "user_seeds":                        {u.number: u.seed for u in users},
           "data_percentages":                  {u.number: u.data_percent for u in users},
       }
@@ -247,6 +251,63 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
       logger.log_setup(total_experiment_time, hardware, config)
 
   return (Experiment(newChallenge, manager), filename)
+
+
+# Run a sequence of experiments that share ONE on-chain OpenFLManager so
+# reputation (TaskRep / GIR / per-user task counters) accumulates across them.
+# The first run deploys the manager; every later run attaches to that same
+# contract instead of redeploying, which is what makes the per-task TaskRep
+# EWMA actually compound (k = 1, 2, 3, ... per user instead of resetting to 1).
+#
+# `jobs` is a list of (dataset_name, experiment_config) pairs, run in order.
+# `make_io` is an optional callable (dataset, config) -> (writer, logger, path)
+# invoked per job; return (None, None, None) to skip writer/logger wiring.
+#
+# Requirements / caveats for accumulation to be meaningful:
+#   - Every config must agree on global_rep_only (mode is fixed on the shared
+#     manager at first deploy; attach_existing raises on mismatch).
+#   - The participant roster must map the same identity to the same on-chain
+#     address across jobs (in per_user mode: keep the same user_index set so
+#     sorted-key account slots stay stable). Differing rosters will accrue rep
+#     to whoever lands on each address slot.
+#   - Replaying runs (HardPlayBack) is unsupported here — run_experiment
+#     returns early without an Experiment, so there is no manager to thread.
+def run_experiment_sequence(jobs, make_io=None):
+    results = []
+    shared_manager_contract = None
+
+    for dataset_name, experiment_config in jobs:
+        writer = logger = path = None
+        if make_io is not None:
+            writer, logger, path = make_io(dataset_name, experiment_config)
+
+        outcome = run_experiment(
+            dataset_name,
+            experiment_config,
+            writer,
+            logger,
+            path,
+            shared_manager_contract=shared_manager_contract,
+        )
+
+        if writer is not None:
+            writer.finish()
+        if logger is not None and path is not None:
+            logger.save(path.with_suffix(".pkl"))
+
+        # Replay path returns a non-Experiment payload (no manager to reuse);
+        # surface it and stop threading rather than guessing.
+        if not isinstance(outcome, tuple) or not isinstance(outcome[0], Experiment):
+            results.append(outcome)
+            continue
+
+        experiment, filename = outcome
+        results.append((experiment, filename))
+
+        if shared_manager_contract is None:
+            shared_manager_contract = experiment.manager.contract
+
+    return results
 
 
 def apply_user_data_and_label_config(user: User, user_index, experiment_config: ExperimentConfiguration):

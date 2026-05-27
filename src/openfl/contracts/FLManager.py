@@ -7,7 +7,12 @@ from openfl.api import ConnectionHelper, globals
 from openfl.utils.printer import log
 
 class FLManager(ConnectionHelper):
-    def __init__(self, pytorch_model: PytorchModel, publisher, manual_ganache_setup=False):
+    # Solidity ReputationMode enum (contracts/Types.sol). Kept here as
+    # plain ints so callers don't have to import Solidity-side definitions.
+    REPUTATION_MODE_PER_TASK = 0
+    REPUTATION_MODE_GLOBAL_ONLY = 1
+
+    def __init__(self, pytorch_model: PytorchModel, publisher, manual_ganache_setup=False, global_rep_only=False):
         self.latestBlock = None
         self.contract = None
         self.challenge_contract = None
@@ -15,6 +20,7 @@ class FLManager(ConnectionHelper):
         self.modelOf = {}
         self.publisher = publisher
         self.manual_setup = manual_ganache_setup
+        self.global_rep_only = bool(global_rep_only)
         self.job_listings = []
 
         self.gas_deploy = []
@@ -25,13 +31,19 @@ class FLManager(ConnectionHelper):
         self.job_template_hash = Web3.to_bytes(hexstr="0xdb97405406fa6311775ff842c92fb4608768b2a54c37e98b4dad1adb090f27c2")
         self.challenge_templete_hash = Web3.to_bytes(hexstr="0xdb97405406fa6311775ff842c92fb4608768b2a54c37e98b4dad1adb090f27c2")
 
-    def init(self, 
-             NUMBER_OF_GOOD_CONTRIBUTORS, 
-             NUMBER_OF_BAD_CONTRIBUTORS, 
-             NUMBER_OF_FREERIDER_CONTRIBUTORS, NUMBER_OF_INACTIVE_CONTRIBUTORS, 
-             MINIMUM_ROUNDS, 
-             infuraurl=None, 
-             accounts=None):
+    def init(self,
+             NUMBER_OF_GOOD_CONTRIBUTORS,
+             NUMBER_OF_BAD_CONTRIBUTORS,
+             NUMBER_OF_FREERIDER_CONTRIBUTORS, NUMBER_OF_INACTIVE_CONTRIBUTORS,
+             MINIMUM_ROUNDS,
+             infuraurl=None,
+             accounts=None,
+             existing_contract=None):
+        # existing_contract: reuse an already-deployed OpenFLManager from a
+        # previous run so on-chain reputation (TaskRep / GIR / task counters)
+        # carries forward. When set, the manager contract + its job/challenge
+        # template code hashes are left untouched (already configured) and only
+        # this run's participant addresses are (re)assigned via initiate_rpc.
         self.latestBlock = super().initiate_rpc(NUMBER_OF_GOOD_CONTRIBUTORS=NUMBER_OF_GOOD_CONTRIBUTORS,
                                                          NUMBER_OF_BAD_CONTRIBUTORS=NUMBER_OF_BAD_CONTRIBUTORS,
                                                          NUMBER_OF_FREERIDER_CONTRIBUTORS=NUMBER_OF_FREERIDER_CONTRIBUTORS,
@@ -39,6 +51,11 @@ class FLManager(ConnectionHelper):
                                                          MINIMUM_ROUNDS=MINIMUM_ROUNDS, pytorch_model=self.pytorch_model,
                                                          infura_url=infuraurl, manual_setup=self.manual_setup,
                                                          accounts=accounts)
+
+        if existing_contract is not None:
+            self.attach_existing(existing_contract)
+            return self
+
         self.build_contract()
 
         self.deploy_job_template(self.publisher)
@@ -47,15 +64,49 @@ class FLManager(ConnectionHelper):
         self.transact("setJobListingCodeHash", self.publisher, 0, [], "Manager.Template.JobListing.SetHash", self.job_template_hash)
         self.transact("setChallengeCodeHash", self.publisher, 0, [], "JobListing.Template.Challenge.SetHash",self.challenge_templete_hash)
         return self
+
+    # Bind this wrapper to a manager contract deployed by an earlier run
+    # instead of deploying a fresh one. Guards that the reused contract's
+    # immutable ReputationMode matches this run's global_rep_only setting —
+    # mode can't change after deploy, so a mismatch means the caller is
+    # threading the wrong manager through the run sequence.
+    def attach_existing(self, manager_contract):
+        on_chain_mode = manager_contract.functions.reputationMode().call()
+        want_mode = (
+            self.REPUTATION_MODE_GLOBAL_ONLY
+            if self.global_rep_only
+            else self.REPUTATION_MODE_PER_TASK
+        )
+        if on_chain_mode != want_mode:
+            raise ValueError(
+                "Reused OpenFLManager ReputationMode mismatch: "
+                f"on-chain={on_chain_mode}, requested global_rep_only={self.global_rep_only} "
+                f"(expected mode {want_mode}). A manager's mode is fixed at deploy time; "
+                "do not mix PerTask and GlobalOnly runs on the same manager."
+            )
+
+        self.contract = manager_contract
+        log("setup_contracts", "\n{:<17} {}\n".format(
+            "Manager reused",
+            "@ Address " + manager_contract.address
+        ))
+        log("setup_contracts", "-----------------------------------------------------------------------------------")
+        return self
     
     
     # Deploy contract and initiate proxy
     def build_contract(self):
         factory = self.initialize_manager()
 
+        reputation_mode = (
+            self.REPUTATION_MODE_GLOBAL_ONLY
+            if self.global_rep_only
+            else self.REPUTATION_MODE_PER_TASK
+        )
+
         contract, receipt = ConnectionHelper.deploy(
             factory,
-            [],  # no constructor args
+            [reputation_mode],
             self.publisher
         )
 

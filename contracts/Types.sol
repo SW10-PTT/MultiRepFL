@@ -15,6 +15,17 @@ enum TaskType {
     IMDB
 }
 
+// Selects how reputation state is keyed on OpenFLManager.
+//   PerTask   : default. TaskRep is stored per-TaskType (one slot per dataset)
+//               and GIR is updated each task from cross-round vote tallies.
+//   GlobalOnly: a single TaskRep slot per user is shared across all TaskTypes
+//               and GIR is never written (logged as 0/unchanged).
+// The mode is fixed at OpenFLManager deployment time.
+enum ReputationMode {
+    PerTask,
+    GlobalOnly
+}
+
 struct TrainingSpecifications {
     uint min_collateral;
     uint max_collateral;
