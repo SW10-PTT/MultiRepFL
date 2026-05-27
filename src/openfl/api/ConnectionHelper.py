@@ -12,7 +12,6 @@ from termcolor import colored
 from subprocess import Popen, PIPE
 
 from openfl.ml.Participant import Participant
-from openfl.utils.types.Attitude import Attitude
 from openfl.utils.types.Colors import gb, rb, b, green, red
 from openfl.utils import require_env_var
 from openfl.utils.printer import log
@@ -29,7 +28,6 @@ class ConnectionHelper:
                          NUMBER_OF_FREERIDER_CONTRIBUTORS, 
                          NUMBER_OF_INACTIVE_CONTRIBUTORS,
                          MINIMUM_ROUNDS,
-                         pytorch_model,
                          latestBlock=1000000, 
                          infura_url=None, 
                          manual_setup=False,
@@ -68,37 +66,16 @@ class ConnectionHelper:
                 except:
                     globals.w3.eth.default_account = None
 
-            if len(globals.w3.eth.accounts) < len(self.pytorch_model.participants):
-                print(rb("Nr. of Ganache Addresses <> Nr. of Model Participants"))
-                print(rb(str(len(globals.w3.eth.accounts))  + "<>" +  str(len(self.pytorch_model.participants))))
+            if len(globals.w3.eth.accounts) < NUMBER_OF_CONTRIBUTORS:
+                print(rb("Nr. of Ganache Addresses <> Nr. of Contributors"))
+                print(rb(str(len(globals.w3.eth.accounts)) + "<>" + str(NUMBER_OF_CONTRIBUTORS)))
                 print(rb("Increase number of unlocked accounts"))
                 raise NotEnoughUnlockedAccounts()
+        else:
+            # Non-fork (Sepolia): set default account from loaded private keys.
+            if accounts:
+                globals.w3.eth.default_account = accounts[0].address
 
-        # Every user receives an address
-        for ix in range(len(self.pytorch_model.participants)):
-            if globals.fork:
-                self.pytorch_model.participants[ix].address = globals.w3.to_checksum_address(globals.w3.eth.accounts[ix])
-            else:
-                if ix == 0:
-                    globals.w3.eth.default_account = accounts[ix].address
-                self.pytorch_model.participants[ix].address = globals.w3.to_checksum_address(accounts[ix].address)
-                self.pytorch_model.participants[ix].privateKey = accounts[ix].privateKey
-                
-            
-        for i, acc in enumerate(self.pytorch_model.participants):
-            if acc.futureAttitude == Attitude.Honest:
-                prefix = "FAIR"
-            elif acc.futureAttitude == Attitude.FreeRider:
-                prefix = "FREE"
-            elif acc.futureAttitude == Attitude.Inactive:
-                prefix = "AFK "
-            else:
-                prefix = "MAL."
-            bal = globals.w3.eth.get_balance(acc.address)
-            log("setup_contracts", "{:<17} {} with {:<4,.1f} ETH | {} USER".format("Account initiated",
-                                                           "@ Address "+acc.address[0:25]+"...",
-                                                           bal/1e18,
-                                                           prefix))
         log("setup_contracts", "-----------------------------------------------------------------------------------")
         return latestBlock
 

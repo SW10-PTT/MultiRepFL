@@ -19,7 +19,7 @@ config = ExperimentConfiguration(
     loss_tolerance_pct=0.2, # ε = pct * avg_prev_loss; only used by loss_tolerance_* strategies
     use_outlier_detection=True,
     minimum_rounds=3,
-    epochs=1,
+    epochs=3,
     punish_factor=3,
     punish_factor_contrib=3,
     number_of_good_contributors=4,

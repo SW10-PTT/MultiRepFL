@@ -17,6 +17,13 @@ interface IJobListing {
     function getSelectedParticipants() external view returns (address[] memory);
 }
 
+interface IOpenFLManager {
+    function updateReputationsFromChallenge(
+        address challengeAddr,
+        TaskType taskType
+    ) external;
+}
+
 contract OpenFLChallenge {
     bytes32 public modelHash;
 
@@ -37,7 +44,8 @@ contract OpenFLChallenge {
     uint public roundStart;
     uint public contributionStart;
     uint public freeriderPenalty;
-    TaskType taskType;
+    TaskType public taskType;
+    address public managerAddress;
     uint constant ONE_DAY = 864e2;
 
     address[] public participants;
@@ -223,6 +231,7 @@ contract OpenFLChallenge {
         punishfactor = taskSpecs.punishfactor;
         punishfactorContrib = taskSpecs.punishfactorContrib;
         taskType = taskSpecs.taskType;
+        managerAddress = taskSpecs.managerAddress;
         freeriderPenalty = (min_collateral * taskSpecs.freeriderPenalty) / 100;
         rewardPerRound = totalReward / min_rounds;
         rewardLeft = totalReward;
@@ -422,6 +431,10 @@ contract OpenFLChallenge {
                     uint punishment = uint(
                         user.globalReputationScore / punishfactor
                     );
+                    uint taskPunishment = uint(
+                        (user.taskRepDelta + int(1e18)) /
+                            int(uint(punishfactor))
+                    );
 
                     if (
                         user.globalReputationScore >
@@ -434,7 +447,7 @@ contract OpenFLChallenge {
                         user.globalReputationScore =
                             user.globalReputationScore -
                             punishment;
-                        user.taskRepDelta -= int256(punishment);
+                        user.taskRepDelta -= int256(taskPunishment);
                         user.roundReputation =
                             user.roundReputation -
                             int(punishment);
@@ -452,7 +465,7 @@ contract OpenFLChallenge {
                         user.whitelistedForRewards = false;
 
                         totalPunishment += user.globalReputationScore;
-                        user.taskRepDelta -= int(user.globalReputationScore);
+                        user.taskRepDelta -= -1e18;
 
                         emit Disqualification(
                             user.addr,
@@ -484,18 +497,12 @@ contract OpenFLChallenge {
         // whenever a helper voted positive for >= 2 punished users.
         for (uint i = 0; i < participants.length; i++) {
             User storage user = users[participants[i]];
-            if (
-                !user.isRegistered ||
-                user.isDisqualified ||
-                user.isPunished
-            ) {
+            if (!user.isRegistered || user.isDisqualified || user.isPunished) {
                 continue;
             }
             bool isHelper = false;
             for (uint j = 0; j < punishedAddresses.length; j++) {
-                if (
-                    votedPositiveFor[participants[i]][punishedAddresses[j]]
-                ) {
+                if (votedPositiveFor[participants[i]][punishedAddresses[j]]) {
                     votedPositiveFor[participants[i]][
                         punishedAddresses[j]
                     ] = false;
@@ -588,6 +595,10 @@ contract OpenFLChallenge {
                     uint punishment = (user.globalReputationScore /
                         punishfactorContrib) *
                         absUint((contributionScore[round][user.addr]));
+                    int taskPunishment = (user.taskRepDelta +
+                        int(1e18) /
+                        int(uint(punishfactorContrib))) *
+                        int(absUint((contributionScore[round][user.addr])));
                     require(punishment > 0, "punishment is <= 0 in settle! 1");
                     punishment /= 1e18;
                     require(punishment > 0, "punishment is <= 0 in settle! 2");
@@ -597,7 +608,7 @@ contract OpenFLChallenge {
                         user.globalReputationScore <= punishment
                     ) {
                         reward += user.globalReputationScore;
-                        user.taskRepDelta -= int256(user.globalReputationScore);
+                        user.taskRepDelta = -1e18;
 
                         emit Disqualification(
                             participants[i],
@@ -612,7 +623,7 @@ contract OpenFLChallenge {
                     } else {
                         // this is a punishment
                         user.globalReputationScore -= punishment;
-                        user.taskRepDelta -= int256(punishment);
+                        user.taskRepDelta -= int256(taskPunishment);
                         reward += punishment;
 
                         emit Reward(
@@ -1157,6 +1168,7 @@ contract OpenFLChallenge {
         address user;
         int256 delta;
         uint globalReputationScore;
+        uint8 roundsParticipated;
     }
 
     function getTaskRepDeltaAndGRS() public view returns (TaskRep[] memory) {
@@ -1170,11 +1182,23 @@ contract OpenFLChallenge {
             taskReps[i] = TaskRep({
                 user: addr,
                 delta: user.taskRepDelta,
-                globalReputationScore: user.globalReputationScore
+                globalReputationScore: user.globalReputationScore,
+                roundsParticipated: user.nrOfRoundsParticipated
             });
         }
 
         return taskReps;
+    }
+
+    // Push this challenge's reputation deltas to the manager.
+    // Called by Python after each challenge, or by users/contracts in production.
+    function finalizeReputations() external {
+        require(taskType != TaskType.template, "Template challenge");
+        require(managerAddress != address(0), "No manager");
+        IOpenFLManager(managerAddress).updateReputationsFromChallenge(
+            address(this),
+            taskType
+        );
     }
 
     // Fallback function parses dynamic size feedback arrays

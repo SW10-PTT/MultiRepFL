@@ -7,11 +7,11 @@ from openfl.api import ConnectionHelper, globals
 from openfl.utils.printer import log
 
 class FLManager(ConnectionHelper):
-    def __init__(self, pytorch_model: PytorchModel, publisher, manual_ganache_setup=False):
+    def __init__(self, publisher, manual_ganache_setup=False):
         self.latestBlock = None
         self.contract = None
         self.challenge_contract = None
-        self.pytorch_model: PytorchModel = pytorch_model
+        self.pytorch_model: PytorchModel
         self.modelOf = {}
         self.publisher = publisher
         self.manual_setup = manual_ganache_setup
@@ -36,7 +36,7 @@ class FLManager(ConnectionHelper):
                                                          NUMBER_OF_BAD_CONTRIBUTORS=NUMBER_OF_BAD_CONTRIBUTORS,
                                                          NUMBER_OF_FREERIDER_CONTRIBUTORS=NUMBER_OF_FREERIDER_CONTRIBUTORS,
                                                          NUMBER_OF_INACTIVE_CONTRIBUTORS=NUMBER_OF_INACTIVE_CONTRIBUTORS,
-                                                         MINIMUM_ROUNDS=MINIMUM_ROUNDS, pytorch_model=self.pytorch_model,
+                                                         MINIMUM_ROUNDS=MINIMUM_ROUNDS,
                                                          infura_url=infuraurl, manual_setup=self.manual_setup,
                                                          accounts=accounts)
         self.build_contract()
@@ -145,3 +145,20 @@ class FLManager(ConnectionHelper):
 
         log("setup_contracts", "Challenge template deployed at:", contract.address)
         log("setup_contracts", "Challenge template hash:", self.job_template_hash.hex())
+
+    def update_reputations_from_challenge(self, challenge_address: str, task_type: int):
+        """Sync reputation data from a completed challenge into the manager (Python/replay path).
+
+        In production, the challenge calls the manager directly via finalizeReputations().
+        In Python (replay or testing), call this after simulate() completes.
+        """
+        self.transact(
+            "updateReputationsFromChallenge",
+            self.publisher,
+            0,
+            [],
+            "manager.updateReputationsFromChallenge",
+            Web3.to_checksum_address(challenge_address),
+            task_type,
+        )
+        log("setup_contracts", f"Manager reputation update applied from challenge {challenge_address[:10]}...")

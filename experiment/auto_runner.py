@@ -26,7 +26,7 @@ from openfl.api import globals
 from openfl.utils import printer, config
 from openfl.utils.printer import log
 
-API = require_env_var("APIURL")
+API = require_env_var("API_URL")
 
 worker_id = None
 
@@ -185,8 +185,6 @@ def registerWorkerLoop():
 def worker_loop():
     global worker_id
     
-    
-
     while True:
         try:
             if not check_worker_exists():
@@ -241,7 +239,7 @@ def worker_loop():
 
             reset()
             complete_run(run_id)
-            stop_heartbeat_loop()
+            #stop_heartbeat_loop()
 
         except Exception as e:
             stop_heartbeat_loop()

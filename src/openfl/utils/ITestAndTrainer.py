@@ -146,6 +146,7 @@ class ITestAndTrainer(ABC):
                     break
 
         return [user for user in users if user.id is not None]
+    
     @abstractmethod
     def on_chain_hashed_weights(self, round, tag, FLChallenge):
         pass

@@ -11,6 +11,7 @@ import json
 import math
 from openfl.ml.partition_spec import (
     ANY_DATASET,
+    UserPartitionSpec,
     load_dataset_partition_specs,
     normalize_dataset_name,
 )
@@ -186,7 +187,13 @@ class ExperimentConfiguration:
             return {}
         if isinstance(per_user_partitions, str) and per_user_partitions.split(".")[-1] == "json":
             return load_dataset_partition_specs(per_user_partitions)
-        
+        # Accept an already-parsed {dataset_key: {user_index: UserPartitionSpec}} dict
+        # so callers (e.g. multirep) can pass filtered specs without re-serialising.
+        if isinstance(per_user_partitions, dict) and per_user_partitions:
+            first_val = next(iter(per_user_partitions.values()))
+            if isinstance(first_val, dict) and first_val:
+                if isinstance(next(iter(first_val.values())), UserPartitionSpec):
+                    return per_user_partitions
         return load_dataset_partition_specs({
             "presets": per_user_partitions
         })

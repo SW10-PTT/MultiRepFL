@@ -198,5 +198,6 @@ class NullExperimentLogger:
     def log_receipt(self, round=None, tx_type=None, tx_hash=None, gas_used=None): pass
     def log_warning(self, round=None, message=None): pass
     def log_setup(self, total_experiment_time=None, hardware=None, config=None): pass
+    def log_trs(self, trs): pass
     def finalize(self): pass
     def save(self, path=None): pass

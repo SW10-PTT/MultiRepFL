@@ -20,7 +20,7 @@ contract JobListing {
     struct User {
         uint globalTaskRep; // 32
         uint globalIntegrity; // 32
-        uint nrOfTasksParticipated; // 1
+        uint128 qValue; // 16  — Q-value from manager at registration time
         address addr; // 20
         bool isSelected; // 1
     }
@@ -108,11 +108,11 @@ contract JobListing {
         (
             uint taskRep,
             uint globalIntegrity,
-            uint nrOfTasksParticipated
+            uint128 qValue
         ) = manager.getUserRep(userAddr, trainingSpecs.taskType);
         user.globalTaskRep = taskRep;
         user.globalIntegrity = globalIntegrity;
-        user.nrOfTasksParticipated = nrOfTasksParticipated;
+        user.qValue = qValue;
         user.addr = userAddr;
         user.isSelected = false;
 
@@ -146,9 +146,18 @@ contract JobListing {
 
         selectedParticipants = selected;
 
+        // Update Q-values: patience bonus for non-selected, reset for selected.
+        manager.updateQValuesAfterSelection(applicantAddresses, selected, trainingSpecs.taskType);
+
         emit SelectionComplete(selected);
     }
 
+
+    function _selectionScore(User storage u) internal view returns (uint) {
+        // score = max(1, qValue) * (taskRep * 6 + globalIntegrity * 4) / 10
+        uint q = u.qValue > 0 ? uint(u.qValue) : 1;
+        return q * (u.globalTaskRep * 6 + u.globalIntegrity * 4) / 10;
+    }
 
     function getTopN(uint N) public view returns (address[] memory) {
         address[] memory heapUsers = new address[](N);
@@ -157,7 +166,7 @@ contract JobListing {
         uint size = 0;
 
         for (uint i = 0; i < applicantAddresses.length; i++) {
-            uint score = applicants[applicantAddresses[i]].globalTaskRep;
+            uint score = _selectionScore(applicants[applicantAddresses[i]]);
 
             if (size < N) {
                 heapUsers[size] = applicantAddresses[i];

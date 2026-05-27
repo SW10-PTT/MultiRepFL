@@ -211,7 +211,8 @@ class PytorchModel:
         p.val_tensors = preload_to_gpu(val_loader, DEVICE) if USE_CUDA else None
         self.participants.append(p)
 
-        log("setup_contracts","Participant added: [{:<9}] {}".format(rb(user.futureAttitude.name.upper()[0]+user.futureAttitude.name[1:]), rb(user.display_label())))
+        attitude = (user.futureAttitude.name[0].upper() + user.futureAttitude.name[1:]).ljust(9)
+        log("setup_contracts", f"Participant added: [{rb(attitude)}] {rb(user.display_label())}")
 
     # seed/allow_overlap/replication_factor forward to DataPartition for reproducible, optionally overlapping splits.
     def prepare_data_for_users(self, users, dataset_name, seed=42, allow_overlap=False, replication_factor=1.0):
@@ -220,7 +221,7 @@ class PytorchModel:
         if dataset_name == "mnist":
             trainset = MNIST("./data", train=True, download=True, transform=transforms.ToTensor())
             testset = MNIST("./data", train=False, download=True, transform=transforms.ToTensor())
-        if dataset_name == "cifar-10":
+        elif dataset_name == "cifar-10":
             transform = transforms.Compose([
                 transforms.RandomCrop(32, padding=4),
                 transforms.RandomHorizontalFlip(),
@@ -233,6 +234,8 @@ class PytorchModel:
             ])
             trainset = CIFAR10("./data", train=True, download=True, transform=transform)
             testset = CIFAR10("./data", train=False, download=True, transform=transform_test)
+        else:
+            raise ValueError(f"Unknown dataset {dataset_name!r}. Expected 'mnist' or 'cifar-10'.")
 
         per_user_specs = (
             self.config.get_partition_specs(dataset_name)

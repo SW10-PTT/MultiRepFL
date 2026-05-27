@@ -5,7 +5,10 @@ enum TaskType {
     Images,
     Language,
     Images_clothing,
-    Images_objects
+    Images_object,
+    Images_numbers,
+    Images_MNIST,
+    Images_CIFAR10
 }
 
 struct TrainingSpecifications {

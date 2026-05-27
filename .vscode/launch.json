@@ -47,6 +47,24 @@
       }
     },
     {
+      "name": "Compile - Debug: MultiRep",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "experiment/multirep.py",
+      "console": "integratedTerminal",
+      "preLaunchTask": "compile-contracts",
+      "python": "${command:python.interpreterPath}",
+      "windows": {
+        "python": "${workspaceFolder}\\.venv\\Scripts\\python.exe"
+      },
+      "linux": {
+        "python": "${workspaceFolder}/.venv/bin/python"
+      },
+      "osx": {
+        "python": "${workspaceFolder}/.venv/bin/python"
+      }
+    },
+    {
       "name": "Compile - Debug: Experiments",
       "type": "debugpy",
       "request": "launch",

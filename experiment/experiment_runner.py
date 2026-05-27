@@ -24,36 +24,9 @@ from openfl.utils.types.User import User
 from openfl.utils.printer import set_enabled_tags, log
 
 
-def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration, writer: AsyncWriter=None, logger=None, path=None):
-  set_enabled_tags(experiment_config.enabled_prints)
-
-  dataset_name = dataset_name.replace(".", "-")
-  # Refresh first so per_user mode resolves contributor counts from the spec
-  # for the active dataset before any downstream consumer reads them.
-  experiment_config.refresh_for_dataset(dataset_name)
-
-  experiment_start = time.perf_counter()
-
-  setup_connection(experiment_config)
-
-
+def build_users(experiment_config: ExperimentConfiguration) -> List[User]:
+  """Create User objects from an ExperimentConfiguration. Does not load data."""
   users: List[User] = []
-
-  pytorch_model = PM.PytorchModel(
-      experiment_config,
-      dataset_name,
-      experiment_config.number_of_good_contributors,
-      experiment_config.number_of_contributors,
-      experiment_config.epochs,
-      experiment_config.batch_size,
-      experiment_config.standard_buy_in,
-      experiment_config.max_buy_in,
-      experiment_config.freerider_noise_scale,
-      experiment_config.freerider_start_round,
-      experiment_config.malicious_start_round,
-      experiment_config.malicious_noise_scale,
-      experiment_config.force_merge_all)
-
   if experiment_config.partition_strategy == "per_user":
       # Spec drives both id→behavior mapping and data shares. Iterate spec
       # keys in sorted order so account allocation is deterministic across
@@ -94,6 +67,43 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
               )
               apply_user_data_and_label_config(user, user_index, experiment_config)
               users.append(user)
+  return users
+
+
+def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration, writer: AsyncWriter=None, logger=None, path=None,
+                   prebuilt_users: List[User]=None, prebuilt_manager=None):
+  set_enabled_tags(experiment_config.enabled_prints)
+
+  dataset_name = dataset_name.replace(".", "-")
+  # Refresh first so per_user mode resolves contributor counts from the spec
+  # for the active dataset before any downstream consumer reads them.
+  experiment_config.refresh_for_dataset(dataset_name)
+
+  experiment_start = time.perf_counter()
+
+  setup_connection(experiment_config)
+
+  pytorch_model = PM.PytorchModel(
+      experiment_config,
+      dataset_name,
+      experiment_config.number_of_good_contributors,
+      experiment_config.number_of_contributors,
+      experiment_config.epochs,
+      experiment_config.batch_size,
+      experiment_config.standard_buy_in,
+      experiment_config.max_buy_in,
+      experiment_config.freerider_noise_scale,
+      experiment_config.freerider_start_round,
+      experiment_config.malicious_start_round,
+      experiment_config.malicious_noise_scale,
+      experiment_config.force_merge_all)
+
+  if prebuilt_users is None:
+      users = build_users(experiment_config)
+  else:
+      users = prebuilt_users
+      for user in users:
+          user.reset_for_experiment()
 
   pytorch_model.prepare_data_for_users(
       users,
@@ -105,15 +115,19 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
   publisher: User = users[0]
 
   RPC_ENDPOINT = get_RPC_Endpoint()
-  PRIVKEYS = get_PRIVKEYS(experiment_config) # TODO : HUH, private keys?
+  PRIVKEYS = get_PRIVKEYS(experiment_config)
 
-  manager = Manager(pytorch_model, publisher,True).init(experiment_config.number_of_good_contributors,
+  if prebuilt_manager is None:
+      manager = Manager(publisher, True).init(experiment_config.number_of_good_contributors,
                                               experiment_config.number_of_bad_contributors,
                                               experiment_config.number_of_freerider_contributors,
                                               experiment_config.number_of_inactive_contributors,
                                               experiment_config.minimum_rounds,
                                               RPC_ENDPOINT,
                                               PRIVKEYS)
+  else:
+      manager = prebuilt_manager
+  manager.pytorch_model = pytorch_model
 
 
   training_specs = experiment_config.get_training_specs(manager.contract.address, pytorch_model.get_global_model_hash())
@@ -174,7 +188,7 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
     combinedUsers = pytorch_model.runRepo.get_participants(users)
     return pytorch_model.runRepo.get_task_rep_delta_and_GRS(-1, "get_task_rep_delta_and_GRS-simulate", None, lambda x: pytorch_model.get_participant(x, combinedUsers))
 
-  newChallenge: Challenge = publisher.deploy_challenge_contract(trainingSpecsChallenge, new_job_listing, pytorch_model, writer, logger)
+  newChallenge: Challenge = publisher.deploy_challenge_contract(trainingSpecsChallenge, new_job_listing, pytorch_model, writer, logger, manager_contract=manager)
 
   newChallenge.make_participants_from_users(participating_users)
   for user in newChallenge.pytorch_model.participants:
@@ -183,7 +197,8 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
       except ContractLogicError as e:
           if "SUO" in str(e):
               log("round_models", "Participant tried joining but was not selected")
-  writer.write_comment(f"$startingUserConfig${[p.get_status() for p in pytorch_model.participants]}")
+  if writer is not None:
+      writer.write_comment(f"$startingUserConfig${[p.get_status() for p in pytorch_model.participants]}")
   
   # This happens after deciding on users
   newChallenge.simulate(rounds=experiment_config.minimum_rounds)
@@ -192,7 +207,8 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
 
   log("experiment_end", "\n" + "="*75)
   log("experiment_end", f"TOTAL EXPERIMENT TIME: {total_experiment_time:.2f} seconds")
-  writer.write_comment(f"TOTAL EXPERIMENT TIME: {total_experiment_time:.2f} seconds")
+  if writer is not None:
+      writer.write_comment(f"TOTAL EXPERIMENT TIME: {total_experiment_time:.2f} seconds")
   log("experiment_end", "="*75 + "\n")
 
   if logger is not None:
