@@ -316,7 +316,12 @@ class PytorchModel:
         dataset_size = len(labels)
         num_classes = len(set(labels))
         per_class = dataset_size // num_classes
-        log("setup_data",f"Dataset: {dataset_name} | {dataset_size:,} total samples | {num_classes} classes | ~{per_class:,} per class")
+        rep_factor = float(getattr(self.config, "replication_factor", 1.0))
+        allow_overlap = bool(getattr(self.config, "allow_overlap", False))
+        overlap_active = allow_overlap and rep_factor > 1.0
+        effective_pool = int(dataset_size * rep_factor) if overlap_active else dataset_size
+        pool_suffix = f" | overlap ON, rep={rep_factor:g} -> effective pool {effective_pool:,}" if overlap_active else ""
+        log("setup_data",f"Dataset: {dataset_name} | {dataset_size:,} total samples | {num_classes} classes | ~{per_class:,} per class{pool_suffix}")
         log("setup_data")
         log("setup_data","Data split per user:")
         log("setup_data",
@@ -383,14 +388,29 @@ class PytorchModel:
                     self.ratio_percent(sum(val_flip_counts.values()), split["val_samples"]),
                 ))
 
-        lost_samples = dataset_size - total_samples
-        lost_percent = 100.0 * lost_samples / dataset_size
+        unique_ids = set()
+        for user in users:
+            split = user_splits[user.get_id_or_address()]
+            unique_ids.update(split["train_ids"])
+            unique_ids.update(split["val_ids"])
+        unique_count = len(unique_ids)
+        unmapped_unique = dataset_size - unique_count
+        unmapped_pct = 100.0 * unmapped_unique / dataset_size
 
         log("setup_data","-" * 90)
-        log("setup_data","Configured total: {:.2f}%".format(total_config_percent))
-        log("setup_data","Assigned: {:>7,} / {:,} samples  ({:.2f}%)".format(total_samples, dataset_size, total_actual_percent))
-        if lost_samples > 0:
-            log("setup_data", "Lost:     {:>7,} / {:,} samples  ({:.2f}%)  <- dropped due to only_labels".format(lost_samples, dataset_size, lost_percent))
+        log("setup_data","Configured total: {:.2f}%  (sum of Config % column)".format(total_config_percent))
+        if overlap_active:
+            pool_pct = 100.0 * total_samples / effective_pool
+            avg_dup = (total_samples / unique_count) if unique_count else 0.0
+            log("setup_data","Assigned: {:>7,} / {:,} effective slots  ({:.2f}% of inflated pool, {:.2f}% of base dataset)".format(
+                total_samples, effective_pool, pool_pct, total_actual_percent))
+            log("setup_data","Unique:   {:>7,} / {:,} base samples covered  (avg {:.2f}x replication per assigned sample)".format(
+                unique_count, dataset_size, avg_dup))
+        else:
+            log("setup_data","Assigned: {:>7,} / {:,} samples  ({:.2f}%)".format(total_samples, dataset_size, total_actual_percent))
+        if unmapped_unique > 0:
+            log("setup_data", "Unused:   {:>7,} / {:,} base samples  ({:.2f}%)  <- not assigned to any user (only_labels / label_distribution retention / pct<100)".format(
+                unmapped_unique, dataset_size, unmapped_pct))
         log("setup_data")
 
         col_w = 6
@@ -875,6 +895,14 @@ class PytorchModel:
                 user_idx = user.id
                 prev_loss, prev_acc = self.runRepo.test(self.round,f"test-feedback-globalmodel-{giver_idx}-{user_idx}", self.global_model, valloader, DEVICE)
                 loss, accuracy = self.runRepo.test(self.round,f"test-feedback-usermodel-{giver_idx}-{user_idx}", user.model, valloader, DEVICE)
+
+                # Vote threshold reference (raw fraction). prev_acc gets scaled below for honest givers,
+                # so capture baseline first.
+                if self.config.vote_baseline == "prev_global":
+                    baseline_acc = prev_acc
+                else:
+                    baseline_acc = feedbackGiver.currentAcc
+
                 if not bad_att and not free_att:
                     prev_acc = round(prev_acc * 100 * scalar)
                     prev_loss = safe_scale(prev_loss, scalar, MAX_UINT16_SIZE)
@@ -905,14 +933,14 @@ class PytorchModel:
                     matrices.prev_accuracies[giver_idx] = prev_acc
                     matrices.prev_losses[giver_idx] = prev_loss
 
-                elif accuracy > feedbackGiver.currentAcc - 0.07:  # 7% Worse
+                elif accuracy > baseline_acc - 0.07:  # 7% Worse: 0.07
                     matrices.feedback_matrix[giver_idx, user_idx] = 1
                     matrices.accuracy_matrix[giver_idx, user_idx] = round(accuracy * 100 * scalar)
                     matrices.loss_matrix[giver_idx, user_idx] = safe_scale(loss, scalar, MAX_UINT16_SIZE)
                     matrices.prev_accuracies[giver_idx] = prev_acc
                     matrices.prev_losses[giver_idx] = prev_loss
 
-                elif accuracy > feedbackGiver.currentAcc - 0.14:  # 14% Worse
+                elif accuracy > baseline_acc - 0.14:  # 14% Worse: 0.14
                     matrices.feedback_matrix[giver_idx, user_idx] = 0
                     matrices.accuracy_matrix[giver_idx, user_idx] = round(accuracy * 100 * scalar)
                     matrices.loss_matrix[giver_idx, user_idx] = safe_scale(loss, scalar, MAX_UINT16_SIZE)
@@ -1140,7 +1168,7 @@ def train_user_proc(user_addr, user_label, model_state, train_ds, val_ds, epochs
     del train_loader
     del val_loader
 
-    log("round_training", f"[{device_label(device, device_id)}] {user_label} ({user_addr}) done | Acc: {val_acc:.3f}, Loss: {val_loss:.3f}")
+    log("round_training", f"[{device_label(device, device_id)}] {user_label:<32} ({user_addr})  done | Acc: {val_acc:.3f}  Loss: {val_loss:.3f}")
 
     # Ensure all GPU work is complete before worker exits
     if device.type == "cuda":

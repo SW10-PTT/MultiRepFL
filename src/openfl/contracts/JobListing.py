@@ -37,7 +37,7 @@ class JobListing(ConnectionHelper):
                 training_specs.punishfactorContrib,
                 training_specs.freeriderPenalty,
                 training_specs.manager_address,
-                training_specs.taskType
+                training_specs.taskType,
             ],
             publisher,
             value=value
@@ -52,3 +52,28 @@ class JobListing(ConnectionHelper):
         is_valid = events["ChallengeRegistered"][0]["success"]
 
         return is_valid
+
+    # Read-only fetch of the current round's TaskRep deltas + GRS via the
+    # JobListing pass-through. Returns the raw tuple list from web3.
+    def get_challenge_task_reps(self):
+        return self.contract.functions.getChallengeTaskReps().call()
+
+    # Read-only fetch of the TaskType (= dataset) bound to this JobListing.
+    def get_task_type(self) -> int:
+        return self.contract.functions.getTaskType().call()
+
+    # Trigger on-chain TaskRep recalculation + update for all participants.
+    # Use this from Python in replay runs. In normal runs the challenge
+    # contract is expected to call updateUserTaskReps() itself.
+    #
+    # `caller` must be the publisher EOA who deployed this JobListing
+    # (matches the `onlyTaskRepUpdater` modifier in JobListing.sol).
+    def update_user_task_reps(self, caller):
+        (receipt, events) = self.transact(
+            "updateUserTaskReps",
+            caller,
+            0,
+            ["TaskRepsApplied"],
+            "JobListing.UpdateUserTaskReps",
+        )
+        return receipt, events

@@ -78,6 +78,24 @@ contract OpenFLChallenge {
     mapping(uint8 => mapping(address => int256)) public contributionScore; // round => user => score
     mapping(uint8 => uint256) public nrOfContributionScores; // round => number of submissions
 
+    // -------- Cross-round vote tallies (used by GIR computation) --------
+    // positiveVotesGivenByTo[voter][target] : count of +1 votes voter cast for
+    //                                         target, summed across all rounds
+    //                                         of this task.
+    // totalVotesGivenByTo[voter][target]    : count of all votes (+1/0/-1).
+    // positiveVotesReceived[target]         : Σ over voters of the above.
+    // totalVotesReceived[target]            : Σ over voters of the above.
+    //
+    // Receiver tallies are the inputs to GIR's V = (positive/total)^2.
+    // When a voter is disqualified in settle(), their per-(voter,target)
+    // entries are zeroed and subtracted out of the receiver tallies, so
+    // votes from kicked participants do not count.
+    mapping(address => mapping(address => uint256))
+        public positiveVotesGivenByTo;
+    mapping(address => mapping(address => uint256)) public totalVotesGivenByTo;
+    mapping(address => uint256) public positiveVotesReceived;
+    mapping(address => uint256) public totalVotesReceived;
+
     struct AccuracyLossSubmission {
         address[] adrs;
         uint16[] acc;
@@ -328,6 +346,16 @@ contract OpenFLChallenge {
         hasVoted[msg.sender][target] = true;
         users[msg.sender].nrOfVotesFromUser += 1;
         votesPerRound += 1;
+
+        // Cross-round GIR tallies. Score in {-1, 0, +1}: every call counts
+        // toward totalVotes; only score==1 contributes to positiveVotes.
+        totalVotesGivenByTo[msg.sender][target] += 1;
+        totalVotesReceived[target] += 1;
+        if (score == 1) {
+            positiveVotesGivenByTo[msg.sender][target] += 1;
+            positiveVotesReceived[target] += 1;
+        }
+
         if (score == 1) {
             votedPositiveFor[msg.sender][target] = true;
             users[target].roundReputation +=
@@ -476,6 +504,7 @@ contract OpenFLChallenge {
                         user.globalReputationScore = 0;
                         nrOfActiveParticipants -= 1;
                         user.isDisqualified = true;
+                        _removeKickedUserVotesFromTallies(user.addr);
                     }
                 } else {
                     user.whitelistedForRewards = true;
@@ -620,6 +649,7 @@ contract OpenFLChallenge {
                         user.globalReputationScore = 0;
                         nrOfActiveParticipants -= 1;
                         user.isDisqualified = true;
+                        _removeKickedUserVotesFromTallies(user.addr);
                     } else {
                         // this is a punishment
                         user.globalReputationScore -= punishment;
@@ -1155,6 +1185,24 @@ contract OpenFLChallenge {
             sender.roundReputation >= 0;
     }
 
+    // Subtract every vote ever cast by `kickedUser` from the per-target
+    // receiver tallies, and zero out the per-(voter, target) entries.
+    // Called from settle() at each disqualification site so that GIR's
+    // (positive/total)^2 input ignores votes from kicked participants.
+    function _removeKickedUserVotesFromTallies(address kickedUser) internal {
+        for (uint i = 0; i < participants.length; i++) {
+            address target = participants[i];
+            uint256 pos = positiveVotesGivenByTo[kickedUser][target];
+            uint256 tot = totalVotesGivenByTo[kickedUser][target];
+            if (tot == 0) continue;
+
+            positiveVotesReceived[target] -= pos;
+            totalVotesReceived[target] -= tot;
+            positiveVotesGivenByTo[kickedUser][target] = 0;
+            totalVotesGivenByTo[kickedUser][target] = 0;
+        }
+    }
+
     function _isEligibleForRewards(
         User storage user
     ) internal view returns (bool) {
@@ -1168,7 +1216,10 @@ contract OpenFLChallenge {
         address user;
         int256 delta;
         uint globalReputationScore;
-        uint8 roundsParticipated;
+        // Cross-round vote tallies for this participant, with kicked voters
+        // already excluded. JobListing feeds these into the GIR formula.
+        uint256 positiveVotes;
+        uint256 totalVotes;
     }
 
     function getTaskRepDeltaAndGRS() public view returns (TaskRep[] memory) {
@@ -1183,7 +1234,8 @@ contract OpenFLChallenge {
                 user: addr,
                 delta: user.taskRepDelta,
                 globalReputationScore: user.globalReputationScore,
-                roundsParticipated: user.nrOfRoundsParticipated
+                positiveVotes: positiveVotesReceived[addr],
+                totalVotes: totalVotesReceived[addr]
             });
         }
 

@@ -1,14 +1,29 @@
 pragma solidity ^0.8.0;
 
+// TaskType identifies the dataset/task this job is for. TaskRep is tracked
+// per TaskType (one TaskRep per MNIST, another per CIFAR10, etc.). Keep
+// `template` first so the default (uninitialised) value is the template marker.
 enum TaskType {
     template,
     Images,
     Language,
     Images_clothing,
-    Images_object,
-    Images_numbers,
-    Images_MNIST,
-    Images_CIFAR10
+    Images_objects,
+    MNIST,
+    CIFAR10,
+    FashionMNIST,
+    IMDB
+}
+
+// Selects how reputation state is keyed on OpenFLManager.
+//   PerTask   : default. TaskRep is stored per-TaskType (one slot per dataset)
+//               and GIR is updated each task from cross-round vote tallies.
+//   GlobalOnly: a single TaskRep slot per user is shared across all TaskTypes
+//               and GIR is never written (logged as 0/unchanged).
+// The mode is fixed at OpenFLManager deployment time.
+enum ReputationMode {
+    PerTask,
+    GlobalOnly
 }
 
 struct TrainingSpecifications {

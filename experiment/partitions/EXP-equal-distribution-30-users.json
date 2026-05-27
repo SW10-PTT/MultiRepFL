@@ -1,0 +1,445 @@
+{
+  "_doc": [
+    "30 users with equal data distribution totalling 100%.",
+    "24 Honest, 3 Malicious, and 3 Free-rider users for both MNIST and CIFAR-10.",
+    "No only_labels, data_distribution, or other dataset constraints included."
+  ],
+  "presets": [
+    {
+      "id": "4f16df9e-d365-4d74-80c4-a8b1f9112ef4",
+      "name": "H1 Both",
+      "datasets": {
+        "MNIST": {
+          "behavior": "Honest",
+          "data_percent": 3.3333333333
+        },
+        "CIFAR-10": {
+          "behavior": "Honest",
+          "data_percent": 3.3333333333
+        }
+      }
+    },
+    {
+      "id": "92ebffdd-33df-4de6-b7ad-bdd0b0116e3e",
+      "name": "H2 Both",
+      "datasets": {
+        "MNIST": {
+          "behavior": "Honest",
+          "data_percent": 3.3333333333
+        },
+        "CIFAR-10": {
+          "behavior": "Honest",
+          "data_percent": 3.3333333333
+        }
+      }
+    },
+    {
+      "id": "8d3d393d-017f-4e36-b11f-854e3a545381",
+      "name": "H3 Both",
+      "datasets": {
+        "MNIST": {
+          "behavior": "Honest",
+          "data_percent": 3.3333333333
+        },
+        "CIFAR-10": {
+          "behavior": "Honest",
+          "data_percent": 3.3333333333
+        }
+      }
+    },
+    {
+      "id": "91e62f80-6c84-42c5-88a3-8840a41eec16",
+      "name": "H4 Both",
+      "datasets": {
+        "MNIST": {
+          "behavior": "Honest",
+          "data_percent": 3.3333333333
+        },
+        "CIFAR-10": {
+          "behavior": "Honest",
+          "data_percent": 3.3333333333
+        }
+      }
+    },
+    {
+      "id": "f598e54e-7d67-4617-ae4c-d3f706dc3787",
+      "name": "H5 Both",
+      "datasets": {
+        "MNIST": {
+          "behavior": "Honest",
+          "data_percent": 3.3333333333
+        },
+        "CIFAR-10": {
+          "behavior": "Honest",
+          "data_percent": 3.3333333333
+        }
+      }
+    },
+    {
+      "id": "a791ea7c-a38e-4e51-9120-04a8a540dd75",
+      "name": "H6 Both",
+      "datasets": {
+        "MNIST": {
+          "behavior": "Honest",
+          "data_percent": 3.3333333333
+        },
+        "CIFAR-10": {
+          "behavior": "Honest",
+          "data_percent": 3.3333333333
+        }
+      }
+    },
+    {
+      "id": "4f579d0f-c293-4398-87ee-c6f892b6d8a6",
+      "name": "H7 Both",
+      "datasets": {
+        "MNIST": {
+          "behavior": "Honest",
+          "data_percent": 3.3333333333
+        },
+        "CIFAR-10": {
+          "behavior": "Honest",
+          "data_percent": 3.3333333333
+        }
+      }
+    },
+    {
+      "id": "f0a36906-1fd8-4755-88ac-8556a675d260",
+      "name": "H8 Both",
+      "datasets": {
+        "MNIST": {
+          "behavior": "Honest",
+          "data_percent": 3.3333333333
+        },
+        "CIFAR-10": {
+          "behavior": "Honest",
+          "data_percent": 3.3333333333
+        }
+      }
+    },
+    {
+      "id": "f2861944-a078-4dd6-99c8-7436e21912a4",
+      "name": "H9 Both",
+      "datasets": {
+        "MNIST": {
+          "behavior": "Honest",
+          "data_percent": 3.3333333333
+        },
+        "CIFAR-10": {
+          "behavior": "Honest",
+          "data_percent": 3.3333333333
+        }
+      }
+    },
+    {
+      "id": "b6f33c2f-2207-48f8-8876-0b9bedcc5d41",
+      "name": "H10 Both",
+      "datasets": {
+        "MNIST": {
+          "behavior": "Honest",
+          "data_percent": 3.3333333333
+        },
+        "CIFAR-10": {
+          "behavior": "Honest",
+          "data_percent": 3.3333333333
+        }
+      }
+    },
+    {
+      "id": "a408a584-7b28-42a2-a492-c6f6b421ec35",
+      "name": "H11 Both",
+      "datasets": {
+        "MNIST": {
+          "behavior": "Honest",
+          "data_percent": 3.3333333333
+        },
+        "CIFAR-10": {
+          "behavior": "Honest",
+          "data_percent": 3.3333333333
+        }
+      }
+    },
+    {
+      "id": "1d9e7344-ecfa-4730-8f07-8409046e33a6",
+      "name": "H12 Both",
+      "datasets": {
+        "MNIST": {
+          "behavior": "Honest",
+          "data_percent": 3.3333333333
+        },
+        "CIFAR-10": {
+          "behavior": "Honest",
+          "data_percent": 3.3333333333
+        }
+      }
+    },
+    {
+      "id": "fef4d5df-f6e7-4662-b146-89ac24dd81bd",
+      "name": "H13 Both",
+      "datasets": {
+        "MNIST": {
+          "behavior": "Honest",
+          "data_percent": 3.3333333333
+        },
+        "CIFAR-10": {
+          "behavior": "Honest",
+          "data_percent": 3.3333333333
+        }
+      }
+    },
+    {
+      "id": "c5048e78-0ce4-470d-b104-0a9295dcc73d",
+      "name": "H14 Both",
+      "datasets": {
+        "MNIST": {
+          "behavior": "Honest",
+          "data_percent": 3.3333333333
+        },
+        "CIFAR-10": {
+          "behavior": "Honest",
+          "data_percent": 3.3333333333
+        }
+      }
+    },
+    {
+      "id": "cc555bce-6e97-4f54-91df-4cf2d4a79962",
+      "name": "H15 Both",
+      "datasets": {
+        "MNIST": {
+          "behavior": "Honest",
+          "data_percent": 3.3333333333
+        },
+        "CIFAR-10": {
+          "behavior": "Honest",
+          "data_percent": 3.3333333333
+        }
+      }
+    },
+    {
+      "id": "de49f45b-5ec3-4630-82c8-7f8e7fe359b7",
+      "name": "H16 Both",
+      "datasets": {
+        "MNIST": {
+          "behavior": "Honest",
+          "data_percent": 3.3333333333
+        },
+        "CIFAR-10": {
+          "behavior": "Honest",
+          "data_percent": 3.3333333333
+        }
+      }
+    },
+    {
+      "id": "38762a26-20da-469f-8772-28c2c261d4c6",
+      "name": "H17 Both",
+      "datasets": {
+        "MNIST": {
+          "behavior": "Honest",
+          "data_percent": 3.3333333333
+        },
+        "CIFAR-10": {
+          "behavior": "Honest",
+          "data_percent": 3.3333333333
+        }
+      }
+    },
+    {
+      "id": "302ba4cc-f285-4c32-a0bb-c45fd5cddcf4",
+      "name": "H18 Both",
+      "datasets": {
+        "MNIST": {
+          "behavior": "Honest",
+          "data_percent": 3.3333333333
+        },
+        "CIFAR-10": {
+          "behavior": "Honest",
+          "data_percent": 3.3333333333
+        }
+      }
+    },
+    {
+      "id": "fe2e4845-5dbc-4d35-8207-e77a211d7ee1",
+      "name": "H19 Both",
+      "datasets": {
+        "MNIST": {
+          "behavior": "Honest",
+          "data_percent": 3.3333333333
+        },
+        "CIFAR-10": {
+          "behavior": "Honest",
+          "data_percent": 3.3333333333
+        }
+      }
+    },
+    {
+      "id": "ab181f2d-8dfd-466e-a549-ce5b4dde976f",
+      "name": "H20 Both",
+      "datasets": {
+        "MNIST": {
+          "behavior": "Honest",
+          "data_percent": 3.3333333333
+        },
+        "CIFAR-10": {
+          "behavior": "Honest",
+          "data_percent": 3.3333333333
+        }
+      }
+    },
+    {
+      "id": "f7b865e3-f708-4afc-a63d-d92c155f5a81",
+      "name": "H21 Both",
+      "datasets": {
+        "MNIST": {
+          "behavior": "Honest",
+          "data_percent": 3.3333333333
+        },
+        "CIFAR-10": {
+          "behavior": "Honest",
+          "data_percent": 3.3333333333
+        }
+      }
+    },
+    {
+      "id": "0d785bc7-2f28-4651-993c-b33a8c8b227a",
+      "name": "H22 Both",
+      "datasets": {
+        "MNIST": {
+          "behavior": "Honest",
+          "data_percent": 3.3333333333
+        },
+        "CIFAR-10": {
+          "behavior": "Honest",
+          "data_percent": 3.3333333333
+        }
+      }
+    },
+    {
+      "id": "4d140936-3525-4372-9841-840b1e922fef",
+      "name": "H23 Both",
+      "datasets": {
+        "MNIST": {
+          "behavior": "Honest",
+          "data_percent": 3.3333333333
+        },
+        "CIFAR-10": {
+          "behavior": "Honest",
+          "data_percent": 3.3333333333
+        }
+      }
+    },
+    {
+      "id": "6427e4bb-59a9-44c7-a771-2640ab7462b4",
+      "name": "H24 Both",
+      "datasets": {
+        "MNIST": {
+          "behavior": "Honest",
+          "data_percent": 3.3333333333
+        },
+        "CIFAR-10": {
+          "behavior": "Honest",
+          "data_percent": 3.3333333333
+        }
+      }
+    },
+    {
+      "id": "5a579b6e-bc50-4e4c-b29f-91059cc34eb3",
+      "name": "M1 Both",
+      "datasets": {
+        "MNIST": {
+          "behavior": "Malicious",
+          "noise_scale": 1.0,
+          "start_round": 1,
+          "data_percent": 3.3333333333
+        },
+        "CIFAR-10": {
+          "behavior": "Malicious",
+          "noise_scale": 1.0,
+          "start_round": 1,
+          "data_percent": 3.3333333333
+        }
+      }
+    },
+    {
+      "id": "18639b9b-5a85-4d67-ab03-a6d3c39460c5",
+      "name": "M2 Both",
+      "datasets": {
+        "MNIST": {
+          "behavior": "Honest",
+          "data_percent": 3.3333333333
+        },
+        "CIFAR-10": {
+          "behavior": "Malicious",
+          "noise_scale": 1.0,
+          "start_round": 1,
+          "data_percent": 3.3333333333
+        }
+      }
+    },
+    {
+      "id": "96d30b36-9d86-4b54-b102-46df43e569bb",
+      "name": "M3 Both",
+      "datasets": {
+        "MNIST": {
+          "behavior": "Malicious",
+          "noise_scale": 1.0,
+          "start_round": 1,
+          "data_percent": 3.3333333333
+        },
+        "CIFAR-10": {
+          "behavior": "Honest",
+          "data_percent": 3.3333333333
+        }
+      }
+    },
+    {
+      "id": "15b17837-0b09-4efa-af4c-77fe537b64a1",
+      "name": "F1 Both",
+      "datasets": {
+        "MNIST": {
+          "behavior": "Free-rider",
+          "noise_scale": 0.1,
+          "start_round": 1,
+          "data_percent": 3.3333333333
+        },
+        "CIFAR-10": {
+          "behavior": "Free-rider",
+          "noise_scale": 0.1,
+          "start_round": 1,
+          "data_percent": 3.3333333333
+        }
+      }
+    },
+    {
+      "id": "dc7e82ef-0bba-4d24-95e2-87ccfe486c63",
+      "name": "F2 CIFAR-10",
+      "datasets": {
+        "MNIST": {
+          "behavior": "Honest",
+          "data_percent": 3.3333333333
+        },
+        "CIFAR-10": {
+          "behavior": "Free-rider",
+          "noise_scale": 0.1,
+          "start_round": 1,
+          "data_percent": 3.3333333333
+        }
+      }
+    },
+    {
+      "id": "6cde0707-c33a-471d-a90e-405caa94a955",
+      "name": "F3 MNIST",
+      "datasets": {
+        "MNIST": {
+          "behavior": "Free-rider",
+          "noise_scale": 0.1,
+          "start_round": 1,
+          "data_percent": 3.3333333333
+        },
+        "CIFAR-10": {
+          "behavior": "Honest",
+          "data_percent": 3.3333333333
+        }
+      }
+    }
+  ]
+}

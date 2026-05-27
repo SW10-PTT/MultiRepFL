@@ -43,7 +43,8 @@ def _parse_selection(expr: str, max_index: int, single: bool) -> set[int]:
             start, end = token.split("-")
             selected.update(range(int(start), int(end) + 1))
         else:
-            selected.add(int(token))
+            selected.add(
+                         )
 
     # Apply exclusions
     for token in tokens:

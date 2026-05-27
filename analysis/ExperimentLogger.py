@@ -17,10 +17,45 @@ class ExperimentLogger:
         self._receipt_rows = []
         self._contribution_rows = []
         self._warning_rows = []
-        self._trs = {}
+        self._task_rep_calc_rows = []
 
-    def log_trs(self, trs):
-        self._trs = trs
+    # -------- TASK REP CALC --------
+
+    def log_task_rep_calc(self, address=None, user_id=None, task_type=None,
+                          k=None, running_c_mean=None, m2=None,
+                          global_task_rep=None, global_integrity_rep=None,
+                          task_rep_delta=None, final_grs=None,
+                          positive_votes=None, total_votes=None):
+        """One row per participant at end-of-task.
+
+        WAD-normalised floats (divided by 1e18, range [0, 1]):
+            running_c_mean, m2, global_task_rep, global_integrity_rep
+        Raw on-chain integers:
+            task_rep_delta (int256 wei, signed), final_grs (uint256 wei),
+            positive_votes / total_votes (cross-round vote tallies for this
+            participant, with votes from kicked voters already removed —
+            these are the inputs to V = (positive/total)^2 inside the GIR
+            EWMA update).
+        k: NumberOfTasksJoined after this task completes — equals the k index
+           used in the confidence formula for this task.
+        Disqualified users are included: final_grs=0 (zeroed on disqualification),
+        task_rep_delta reflects accumulated punishment before kick.
+        """
+        self._task_rep_calc_rows.append({
+            "experiment_id":        self.experiment_id,
+            "user_id":              user_id,
+            "address":              address,
+            "task_type":            task_type,
+            "k":                    k,
+            "running_c_mean":       running_c_mean,
+            "m2":                   m2,
+            "global_task_rep":      global_task_rep,
+            "global_integrity_rep": global_integrity_rep,
+            "task_rep_delta":       task_rep_delta,
+            "final_grs":            final_grs,
+            "positive_votes":       positive_votes,
+            "total_votes":          total_votes,
+        })
 
     # -------- GLOBAL ROUND --------
 
@@ -165,12 +200,13 @@ class ExperimentLogger:
 
     def finalize(self):
         return {
-            "global":        pd.DataFrame(self._global_rows),
-            "users":         pd.DataFrame(self._user_rows),
-            "votes":         pd.DataFrame(self._vote_rows),
-            "receipts":      pd.DataFrame(self._receipt_rows),
-            "contributions": pd.DataFrame(self._contribution_rows),
-            "warnings":      pd.DataFrame(self._warning_rows),
+            "global":          pd.DataFrame(self._global_rows),
+            "users":           pd.DataFrame(self._user_rows),
+            "votes":           pd.DataFrame(self._vote_rows),
+            "receipts":        pd.DataFrame(self._receipt_rows),
+            "contributions":   pd.DataFrame(self._contribution_rows),
+            "warnings":        pd.DataFrame(self._warning_rows),
+            "task_rep_calc":   pd.DataFrame(self._task_rep_calc_rows),
         }
 
     # -------- SAVE --------
@@ -181,7 +217,6 @@ class ExperimentLogger:
             "experiment_id": self.experiment_id,
             "metadata": self.metadata,
             "setup": getattr(self, "_setup", {}),
-            "trs": getattr(self, "_trs", {}),
             "tables": self.finalize(),
         }
         with open(path, "wb") as f:
@@ -197,6 +232,7 @@ class NullExperimentLogger:
     def log_contribution_scores(self, round=None, user_numbers=None, user_addresses=None, scores=None, raw_values=None, outlier_info=None, previous_avg=None): pass
     def log_receipt(self, round=None, tx_type=None, tx_hash=None, gas_used=None): pass
     def log_warning(self, round=None, message=None): pass
+    def log_task_rep_calc(self, address=None, user_id=None, task_type=None, k=None, running_c_mean=None, m2=None, global_task_rep=None, global_integrity_rep=None, task_rep_delta=None, final_grs=None, positive_votes=None, total_votes=None): pass
     def log_setup(self, total_experiment_time=None, hardware=None, config=None): pass
     def log_trs(self, trs): pass
     def finalize(self): pass

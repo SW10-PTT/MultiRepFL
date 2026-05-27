@@ -1,4 +1,35 @@
 from dataclasses import dataclass
+from enum import IntEnum
+
+
+# Mirrors the Solidity `TaskType` enum in contracts/Types.sol. Values must
+# match the Solidity ordinal positions (uint8). TaskType acts as the dataset
+# key for TaskRep — one TaskRep per TaskType per user. Add new entries in
+# lock-step with the Solidity enum.
+class TaskType(IntEnum):
+    template = 0
+    Images = 1
+    Language = 2
+    Images_clothing = 3
+    Images_objects = 4
+    MNIST = 5
+    CIFAR10 = 6
+    FashionMNIST = 7
+    IMDB = 8
+
+    @classmethod
+    def from_dataset_name(cls, name: str) -> "TaskType":
+        if name is None:
+            return cls.template
+        normalized = name.replace("-", "").replace("_", "").replace(" ", "").lower()
+        mapping = {
+            "mnist": cls.MNIST,
+            "cifar10": cls.CIFAR10,
+            "fashionmnist": cls.FashionMNIST,
+            "imdb": cls.IMDB,
+        }
+        return mapping.get(normalized, cls.template)
+
 
 @dataclass
 class TrainingSpecsJobListing:
@@ -47,9 +78,9 @@ class TrainingSpecsJobListing:
 
 @dataclass
 class TrainingSpecsChallenge(TrainingSpecsJobListing):
-    contribution_score_strategy: str
-    joblisting_address: str
-    outlier_detection: bool
+    contribution_score_strategy: str = ""
+    joblisting_address: str = "0x0000000000000000000000000000000000000000"
+    outlier_detection: bool = False
     loss_tolerance_pct: float = 0.05
 
     def to_solidity_challenge(self):
