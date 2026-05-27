@@ -140,11 +140,11 @@ def fetch_run_download_url(run_id: str) -> str:
     The same endpoint the worker uses to upload is used by the client to obtain
     the URL for downloading the completed run's tarball.
     """
-    url = f"{_api_url()}/api/runs/{run_id}/upload-url"
+    url = f"{_api_url()}/api/runs/{run_id}/download-url"
     log("remote_client", f"Fetching download URL for run {run_id} …")
     res = requests.post(url, timeout=15)
     res.raise_for_status()
-    download_url = res.json()["uploadUrl"]
+    download_url = res.json()["downloadUrl"]
     log("remote_client", f"Got download URL for run {run_id}")
     return download_url
 

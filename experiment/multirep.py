@@ -39,8 +39,8 @@ presets: List[MultirepRunConfig] = [
     MultirepRunConfig(
         partition_file="experiment/partitions/example.json",
         dataset="MNIST",
-        minimum_rounds=5,
-        number_of_participants=6,
+        minimum_rounds=3,
+        number_of_participants=2,
         training_mode=TrainingMode.REMOTE,
     ),
 ]
@@ -182,7 +182,7 @@ def _fetch_runs_by_fingerprint(fingerprint: str) -> list:
 
 def _register_run(api_url: str, fingerprint: str, config: str) -> str | None:
     try:
-        res = requests.post(f"{api_url}/runs", json={"fingerprint": fingerprint, "config": config}, timeout=10)
+        res = requests.post(f"{api_url}/runs/local", json={"fingerprint": fingerprint, "config": config}, timeout=10)
         if res.status_code == 200:
             return res.json().get("id")
         log("multirep", f"[warn] run registration returned {res.status_code}: {res.text[:120]}")

@@ -91,13 +91,14 @@ def upload_file(upload_url, file_path: Path):
             timeout=300
         )
 
-    log("autorunner",res.status_code)
-    log("autorunner",res.text)
+    log("autorunner", res.status_code)
+    log("autorunner", res.text)
 
     res.raise_for_status()
 
 def complete_run(run_id):
-    requests.post(f"{API}/runs/{run_id}/complete", json={"RunId": str(run_id) })
+    response = requests.post(f"{API}/runs/{run_id}/complete", json={"RunId": str(run_id) })
+    response.raise_for_status()
 
 def fail_run(run_id, error):
     requests.post(f"{API}/runs/{run_id}/fail", json={
