@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Union
@@ -70,6 +71,9 @@ class UserPartitionSpec:
     # Required iff behavior in {Malicious, FreeRider}; forbidden otherwise.
     noise_scale: Optional[float] = None
     start_round: Optional[int] = None
+    # Stable identifier propagated through the remote API so multirep can match
+    # users across different Ganache instances.  Not part of fingerprint_dict().
+    guid: str = field(default_factory=lambda: str(uuid.uuid4()))
 
     def __post_init__(self):
         # Normalise to str so GUID and legacy-int keys land in the same shape.
@@ -135,8 +139,12 @@ class UserPartitionSpec:
                     f"behavior is {self.behavior.name!r}"
                 )
 
+    def serialize(self) -> dict:
+        """Full serialisation including guid — use when sending over the API."""
+        return {**self.fingerprint_dict(), "guid": self.guid}
+
     # Deterministic dict for hashing in fingerprints. Keys/values are sorted
-    # so the resulting JSON blob is byte-stable.
+    # so the resulting JSON blob is byte-stable.  guid is intentionally excluded.
     def fingerprint_dict(self) -> dict:
         return {
             "user_index": str(self.user_index),
@@ -352,6 +360,8 @@ def _build_spec(entry: dict) -> UserPartitionSpec:
     if start_round is not None:
         start_round = int(start_round)
 
+    guid = entry.get("guid") or str(uuid.uuid4())
+
     return UserPartitionSpec(
         user_index=str(entry["user_index"]),
         data_percent=float(entry["data_percent"]),
@@ -362,4 +372,5 @@ def _build_spec(entry: dict) -> UserPartitionSpec:
         behavior=behavior,
         noise_scale=noise_scale,
         start_round=start_round,
+        guid=guid,
     )

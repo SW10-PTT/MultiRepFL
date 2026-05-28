@@ -85,9 +85,19 @@ def get_task_type(dataset: str) -> int:
 
 def update_users_from_reps(users: List[User], reps, task_type: int) -> None:
     users_by_address = {u.address.lower(): u for u in users}
+    users_by_guid = {u.guid: u for u in users if u.guid is not None}
     for rep in reps:
-        address, task_rep, global_integrity_rep, total_contrib_score, q_value = rep
-        user = users_by_address.get(address.lower())
+        if isinstance(rep, dict):
+            address = rep.get("address", "")
+            task_rep = rep["taskRep"]
+            global_integrity_rep = rep["globalIntegrityRep"]
+            total_contrib_score = rep["totalContribScore"]
+            q_value = rep["qValue"]
+            guid = rep.get("guid")
+        else:
+            address, task_rep, global_integrity_rep, total_contrib_score, q_value = rep
+            guid = None
+        user = (users_by_guid.get(guid) if guid else None) or users_by_address.get(address.lower())
         if user is None:
             continue
         user.task_rep[task_type] = task_rep
@@ -142,11 +152,7 @@ def _apply_cached_reps(users: List[User], cached_run: dict, task_type: int) -> N
     if not reps_data:
         log("multirep", "[warn] No reputation data in cached run — rep state unchanged.")
         return
-    reps = [
-        (r["address"], r["taskRep"], r["globalIntegrityRep"], r["totalContribScore"], r["qValue"])
-        for r in reps_data
-    ]
-    update_users_from_reps(users, reps, task_type)
+    update_users_from_reps(users, reps_data, task_type)
 
 
 def _fetch_cached_run(fingerprint: str):

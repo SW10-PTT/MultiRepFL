@@ -19,6 +19,7 @@ from datetime import datetime
 
 from analysis import ExperimentLogger
 from experiment import experiment_runner
+from experiment.experiment_runner import build_users
 from experiment.helper import getPath
 from openfl.utils.async_writer import AsyncWriter
 from openfl.api import globals
@@ -96,8 +97,11 @@ def upload_file(upload_url, file_path: Path):
 
     res.raise_for_status()
 
-def complete_run(run_id):
-    response = requests.post(f"{API}/runs/{run_id}/complete", json={"RunId": str(run_id) })
+def complete_run(run_id, user_guids=None):
+    body = {"RunId": str(run_id)}
+    if user_guids:
+        body["userGuids"] = user_guids
+    response = requests.post(f"{API}/runs/{run_id}/complete", json=body)
     response.raise_for_status()
 
 def fail_run(run_id, error):
@@ -221,8 +225,10 @@ def worker_loop():
             writer = AsyncWriter(path, OUTPUTHEADERS, WRITERBUFFERSIZE, config, "sample")
             logger = ExperimentLogger(experiment_id=path.stem, metadata=vars(config))
 
+            users = build_users(config)
             (experiment, filename) = experiment_runner.run_experiment(
-                config.dataset, config, writer, logger, path
+                config.dataset, config, writer, logger, path,
+                prebuilt_users=users,
             )
 
             writer.finish()
@@ -238,8 +244,12 @@ def worker_loop():
                 archive_path
             )
 
+            user_guids = [
+                {"guid": u.guid, "address": u.address}
+                for u in users if u.guid is not None
+            ]
             reset()
-            complete_run(run_id)
+            complete_run(run_id, user_guids)
             #stop_heartbeat_loop()
 
         except Exception as e:

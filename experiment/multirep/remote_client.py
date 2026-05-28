@@ -66,7 +66,7 @@ def _config_to_json_element(experiment_config) -> Any:
     if raw.get("per_user_partitions"):
         raw["per_user_partitions"] = {
             dataset_key: {
-                uk: (spec.fingerprint_dict() if hasattr(spec, "fingerprint_dict") else vars(spec))
+                uk: (spec.serialize() if hasattr(spec, "serialize") else vars(spec))
                 for uk, spec in specs.items()
             }
             for dataset_key, specs in raw["per_user_partitions"].items()

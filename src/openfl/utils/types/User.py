@@ -84,6 +84,10 @@ class User:
         self.q_value: dict = {}
 
     @property
+    def guid(self) -> str | None:
+        return self.partition_spec.guid if self.partition_spec is not None else None
+
+    @property
     def finger_print(self):
         data = {
             "futureAttitude": self.futureAttitude.name,
