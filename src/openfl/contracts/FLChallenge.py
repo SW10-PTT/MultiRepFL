@@ -633,8 +633,9 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
         if self.manager_contract is None:
             return
         try:
-            self.transact("finalizeReputations", self._publisher, 0, [], "challenge.finalizeReputations")
-            log("setup_contracts", "Reputation sync pushed to manager via finalizeReputations()")
+            if (False): ## TODO WHEN IN REMOTE STATE SKIP
+                self.transact("finalizeReputations", self._publisher, 0, [], "challenge.finalizeReputations")
+                log("setup_contracts", "Reputation sync pushed to manager via finalizeReputations()")
         except Exception as e:
             log("setup_contracts", f"[warn] finalizeReputations failed: {e}")
 
