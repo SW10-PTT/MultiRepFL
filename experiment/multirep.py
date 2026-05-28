@@ -137,21 +137,25 @@ def _apply_q_updates(users: List[User], q_updates: dict, task_type: int) -> None
 # TRS (replay rep update)
 # ---------------------------------------------------------------------------
 
-def _apply_trs_reps(users: List[User], trs: list, task_type: int) -> None:
-    """Apply task-rep delta + GRS from a replayed trs list directly to user objects.
+def _apply_trs_reps(users: List[User], trs: list, task_type: int, manager) -> None:
+    """Apply task-rep delta + delta_balance on-chain and in Python for replayed runs.
 
-    Used when run_experiment returns early (HardPlayBack) without updating the
-    manager contract on-chain. trs format: (guid, delta, grs, pos_votes, total_votes).
+    trs format: (guid, delta_task_rep, delta_balance, pos_votes, total_votes).
+    Both deltas are applied additively (clamped to 0) and written to the manager
+    contract so the chain remains the authoritative source of truth.
     """
     users_by_guid = {u.guid: u for u in users if u.guid is not None}
     for entry in trs:
-        guid, delta, grs = str(entry[0]), entry[1], entry[2]
+        guid, delta, delta_balance = str(entry[0]), entry[1], entry[2]
         user = users_by_guid.get(guid)
         if user is None:
             continue
-        current = user.task_rep.get(task_type, 0)
-        user.task_rep[task_type] = max(0, current + delta)
-        user.global_integrity_rep = grs
+        new_task_rep = max(0, user.task_rep.get(task_type, 0) + delta)
+        new_gir = max(0, user.global_integrity_rep + delta_balance)
+        manager.set_user_task_rep(user.address, task_type, new_task_rep)
+        manager.set_user_integrity_rep(user.address, new_gir)
+        user.task_rep[task_type] = new_task_rep
+        user.global_integrity_rep = new_gir
 
 
 # ---------------------------------------------------------------------------
@@ -162,19 +166,19 @@ def log_user_reputations(users: List[User], task_type: int, selected_users: List
     """Log reputation fields and selection status for every user."""
     selected_set = {u.address for u in selected_users}
     log("multirep", "─" * 80)
-    log("multirep", f"{'User':<12} {'Address':<20}  {'TaskRep':>8} {'GIR':>8} {'Q':>7} {'Score':>8}  {'Selected':>8}")
+    log("multirep", f"{'User':<12} {'Address':<20}  {'TaskRep':>8} {'Balance':>8} {'Q':>7} {'Score':>8}  {'Selected':>8}")
     log("multirep", "─" * 80)
     for u in users:
         score = compute_user_score(u, task_type, q_weight)
         tr = u.task_rep.get(task_type, 0) / _WAD
-        gir = u.global_integrity_rep / _WAD
+        balance = u.global_integrity_rep / _WAD
         q = float(u.q_value.get(task_type, 0.0))
         score_display = score / _WAD
         selected = "YES" if u.address in selected_set else "no"
         name = u.partition_spec.name if (u.partition_spec and u.partition_spec.name) else None
         label = name if name else f"User {u.number}"
         addr = u.address[:20] if u.address else "N/A"
-        log("multirep", f"{label:<12} {addr:<20}  {tr:>8.4f} {gir:>8.4f} {q:>7.3f} {score_display:>8.4f}  {selected:>8}")
+        log("multirep", f"{label:<12} {addr:<20}  {tr:>8.4f} {balance:>8.4f} {q:>7.3f} {score_display:>8.4f}  {selected:>8}")
     log("multirep", "─" * 80)
 
 
@@ -403,6 +407,11 @@ def main():
         privkeys,
     )
 
+    # Initialize on-chain GIR to 1 WAD for all users. This mirrors the
+    # Solidity prior (WAD for new users) and makes the chain authoritative
+    # from the first task onward.
+    manager.initialize_user_balances(all_users)
+
     q_weight = preset.q_weight
 
     for i, task in enumerate(tasks):
@@ -448,10 +457,11 @@ def main():
         if task.training_mode == TrainingMode.LOCAL:
             _upload_run(fingerprint, filename, json.dumps(exp_config.to_dict()))
 
-        # Sync reputations. LOCAL runs update the manager contract on-chain
-        # (via update_user_task_reps in run_experiment), so we read from chain.
-        # REMOTE replay runs skip chain interactions, so we apply trs deltas directly.
-        # Q is computed Python-side (applied last so chain values don't override it).
+        # Sync reputations. The chain is authoritative; Python mirrors it.
+        # For replay runs: first read pre-run chain state into Python, then
+        # apply trs deltas on-chain (and Python-side), keeping both in sync.
+        # For local runs: the challenge already updated the chain; just read it.
+        # Q is computed Python-side and applied last.
         addresses = [u.address for u in all_users]
         is_replay = isinstance(run_data, list)
         try:
@@ -460,7 +470,7 @@ def main():
         except Exception as e:
             log("multirep", f"[warn] getGrsAndTrsBatch failed: {e}")
         if is_replay:
-            _apply_trs_reps(all_users, run_data, task_type)
+            _apply_trs_reps(all_users, run_data, task_type, manager)
         _apply_q_updates(all_users, q_updates, task_type)
 
         log("multirep", f"\n--- Reputation snapshot after task {i+1} ---")

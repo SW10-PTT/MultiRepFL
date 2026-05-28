@@ -451,8 +451,10 @@ contract JobListing {
         uint256 totalVotes
     ) internal {
         (, uint256 priorIntegrityRep, ) = manager.getUserRep(user, tt);
+        // New users have GIR = 0; initialize prior to WAD (1.0) on first task.
+        uint256 effectivePrior = priorIntegrityRep == 0 ? WAD : priorIntegrityRep;
         uint256 newIntegrityRep = _updateIntegrityRep(
-            priorIntegrityRep,
+            effectivePrior,
             positiveVotes,
             totalVotes
         );

@@ -1,7 +1,7 @@
 {
   "name": "example",
   "partition_file": "experiment/partitions/example.json",
-  "q_weight": 0.0,
+  "q_weight": 1000000000000000000.0,
   "tasks": [
     {
       "dataset": "MNIST",

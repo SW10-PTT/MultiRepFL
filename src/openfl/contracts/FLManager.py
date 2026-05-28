@@ -211,6 +211,34 @@ class FLManager(ConnectionHelper):
         log("setup_contracts", "Challenge template deployed at:", contract.address)
         log("setup_contracts", "Challenge template hash:", self.challenge_templete_hash.hex())
 
+    def set_user_integrity_rep(self, user_address: str, new_value: int) -> None:
+        self.transact(
+            "setUserIntegrityRep",
+            self.publisher,
+            0,
+            [],
+            "manager.setUserIntegrityRep",
+            Web3.to_checksum_address(user_address),
+            new_value,
+        )
+
+    def set_user_task_rep(self, user_address: str, task_type: int, new_value: int) -> None:
+        self.transact(
+            "setUserTaskRep",
+            self.publisher,
+            0,
+            [],
+            "manager.setUserTaskRep",
+            Web3.to_checksum_address(user_address),
+            task_type,
+            new_value,
+        )
+
+    def initialize_user_balances(self, users: list, initial_value: int = int(1e18)) -> None:
+        """Set on-chain GIR to initial_value for every user (called once at session start)."""
+        for user in users:
+            self.set_user_integrity_rep(user.address, initial_value)
+
     def update_reputations_from_challenge(self, challenge_address: str, task_type: int):
         """Sync reputation data from a completed challenge into the manager (Python/replay path).
 

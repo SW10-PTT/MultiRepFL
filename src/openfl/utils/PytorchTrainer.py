@@ -49,13 +49,17 @@ class PyTorchTrainer(ITestAndTrainer):
 
     def get_task_rep_delta_and_GRS(self, round, tag, contract: Contract, get_participant_func):
         data = contract.functions.getTaskRepDeltaAndGRS.call()
-        # On-chain TaskRep struct is (addr, delta, grs, positiveVotes, totalVotes).
-        # Persist all five so the replay path can reconstruct GIR inputs.
-        formatted_data = [
-            (str(get_participant_func(u[0]).guid), u[1], u[2], u[3], u[4])
-            for u in data
-            if get_participant_func(u[0]) is not None
-        ]
+        # On-chain TaskRep struct is (addr, delta, new_grs, positiveVotes, totalVotes).
+        # Save delta_grs (new - prior) so replay applies it additively — consistent
+        # with the live path where Solidity also starts the prior at WAD for new users.
+        formatted_data = []
+        for u in data:
+            participant = get_participant_func(u[0])
+            if participant is None:
+                continue
+            new_grs = u[2]
+            delta_grs = new_grs - participant.global_integrity_rep
+            formatted_data.append((str(participant.guid), u[1], delta_grs, u[3], u[4]))
         if ReplayMode.Record in reuse_runs:
             self.save(round, tag, formatted_data)
         return data

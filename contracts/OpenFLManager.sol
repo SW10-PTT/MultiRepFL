@@ -283,7 +283,10 @@ contract OpenFLManager {
         TaskType taskType,
         uint256 newValue
     ) external {
-        require(validJobs[msg.sender], "OFLM: caller not valid job");
+        require(
+            validJobs[msg.sender] || msg.sender == publisher,
+            "OFLM: caller not valid job or publisher"
+        );
 
         TaskType key = _repKey(taskType);
         uint256 current = users[user].GlobalTaskRep[key];
@@ -332,12 +335,14 @@ contract OpenFLManager {
         uint256 newValue
     );
 
-    // Replace a user's Global Integrity Reputation (GIR). Same auth model as
-    // setUserTaskRep — only callable by a registered (valid) JobListing.
-    // GIR is WAD-scaled in [0, WAD]; the JobListing computes the EWMA-blended
-    // value off the per-task vote tallies at end-of-task and writes it here.
+    // Replace a user's Global Integrity Reputation (GIR). Callable by a
+    // registered (valid) JobListing (production) or the publisher EOA (replay /
+    // initialisation from Python). GIR is WAD-scaled.
     function setUserIntegrityRep(address user, uint256 newValue) external {
-        require(validJobs[msg.sender], "OFLM: caller not valid job");
+        require(
+            validJobs[msg.sender] || msg.sender == publisher,
+            "OFLM: caller not valid job or publisher"
+        );
 
         uint256 current = users[user].GlobalIntegrityRep;
         users[user].GlobalIntegrityRep = newValue;
