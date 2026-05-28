@@ -55,7 +55,7 @@ contract OpenFLManager {
         mapping(TaskType => uint256) M2;
         uint256 GlobalIntegrityRep;
         uint128 TotalContribScore;
-        mapping(TaskType => uint128) QValue;
+        mapping(TaskType => uint256) QValue;
     }
 
     struct TaskSpecificUser {
@@ -63,7 +63,7 @@ contract OpenFLManager {
         uint256 taskRep;
         uint256 globalIntegrityRep;
         uint128 totalContribScore;
-        uint128 qValue;
+        uint256 qValue;
     }
 
     function getGrsAndTrsBatch(
@@ -217,10 +217,12 @@ contract OpenFLManager {
 
     // Update Q-values after a job listing's participant selection.
     // All registrants get Q incremented (patience bonus for waiting).
-    // Selected participants get Q reset to Q_BASE (selected = fresh start).
+    // Q is WAD-scaled (1e18). The patience formula per round:
+    //   increment = k / n  (k = selected count, n = all registrants count)
+    //   not selected: q_new = q_old + increment
+    //   selected:     q_new = max(0, q_old + increment - WAD)
     // Callable by: the job listing contract (production) or publisher (Python/replay).
-    uint128 constant Q_BASE = 1;
-    uint128 constant Q_INCREMENT = 1;
+    uint256 internal constant Q_WAD = 1e18;
 
     function updateQValuesAfterSelection(
         address[] calldata allRegistrants,
@@ -232,16 +234,34 @@ contract OpenFLManager {
             "Unauthorized"
         );
 
-        // Everyone who registered gets a patience increment.
-        for (uint i = 0; i < allRegistrants.length; i++) {
-            users[allRegistrants[i]].QValue[taskType] += Q_INCREMENT;
+        uint256 n = allRegistrants.length;
+        if (n == 0) return;
+        uint256 k = selected.length;
+        uint256 increment = (k * Q_WAD) / n;
+
+        // Mark selected addresses for O(k) lookup inside the O(n) loop.
+        mapping(address => bool) storage isSelected = _tmpSelected;
+        for (uint i = 0; i < k; i++) {
+            isSelected[selected[i]] = true;
         }
 
-        // Selected participants reset to base (their wait is over).
-        for (uint i = 0; i < selected.length; i++) {
-            users[selected[i]].QValue[taskType] = Q_BASE;
+        for (uint i = 0; i < n; i++) {
+            address addr = allRegistrants[i];
+            uint256 q = users[addr].QValue[taskType];
+            uint256 newQ = q + increment;
+            if (isSelected[addr]) {
+                newQ = newQ >= Q_WAD ? newQ - Q_WAD : 0;
+            }
+            users[addr].QValue[taskType] = newQ;
+        }
+
+        // Clean up the temporary selected-flag mapping.
+        for (uint i = 0; i < k; i++) {
+            delete isSelected[selected[i]];
         }
     }
+
+    mapping(address => bool) private _tmpSelected;
 
     event UserTaskRepUpdated(
         address indexed user,

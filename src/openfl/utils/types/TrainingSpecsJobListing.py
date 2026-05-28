@@ -43,6 +43,7 @@ class TrainingSpecsJobListing:
     punishfactorContrib: int
     freeriderPenalty: int
     taskType: int
+    q_weight: int = 0  # WAD-scaled (1e18); mirrors trainingSpecs.qWeight in Solidity
 
     def to_solidity_job(self):
         return (
@@ -60,20 +61,21 @@ class TrainingSpecsJobListing:
 
     def to_challenge(self, contribution_score_strategy, outlier_detection, joblisting_address, loss_tolerance_pct=0.05):
         return TrainingSpecsChallenge(
-            self.modelHash,
-            self.min_collateral,
-            self.max_collateral,
-            self.manager_address,
-            self.reward,
-            self.min_rounds,
-            self.punishfactor,
-            self.punishfactorContrib,
-            self.freeriderPenalty,
-            self.taskType,
-            contribution_score_strategy,
-            joblisting_address,
-            outlier_detection,
-            loss_tolerance_pct,
+            modelHash=self.modelHash,
+            min_collateral=self.min_collateral,
+            max_collateral=self.max_collateral,
+            manager_address=self.manager_address,
+            reward=self.reward,
+            min_rounds=self.min_rounds,
+            punishfactor=self.punishfactor,
+            punishfactorContrib=self.punishfactorContrib,
+            freeriderPenalty=self.freeriderPenalty,
+            taskType=self.taskType,
+            q_weight=self.q_weight,
+            contribution_score_strategy=contribution_score_strategy,
+            joblisting_address=joblisting_address,
+            outlier_detection=outlier_detection,
+            loss_tolerance_pct=loss_tolerance_pct,
         )
 
 @dataclass

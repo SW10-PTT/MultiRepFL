@@ -111,7 +111,8 @@ contract JobListing {
         uint8 _punishfactorContrib,
         uint8 _freeriderPenalty,
         address _managerAddress,
-        TaskType _taskType
+        TaskType _taskType,
+        uint256 _qWeight
     ) payable {
         managerAddress = _managerAddress;
         manager = OpenFLManager(_managerAddress);
@@ -127,6 +128,7 @@ contract JobListing {
         trainingSpecs.punishfactorContrib = _punishfactorContrib;
         trainingSpecs.reward = _reward;
         trainingSpecs.taskType = _taskType;
+        trainingSpecs.qWeight = _qWeight;
 
         challengeCodeHash = manager.getChallengeCodeHash();
     }
@@ -225,9 +227,10 @@ contract JobListing {
     }
 
     function _selectionScore(User storage u) internal view returns (uint) {
-        // score = max(1, qValue) * (taskRep * 6 + globalIntegrity * 4) / 10
-        uint q = u.qValue > 0 ? uint(u.qValue) : 1;
-        return (q * (u.globalTaskRep * 6 + u.globalIntegrity * 4)) / 10;
+        // score = (taskRep * 6 + gir * 4) / 10 + qWeight * q / WAD
+        uint normalWeight = (u.globalTaskRep * 6 + u.globalIntegrity * 4) / 10;
+        uint qBonus = (trainingSpecs.qWeight * u.qValue) / WAD;
+        return normalWeight + qBonus;
     }
 
     function getTopN(uint N) public view returns (address[] memory) {

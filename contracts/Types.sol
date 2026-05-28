@@ -37,6 +37,7 @@ struct TrainingSpecifications {
     uint8 freeriderPenalty;
     TaskType taskType;
     address jobListingAddress;
+    uint256 qWeight;  // WAD-scaled additive Q bonus: score = normalWeight + qWeight * q / WAD
 }
 
 struct ChallengeSpecifications {

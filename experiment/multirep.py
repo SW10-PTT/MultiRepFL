@@ -27,9 +27,6 @@ from openfl.api.globals import ReplayMode
 # Used to predict participant selection for fingerprinting / RunRepo caching.
 # ---------------------------------------------------------------------------
 
-# "q_weighted"      → score = max(1, q) * (task_rep*0.6 + gir*0.4)   [mirrors on-chain getTopN]
-# "reputation_only" → score =              task_rep*0.6 + gir*0.4
-SCORING_MODE = "q_weighted"
 _WAD = 10 ** 18  # all on-chain rep values are WAD-scaled
 
 
@@ -44,22 +41,21 @@ preset_file = "experiment/presets/example.json"
 # Scoring helpers
 # ---------------------------------------------------------------------------
 
-def compute_user_score(user: User, task_type: int) -> int:
-    # Mirrors JobListing._selectionScore: q * (taskRep * 6 + globalIntegrity * 4) / 10
+def compute_user_score(user: User, task_type: int, q_weight: float = 0.0) -> int:
+    # score = (taskRep * 6 + gir * 4) / 10 + q_weight * q * WAD
     base = user.task_rep.get(task_type, 0) * 6 + user.global_integrity_rep * 4
-    if SCORING_MODE == "q_weighted":
-        q = max(1, user.q_value.get(task_type, 0))
-        return q * base // 10
-    return base // 10
+    normal_weight = base // 10
+    q = user.q_value.get(task_type, 0.0)
+    return int(normal_weight + q_weight * q * _WAD)
 
 
-def getTopN(users: List[User], n: int, task_type: int) -> List[User]:
+def getTopN(users: List[User], n: int, task_type: int, q_weight: float = 0.0) -> List[User]:
     """Mirror the smart contract's participant selection for fingerprinting."""
-    scores = [(compute_user_score(u, task_type), u) for u in users]
+    scores = [(compute_user_score(u, task_type, q_weight), u) for u in users]
     scores.sort(key=lambda x: x[0], reverse=True)
     selected = [u for _, u in scores[:n]]
     selected_set = {u.address for u in selected}
-    log("multirep", f"Selection (top {n} of {len(users)}, task_type={task_type}, mode={SCORING_MODE}):")
+    log("multirep", f"Selection (top {n} of {len(users)}, task_type={task_type}):")
     for score, u in scores:
         marker = "SELECTED" if u.address in selected_set else "       -"
         name = u.partition_spec.name if (u.partition_spec and u.partition_spec.name) else f"User {u.number}"
@@ -105,6 +101,39 @@ def update_users_from_reps(users: List[User], reps, task_type: int) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Q-value update (patience / selection pressure formula)
+# ---------------------------------------------------------------------------
+
+def _compute_q_updates(users: List[User], selected_users: List[User], task_type: int) -> dict:
+    """Return {address: new_q} using pre-run Q values — does not modify users.
+
+    Formula (k = selected, n = total):
+      selected:     q_new = max(0, q_old + k/n - 1)
+      not selected: q_new = max(0, q_old + k/n)
+    """
+    k = len(selected_users)
+    n = len(users)
+    ratio = k / n if n > 0 else 0.0
+    selected_addrs = {u.address for u in selected_users}
+    selected_guids = {u.guid for u in selected_users if u.guid is not None}
+    updates = {}
+    for user in users:
+        q_old = float(user.q_value.get(task_type, 0.0))
+        is_selected = user.address in selected_addrs or (
+            user.guid is not None and user.guid in selected_guids
+        )
+        delta = ratio - (1.0 if is_selected else 0.0)
+        updates[user.address] = max(0.0, q_old + delta)
+    return updates
+
+
+def _apply_q_updates(users: List[User], q_updates: dict, task_type: int) -> None:
+    for user in users:
+        if user.address in q_updates:
+            user.q_value[task_type] = q_updates[user.address]
+
+
+# ---------------------------------------------------------------------------
 # TRS (replay rep update)
 # ---------------------------------------------------------------------------
 
@@ -129,23 +158,23 @@ def _apply_trs_reps(users: List[User], trs: list, task_type: int) -> None:
 # Partition filtering
 # ---------------------------------------------------------------------------
 
-def log_user_reputations(users: List[User], task_type: int, selected_users: List[User]) -> None:
+def log_user_reputations(users: List[User], task_type: int, selected_users: List[User], q_weight: float = 0.0) -> None:
     """Log reputation fields and selection status for every user."""
     selected_set = {u.address for u in selected_users}
     log("multirep", "─" * 80)
-    log("multirep", f"{'User':<12} {'Address':<20}  {'TaskRep':>8} {'GIR':>8} {'Q':>5} {'Score':>8}  {'Selected':>8}")
+    log("multirep", f"{'User':<12} {'Address':<20}  {'TaskRep':>8} {'GIR':>8} {'Q':>7} {'Score':>8}  {'Selected':>8}")
     log("multirep", "─" * 80)
     for u in users:
-        score = compute_user_score(u, task_type)
+        score = compute_user_score(u, task_type, q_weight)
         tr = u.task_rep.get(task_type, 0) / _WAD
         gir = u.global_integrity_rep / _WAD
-        q = u.q_value.get(task_type, 1)
+        q = float(u.q_value.get(task_type, 0.0))
         score_display = score / _WAD
         selected = "YES" if u.address in selected_set else "no"
         name = u.partition_spec.name if (u.partition_spec and u.partition_spec.name) else None
         label = name if name else f"User {u.number}"
         addr = u.address[:20] if u.address else "N/A"
-        log("multirep", f"{label:<12} {addr:<20}  {tr:>8.4f} {gir:>8.4f} {q:>5} {score_display:>8.4f}  {selected:>8}")
+        log("multirep", f"{label:<12} {addr:<20}  {tr:>8.4f} {gir:>8.4f} {q:>7.3f} {score_display:>8.4f}  {selected:>8}")
     log("multirep", "─" * 80)
 
 
@@ -374,19 +403,26 @@ def main():
         privkeys,
     )
 
+    q_weight = preset.q_weight
+
     for i, task in enumerate(tasks):
         task_type = get_task_type(task.dataset)
 
         # Mirror the contract's selection to predict participants.
         # All users still register; the contract makes the final choice.
         log("multirep", f"\n=== Task {i+1}/{len(tasks)}: {task.dataset} (mode={task.training_mode.value}) ===")
-        selected_users = getTopN(all_users, task.number_of_participants, task_type)
+        selected_users = getTopN(all_users, task.number_of_participants, task_type, q_weight)
+
+        # Compute Q updates now, before the run, so q_old is the pre-run value.
+        # Applied after chain sync to ensure our Python-side Q is authoritative.
+        q_updates = _compute_q_updates(all_users, selected_users, task_type)
 
         # Build ExperimentConfiguration from ONLY the selected users' specs so
         # contributor counts and the experiment fingerprint are correct.
         filtered_partitions = filter_partitions_for_users(selected_users)
         exp_config = task.to_experiment_config(partition_file)
 
+        exp_config.q_weight = q_weight
         fingerprint = exp_config.get_finger_print(selected_users)
         log("multirep", f"Run {i+1}/{len(tasks)} | dataset={task.dataset} | fp={fingerprint[:8]}...")
 
@@ -394,8 +430,9 @@ def main():
         if cached_run is not None:
             log("multirep", f"Fingerprint {fingerprint[:8]}... found in RunRepo — skipping experiment.")
             _apply_cached_reps(all_users, cached_run, task_type)
+            _apply_q_updates(all_users, q_updates, task_type)
             log("multirep", f"\n--- Reputation snapshot after task {i+1} (cached) ---")
-            log_user_reputations(all_users, task_type, selected_users)
+            log_user_reputations(all_users, task_type, selected_users, q_weight)
             continue
 
         # ------------------------------------------------------------------ #
@@ -413,8 +450,8 @@ def main():
 
         # Sync reputations. LOCAL runs update the manager contract on-chain
         # (via update_user_task_reps in run_experiment), so we read from chain.
-        # REMOTE replay runs skip chain interactions, so we apply trs deltas
-        # directly; qValue is still read from chain (set by decideOnParticipants).
+        # REMOTE replay runs skip chain interactions, so we apply trs deltas directly.
+        # Q is computed Python-side (applied last so chain values don't override it).
         addresses = [u.address for u in all_users]
         is_replay = isinstance(run_data, list)
         try:
@@ -424,9 +461,10 @@ def main():
             log("multirep", f"[warn] getGrsAndTrsBatch failed: {e}")
         if is_replay:
             _apply_trs_reps(all_users, run_data, task_type)
+        _apply_q_updates(all_users, q_updates, task_type)
 
         log("multirep", f"\n--- Reputation snapshot after task {i+1} ---")
-        log_user_reputations(all_users, task_type, selected_users)
+        log_user_reputations(all_users, task_type, selected_users, q_weight)
 
     log("multirep", "\n=== All tasks complete. ===")
 

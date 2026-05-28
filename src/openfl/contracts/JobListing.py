@@ -38,6 +38,7 @@ class JobListing(ConnectionHelper):
                 training_specs.freeriderPenalty,
                 training_specs.manager_address,
                 training_specs.taskType,
+                training_specs.q_weight,
             ],
             publisher,
             value=value

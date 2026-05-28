@@ -154,7 +154,8 @@ class FLManager(ConnectionHelper):
             1,   # punish_contrib
             1,   # freerider_fee
             self.contract.address if self.contract else deployer.address,  # manager addr
-            0    # taskType (enum as int)
+            0,   # taskType (enum as int)
+            0,   # qWeight (WAD-scaled; 0 = disabled)
         ]
 
         contract, receipt = ConnectionHelper.deploy(
