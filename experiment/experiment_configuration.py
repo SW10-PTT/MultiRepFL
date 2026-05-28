@@ -222,10 +222,11 @@ class ExperimentConfiguration:
                     return per_user_partitions
                 if isinstance(inner_first, dict):
                     # {dataset_key: {user_index: spec_dict}} from remote serialisation
-                    return {
+                    tmp = {
                         dataset_key: {uk: _build_spec(dict(spec)) for uk, spec in specs.items()}
                         for dataset_key, specs in per_user_partitions.items()
                     }
+                    return tmp
         return load_dataset_partition_specs({
             "presets": per_user_partitions
         })
