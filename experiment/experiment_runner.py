@@ -19,8 +19,11 @@ from types import SimpleNamespace
 from web3 import Web3, Account
 from openfl.api import globals
 
+import uuid
+
 from openfl.utils.async_writer import AsyncWriter
 from openfl.utils.types.User import User
+from openfl.ml.partition_spec import UserPartitionSpec
 from openfl.utils.printer import set_enabled_tags, log
 
 
@@ -186,7 +189,8 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
 
     users = [users_by_address.get(par_addr) for par_addr in users_by_address]
     combinedUsers = pytorch_model.runRepo.get_participants(users)
-    return pytorch_model.runRepo.get_task_rep_delta_and_GRS(-1, "get_task_rep_delta_and_GRS-simulate", None, lambda x: pytorch_model.get_participant(x, combinedUsers))
+    trs = pytorch_model.runRepo.get_task_rep_delta_and_GRS(-1, "get_task_rep_delta_and_GRS-simulate", None, lambda x: pytorch_model.get_participant(x, combinedUsers))
+    return (trs, filename)
 
   newChallenge: Challenge = publisher.deploy_challenge_contract(trainingSpecsChallenge, new_job_listing, pytorch_model, writer, logger, manager_contract=manager)
 
@@ -202,6 +206,12 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
   
   # This happens after deciding on users
   newChallenge.simulate(rounds=experiment_config.minimum_rounds)
+
+  try:
+      new_job_listing.update_user_task_reps(publisher)
+  except Exception as e:
+      log("experiment_end", f"[warn] update_user_task_reps failed: {e}")
+
   experiment_end = time.perf_counter()
   total_experiment_time = experiment_end - experiment_start
 
@@ -354,6 +364,23 @@ def apply_user_data_and_label_config(user: User, user_index, experiment_config: 
         user.flip_map = user_rule.get("flip_map", {})
 
     user.seed = derive_user_seed(experiment_config, user_index)
+
+    if user.partition_spec is None:
+        guid = str(uuid.UUID(bytes=hashlib.sha256(
+            f"{experiment_config.seed}:guid:{user_index}".encode()
+        ).digest()[:16]))
+        noise_scale = user.noise_scale
+        start_round = user.start_round
+        user.partition_spec = UserPartitionSpec(
+            user_index=str(user_index),
+            data_percent=user.data_percent,
+            only_labels=list(user.only_labels) if user.only_labels is not None else None,
+            flip_map=dict(user.flip_map),
+            behavior=user.futureAttitude,
+            noise_scale=float(noise_scale) if noise_scale is not None else None,
+            start_round=int(start_round) if start_round is not None else None,
+            guid=guid,
+        )
 
 
 # Independent per-user RNG stream. Hashing master+user_id keeps streams

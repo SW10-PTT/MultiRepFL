@@ -1,6 +1,5 @@
 class MultirepRunConfig:
   def __init__(self,
-        partition_file,
         dataset="MNIST",
         reward=int(1e18),
         minimum_rounds=5,
@@ -26,8 +25,8 @@ class MultirepRunConfig:
         seed=123,
         allow_overlap=False,
         replication_factor=1.0,
-        training_mode=None):  # TrainingMode.LOCAL | REMOTE | MIXED; None defaults to LOCAL
-    self.partition_file = partition_file
+        training_mode=None,    # TrainingMode.LOCAL | REMOTE; None defaults to LOCAL
+        remote_pool_size=0):   # REMOTE only: pool length; 0 = always submit fresh
     self.dataset = dataset.replace(".", "-").lower()
     self.reward = reward
     self.minimum_rounds = minimum_rounds
@@ -69,6 +68,7 @@ class MultirepRunConfig:
     self.training_mode: TrainingMode = (
         training_mode if training_mode is not None else TrainingMode.LOCAL
     )
+    self.remote_pool_size: int = int(remote_pool_size)
 
   def _base_config_kwargs(self):
     return dict(
@@ -100,12 +100,20 @@ class MultirepRunConfig:
         replication_factor=self.replication_factor,
     )
 
-  def to_experiment_config(self):
-    """Build ExperimentConfiguration using the full partition_file JSON."""
+  @classmethod
+  def from_dict(cls, d: dict) -> "MultirepRunConfig":
+    from experiment.multirep.training_mode import TrainingMode
+    d = dict(d)
+    if "training_mode" in d and isinstance(d["training_mode"], str):
+      d["training_mode"] = TrainingMode(d["training_mode"])
+    return cls(**d)
+
+  def to_experiment_config(self, partition_file):
+    """Build ExperimentConfiguration using the given partition_file JSON."""
     from experiment.experiment_configuration import ExperimentConfiguration
     return ExperimentConfiguration(
         **self._base_config_kwargs(),
-        per_user_partitions=self.partition_file,
+        per_user_partitions=partition_file,
     )
 
   def to_experiment_config_with_partitions(self, specs: dict):

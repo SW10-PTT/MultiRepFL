@@ -120,7 +120,7 @@ class ITestAndTrainer(ABC):
 
     def set_participants(self, participants: List[Participant]):
         if self._data["participants"] == []:
-            self._data["participants"] = [{"finger_print": p.finger_print, "id": p.id} for p in participants]
+            self._data["participants"] = [{"finger_print": p.finger_print, "id": p.id, "guid": p.guid} for p in participants]
 
     def get_participants(self, users: List[User]):
         usersRaw = self._data["participants"]
@@ -157,7 +157,8 @@ class ITestAndTrainer(ABC):
 
 
 def match_replay_user_user(replay_user, user: User):
-    return replay_user["finger_print"] == user.finger_print
+    saved = replay_user.get("guid")
+    return saved is not None and user.guid is not None and str(saved) == user.guid
 
 def uuid_hook(obj):
     for k, v in obj.items():

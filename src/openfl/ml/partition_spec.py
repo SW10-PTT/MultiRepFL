@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import uuid
 from dataclasses import dataclass, field
@@ -360,7 +361,9 @@ def _build_spec(entry: dict) -> UserPartitionSpec:
     if start_round is not None:
         start_round = int(start_round)
 
-    guid = entry.get("guid") or str(uuid.uuid4())
+    guid = entry.get("guid") or str(uuid.UUID(bytes=hashlib.sha256(
+        f"guid:{entry['user_index']}".encode()
+    ).digest()[:16]))
 
     return UserPartitionSpec(
         user_index=str(entry["user_index"]),

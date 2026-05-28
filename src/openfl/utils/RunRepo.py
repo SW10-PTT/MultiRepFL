@@ -63,7 +63,7 @@ class RunRepo(ITestAndTrainer):
         # Old traces written before GIR landed only carry the first three; pad
         # with zero vote tallies so replays of pre-GIR runs still work.
         formatted_data = [
-            (get_participant_func(u[0]).address, u[1], u[2])
+            (get_participant_func(u[0]).guid, u[1], u[2])
             + (u[3] if len(u) > 3 else 0, u[4] if len(u) > 4 else 0)
             for u in data
         ]

@@ -1,0 +1,24 @@
+{
+  "name": "example",
+  "partition_file": "experiment/partitions/example.json",
+  "tasks": [
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 2,
+      "training_mode": "remote"
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 2,
+      "training_mode": "remote"
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 2,
+      "training_mode": "remote"
+    }
+  ]
+}

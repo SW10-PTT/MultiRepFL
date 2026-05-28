@@ -984,7 +984,11 @@ class PytorchModel:
         p = next((x for x in participants if x.id == address_or_id), None)
         if p:
             return p
-        return next((x for x in participants if x.address == address_or_id), None)
+        p = next((x for x in participants if x.address == address_or_id), None)
+        if p:
+            return p
+        as_str = str(address_or_id)
+        return next((x for x in participants if x.guid is not None and x.guid == as_str), None)
 
     @property
     def _test_data(self):

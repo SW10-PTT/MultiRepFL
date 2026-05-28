@@ -1,3 +1,4 @@
+import json
 import os
 import sys
 import tarfile
@@ -10,12 +11,15 @@ from typing import List
 import requests
 import experiment.experiment_runner as ExperimentRunner
 from experiment.experiment_runner import setup_connection
+from experiment.multirep.MultirepPreset import MultirepPreset
 from experiment.multirep.MultirepRunConfig import MultirepRunConfig
 from experiment.multirep.training_mode import TrainingMode
 from openfl.contracts import FLManager as Manager
 from openfl.utils.types.User import User
 from openfl.utils.printer import log, set_log_file, set_enabled_tags
 from openfl.utils.W3Helper import get_PRIVKEYS, get_RPC_Endpoint
+from openfl.api import globals as fl_globals
+from openfl.api.globals import ReplayMode
 
 
 # ---------------------------------------------------------------------------
@@ -26,21 +30,14 @@ from openfl.utils.W3Helper import get_PRIVKEYS, get_RPC_Endpoint
 # "q_weighted"      → score = max(1, q) * (task_rep*0.6 + gir*0.4)   [mirrors on-chain getTopN]
 # "reputation_only" → score =              task_rep*0.6 + gir*0.4
 SCORING_MODE = "q_weighted"
+_WAD = 10 ** 18  # all on-chain rep values are WAD-scaled
 
 
 # ---------------------------------------------------------------------------
-# Presets — fill in before running
+# Preset file — fill in before running
 # ---------------------------------------------------------------------------
 
-presets: List[MultirepRunConfig] = [
-    MultirepRunConfig(
-        partition_file="experiment/partitions/example.json",
-        dataset="MNIST",
-        minimum_rounds=3,
-        number_of_participants=2,
-        training_mode=TrainingMode.REMOTE,
-    ),
-]
+preset_file = "experiment/presets/example.json"
 
 
 # ---------------------------------------------------------------------------
@@ -65,7 +62,8 @@ def getTopN(users: List[User], n: int, task_type: int) -> List[User]:
     log("multirep", f"Selection (top {n} of {len(users)}, task_type={task_type}, mode={SCORING_MODE}):")
     for score, u in scores:
         marker = "SELECTED" if u.address in selected_set else "       -"
-        log("multirep", f"  [{marker}]  score={score:>12.4f}  User {u.number}")
+        name = u.partition_spec.name if (u.partition_spec and u.partition_spec.name) else f"User {u.number}"
+        log("multirep", f"  [{marker}]  score={score / _WAD:>8.4f}  {name}")
     return selected
 
 
@@ -107,25 +105,48 @@ def update_users_from_reps(users: List[User], reps, task_type: int) -> None:
 
 
 # ---------------------------------------------------------------------------
+# TRS (replay rep update)
+# ---------------------------------------------------------------------------
+
+def _apply_trs_reps(users: List[User], trs: list, task_type: int) -> None:
+    """Apply task-rep delta + GRS from a replayed trs list directly to user objects.
+
+    Used when run_experiment returns early (HardPlayBack) without updating the
+    manager contract on-chain. trs format: (guid, delta, grs, pos_votes, total_votes).
+    """
+    users_by_guid = {u.guid: u for u in users if u.guid is not None}
+    for entry in trs:
+        guid, delta, grs = str(entry[0]), entry[1], entry[2]
+        user = users_by_guid.get(guid)
+        if user is None:
+            continue
+        current = user.task_rep.get(task_type, 0)
+        user.task_rep[task_type] = max(0, current + delta)
+        user.global_integrity_rep = grs
+
+
+# ---------------------------------------------------------------------------
 # Partition filtering
 # ---------------------------------------------------------------------------
 
 def log_user_reputations(users: List[User], task_type: int, selected_users: List[User]) -> None:
     """Log reputation fields and selection status for every user."""
     selected_set = {u.address for u in selected_users}
-    log("multirep", "─" * 88)
-    log("multirep", f"{'User':<8} {'Address':<20}  {'TaskRep':>14} {'GIR':>14} {'Q':>10} {'Score':>12}  {'Selected':>8}")
-    log("multirep", "─" * 88)
+    log("multirep", "─" * 80)
+    log("multirep", f"{'User':<12} {'Address':<20}  {'TaskRep':>8} {'GIR':>8} {'Q':>5} {'Score':>8}  {'Selected':>8}")
+    log("multirep", "─" * 80)
     for u in users:
         score = compute_user_score(u, task_type)
-        tr = u.task_rep.get(task_type, 0)
-        gir = u.global_integrity_rep
+        tr = u.task_rep.get(task_type, 0) / _WAD
+        gir = u.global_integrity_rep / _WAD
         q = u.q_value.get(task_type, 1)
+        score_display = score / _WAD
         selected = "YES" if u.address in selected_set else "no"
-        label = f"User {u.number}"
+        name = u.partition_spec.name if (u.partition_spec and u.partition_spec.name) else None
+        label = name if name else f"User {u.number}"
         addr = u.address[:20] if u.address else "N/A"
-        log("multirep", f"{label:<8} {addr:<20}  {tr:>14} {gir:>14} {q:>10.4f} {score:>12.4f}  {selected:>8}")
-    log("multirep", "─" * 88)
+        log("multirep", f"{label:<12} {addr:<20}  {tr:>8.4f} {gir:>8.4f} {q:>5} {score_display:>8.4f}  {selected:>8}")
+    log("multirep", "─" * 80)
 
 
 def filter_partitions_for_users(selected_users: List[User]) -> dict:
@@ -230,32 +251,14 @@ def _upload_run(fingerprint: str, filename: Path, config: str) -> None:
 # Training-mode dispatch
 # ---------------------------------------------------------------------------
 
-# How many completed remote runs must exist for a fingerprint before MIXED
-# always picks one rather than ever submitting a new run.
-MIXED_RUN_THRESHOLD = 5
-
-
 def _run_preset(preset: MultirepRunConfig, exp_config, all_users, manager, fingerprint):
-    """Dispatch to the correct runner based on preset.training_mode.
-
-    Return value
-    ------------
-    (result, filename)  — standard run_experiment tuple.
-    (None, None)        — MIXED used a cached run via rep-only fallback (no
-                          tarball URL was available); caller must skip upload
-                          and on-chain rep sync — reps are already applied.
-    """
     from experiment.multirep.training_mode import TrainingMode
 
-    mode = preset.training_mode
-
-    if mode == TrainingMode.REMOTE:
+    if preset.training_mode == TrainingMode.REMOTE:
         return _run_remote(preset, exp_config, all_users, manager, fingerprint)
 
-    if mode == TrainingMode.MIXED:
-        return _run_mixed(preset, exp_config, all_users, manager, fingerprint)
-
     # LOCAL
+    fl_globals.reuse_runs = ReplayMode.Record
     return ExperimentRunner.run_experiment(
         preset.dataset,
         exp_config,
@@ -265,92 +268,61 @@ def _run_preset(preset: MultirepRunConfig, exp_config, all_users, manager, finge
 
 
 def _run_remote(preset: MultirepRunConfig, exp_config, all_users, manager, fingerprint: str):
-    """Submit to the remote API, wait, download tarball, replay locally."""
-    from experiment.multirep.remote_client import run_remote_and_setup_replay
+    """Submit to the remote API (or reuse a pooled run), replay locally.
+    Falls back to LOCAL if anything goes wrong.
 
-    run_remote_and_setup_replay(
-        exp_config,
-        fingerprint=fingerprint,
-        name=exp_config.name or f"multirep-{preset.dataset}",
-    )
-
-
-    return ExperimentRunner.run_experiment(
-        preset.dataset,
-        exp_config,
-        prebuilt_users=all_users,
-        prebuilt_manager=manager,
-    )
-
-
-def _run_mixed(preset: MultirepRunConfig, exp_config, all_users, manager, fingerprint):
-    """Probabilistic dispatch for MIXED mode.
-
-    Let  n = number of completed remote runs for this fingerprint
-         T = MIXED_RUN_THRESHOLD
-
-    • n > T        → always pick a random existing run
-    • 0 < n ≤ T   → pick a random existing run with probability n/T,
-                     otherwise submit a new remote run
-    • n == 0       → always submit a new remote run
-
-    When picking an existing run the tarball is fetched via
-    POST /api/runs/{id}/upload-url → presigned URL → stream to disk → replay.
-    If that call fails, reputation state is applied directly and (None, None)
-    is returned to signal the caller that no experiment ran.
+    remote_pool_size controls reuse probability:
+      0  → always submit a new run
+      N  → build a list of length N, fill from existing runs, pick a random
+           slot; if the slot is non-None reuse that run, else submit new.
     """
-    import random
     from experiment.multirep.remote_client import (
-        fetch_run_download_url, download_tarball, extract_and_register_runrepo,
+        run_remote_and_setup_replay, fetch_run_download_url,
+        download_tarball, extract_and_register_runrepo,
     )
 
-    runs = _fetch_runs_by_fingerprint(fingerprint)
-    n = len(runs)
-    task_type = get_task_type(preset.dataset)
+    try:
+        pool_size = preset.remote_pool_size
+        use_existing_run = None
 
-    use_existing = n > MIXED_RUN_THRESHOLD or (n > 0 and random.random() < n / MIXED_RUN_THRESHOLD)
+        if pool_size > 0:
+            pool = [None] * pool_size
+            runs = _fetch_runs_by_fingerprint(fingerprint)
+            for i, run in enumerate(runs[:pool_size]):
+                pool[i] = run
+            idx = random.randint(0, pool_size - 1)
+            use_existing_run = pool[idx]
+            log("multirep", f"[REMOTE] pool_size={pool_size}, existing={len(runs)}, idx={idx}, reuse={use_existing_run is not None}")
 
-    if use_existing:
-        chosen = random.choice(runs)
-        run_id = str(chosen.get("id", "unknown"))
-        log("multirep",
-            f"[MIXED] Using existing remote run "
-            f"(n={n}, threshold={MIXED_RUN_THRESHOLD}, id={run_id[:8]}...)")
-
-        try:
+        if use_existing_run is not None:
+            run_id = str(use_existing_run.get("id", "unknown"))
             download_url = fetch_run_download_url(run_id)
-            _experiment_dir = Path(__file__).resolve().parent
-            dest = _experiment_dir / "data" / "remote_runs" / run_id
+            dest = Path(__file__).resolve().parent / "data" / "remote_runs" / run_id
             archive = download_tarball(download_url, dest)
-            extract_and_register_runrepo(archive)
-            return ExperimentRunner.run_experiment(
-                preset.dataset,
+            extract_and_register_runrepo(archive, dest)
+        else:
+            run_remote_and_setup_replay(
                 exp_config,
-                prebuilt_users=all_users,
-                prebuilt_manager=manager,
+                fingerprint=fingerprint,
+                name=exp_config.name or f"multirep-{preset.dataset}",
             )
-        except Exception as e:
-            log("multirep", f"[MIXED] Could not download tarball for run {run_id[:8]}: {e} — applying reputation state only.")
 
-        # Fallback: apply rep state from cache directly
-        _apply_cached_reps(all_users, chosen, task_type)
-        return None, None   # sentinel: caller skips upload + on-chain rep sync
+        return ExperimentRunner.run_experiment(
+            preset.dataset,
+            exp_config,
+            prebuilt_users=all_users,
+            prebuilt_manager=manager,
+        )
 
-    log("multirep",
-        f"[MIXED] Submitting new remote run (n={n}, threshold={MIXED_RUN_THRESHOLD}) ...")
-    from experiment.multirep.remote_client import run_remote_and_setup_replay
-    run_remote_and_setup_replay(
-        exp_config,
-        name=exp_config.name or f"multirep-{preset.dataset}",
-    )
-
-
-    # return ExperimentRunner.run_experiment(
-    #     preset.dataset,
-    #     exp_config,
-    #     prebuilt_users=all_users,
-    #     prebuilt_manager=manager,
-    # )
+    except Exception as e:
+        log("multirep", f"[REMOTE] Failed ({e}) — falling back to LOCAL.")
+        fl_globals.reuse_runs = ReplayMode.Record
+        return ExperimentRunner.run_experiment(
+            preset.dataset,
+            exp_config,
+            prebuilt_users=all_users,
+            prebuilt_manager=manager,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -358,8 +330,12 @@ def _run_mixed(preset: MultirepRunConfig, exp_config, all_users, manager, finger
 # ---------------------------------------------------------------------------
 
 def main():
-    if not presets:
-        log("multirep", "No presets configured — nothing to run.")
+    preset = MultirepPreset.from_file(preset_file)
+    tasks = preset.tasks
+    partition_file = preset.partition_file
+
+    if not tasks:
+        log("multirep", "No tasks configured — nothing to run.")
         return
 
     # Set up persistent log file for this session.
@@ -368,21 +344,22 @@ def main():
     session_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     set_log_file(str(log_dir / f"multirep_{session_ts}.log"))
 
-    first_preset = presets[0]
+    first_task = tasks[0]
 
     # Load ALL partition specs from the JSON once.  Users are created from
     # this full pool and keep their data partitions for the entire session.
-    full_config = first_preset.to_experiment_config()
+    full_config = first_task.to_experiment_config(partition_file)
+    full_config.name = preset.name
 
     # Enable print tags immediately so log() calls are visible on the terminal
     # throughout the full session (setup, remote polling, replay, etc.) rather
     # than only after the first run_experiment call activates them.
     set_enabled_tags(full_config.enabled_prints)
-    log("multirep", f"=== MultiRep session started {session_ts} ===")
+    log("multirep", f"=== MultiRep session started {session_ts} — {preset.name} ===")
     all_users = ExperimentRunner.build_users(full_config)
 
     # Deploy the manager contract once before the loop so it persists across
-    # all presets, including those that are skipped via the RunRepo cache.
+    # all tasks, including those that are skipped via the RunRepo cache.
     setup_connection(full_config)
     publisher = all_users[0]
     rpc = get_RPC_Endpoint()
@@ -397,64 +374,61 @@ def main():
         privkeys,
     )
 
-    for i, preset in enumerate(presets):
-        task_type = get_task_type(preset.dataset)
+    for i, task in enumerate(tasks):
+        task_type = get_task_type(task.dataset)
 
         # Mirror the contract's selection to predict participants.
         # All users still register; the contract makes the final choice.
-        log("multirep", f"\n=== Preset {i+1}/{len(presets)}: {preset.dataset} (mode={preset.training_mode.value}) ===")
-        selected_users = getTopN(all_users, preset.number_of_participants, task_type)
+        log("multirep", f"\n=== Task {i+1}/{len(tasks)}: {task.dataset} (mode={task.training_mode.value}) ===")
+        selected_users = getTopN(all_users, task.number_of_participants, task_type)
 
         # Build ExperimentConfiguration from ONLY the selected users' specs so
         # contributor counts and the experiment fingerprint are correct.
         filtered_partitions = filter_partitions_for_users(selected_users)
-        exp_config = preset.to_experiment_config()
+        exp_config = task.to_experiment_config(partition_file)
 
         fingerprint = exp_config.get_finger_print(selected_users)
-        log("multirep", f"Run {i+1}/{len(presets)} | dataset={preset.dataset} | fp={fingerprint[:8]}...")
+        log("multirep", f"Run {i+1}/{len(tasks)} | dataset={task.dataset} | fp={fingerprint[:8]}...")
 
-        # MIXED handles its own cache logic (threshold + probability), so skip
-        # the simple single-run early-exit for that mode.
-        if preset.training_mode != TrainingMode.MIXED:
-            cached_run = _fetch_cached_run(fingerprint)
-            if cached_run is not None:
-                log("multirep", f"Fingerprint {fingerprint[:8]}... found in RunRepo — skipping experiment.")
-                _apply_cached_reps(all_users, cached_run, task_type)
-                log("multirep", f"\n--- Reputation snapshot after preset {i+1} (cached) ---")
-                log_user_reputations(all_users, task_type, selected_users)
-                continue
-
-        # ------------------------------------------------------------------ #
-        # Dispatch: LOCAL / REMOTE / MIXED                                    #
-        # ------------------------------------------------------------------ #
-        result, filename = _run_preset(
-            preset, exp_config, all_users, manager, fingerprint
-        )
-
-        # (None, None) means MIXED used a cached run via rep-only fallback —
-        # reps already applied, no experiment ran, nothing to upload or sync.
-        if result is None and filename is None:
-            log("multirep", f"\n--- Reputation snapshot after preset {i+1} (remote cache) ---")
+        cached_run = _fetch_cached_run(fingerprint)
+        if cached_run is not None:
+            log("multirep", f"Fingerprint {fingerprint[:8]}... found in RunRepo — skipping experiment.")
+            _apply_cached_reps(all_users, cached_run, task_type)
+            log("multirep", f"\n--- Reputation snapshot after task {i+1} (cached) ---")
             log_user_reputations(all_users, task_type, selected_users)
             continue
 
-        # Upload result to the API only for LOCAL runs; REMOTE/MIXED results
-        # either originated on the server or are already stored there.
-        if preset.training_mode == TrainingMode.LOCAL:
-            _upload_run(fingerprint, filename, exp_config)
+        # ------------------------------------------------------------------ #
+        # Dispatch: LOCAL / REMOTE                                            #
+        # ------------------------------------------------------------------ #
+        run_result = _run_preset(task, exp_config, all_users, manager, fingerprint)
+        if run_result is None:
+            continue
+        run_data, filename = run_result
 
-        # Sync reputations from chain so the next preset's getTopN is current.
+        # Upload result to the API only for LOCAL runs; REMOTE results
+        # either originated on the server or are already stored there.
+        if task.training_mode == TrainingMode.LOCAL:
+            _upload_run(fingerprint, filename, json.dumps(exp_config.to_dict()))
+
+        # Sync reputations. LOCAL runs update the manager contract on-chain
+        # (via update_user_task_reps in run_experiment), so we read from chain.
+        # REMOTE replay runs skip chain interactions, so we apply trs deltas
+        # directly; qValue is still read from chain (set by decideOnParticipants).
         addresses = [u.address for u in all_users]
+        is_replay = isinstance(run_data, list)
         try:
             reps = manager.contract.functions.getGrsAndTrsBatch(addresses, task_type).call()
             update_users_from_reps(all_users, reps, task_type)
         except Exception as e:
             log("multirep", f"[warn] getGrsAndTrsBatch failed: {e}")
+        if is_replay:
+            _apply_trs_reps(all_users, run_data, task_type)
 
-        log("multirep", f"\n--- Reputation snapshot after preset {i+1} ---")
+        log("multirep", f"\n--- Reputation snapshot after task {i+1} ---")
         log_user_reputations(all_users, task_type, selected_users)
 
-    log("multirep", "\n=== All presets complete. ===")
+    log("multirep", "\n=== All tasks complete. ===")
 
 
 # ---------------------------------------------------------------------------

@@ -34,7 +34,7 @@ from openfl.utils.printer import log
 
 _TERMINAL_OK   = {"completed"}
 _TERMINAL_FAIL = {"failed", "cancelled"}
-_POLL_INTERVAL = 10   # seconds between status checks
+_POLL_INTERVAL = 2   # seconds between status checks
 _POLL_TIMEOUT  = 3600 # seconds before giving up (1 h)
 
 
