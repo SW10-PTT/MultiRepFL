@@ -61,17 +61,16 @@ def _config_to_json_element(experiment_config) -> Any:
 
     # per_user_partitions inside ExperimentConfiguration is
     #   {dataset_key: {user_index: UserPartitionSpec}}
-    # where dataset_key is normally ANY_DATASET ("*") for single-dataset runs.
-    # The remote API expects the inner dict directly — {user_index: spec_dict} —
-    # so we strip the outer dataset-key layer and serialise each spec.
+    # Serialise each spec while preserving the dataset-key layer so the remote
+    # worker can reconstruct the exact same structure (and produce the same fingerprint).
     if raw.get("per_user_partitions"):
-        flat: dict = {}
-        for specs in raw["per_user_partitions"].values():
-            for uk, spec in specs.items():
-                flat[uk] = (
-                    spec.fingerprint_dict() if hasattr(spec, "fingerprint_dict") else vars(spec)
-                )
-        raw["per_user_partitions"] = flat
+        raw["per_user_partitions"] = {
+            dataset_key: {
+                uk: (spec.fingerprint_dict() if hasattr(spec, "fingerprint_dict") else vars(spec))
+                for uk, spec in specs.items()
+            }
+            for dataset_key, specs in raw["per_user_partitions"].items()
+        }
 
     return raw
 

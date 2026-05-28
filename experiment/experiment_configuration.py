@@ -12,6 +12,7 @@ import math
 from openfl.ml.partition_spec import (
     ANY_DATASET,
     UserPartitionSpec,
+    _build_spec,
     load_dataset_partition_specs,
     normalize_dataset_name,
 )
@@ -216,8 +217,15 @@ class ExperimentConfiguration:
         if isinstance(per_user_partitions, dict) and per_user_partitions:
             first_val = next(iter(per_user_partitions.values()))
             if isinstance(first_val, dict) and first_val:
-                if isinstance(next(iter(first_val.values())), UserPartitionSpec):
+                inner_first = next(iter(first_val.values()))
+                if isinstance(inner_first, UserPartitionSpec):
                     return per_user_partitions
+                if isinstance(inner_first, dict):
+                    # {dataset_key: {user_index: spec_dict}} from remote serialisation
+                    return {
+                        dataset_key: {uk: _build_spec(dict(spec)) for uk, spec in specs.items()}
+                        for dataset_key, specs in per_user_partitions.items()
+                    }
         return load_dataset_partition_specs({
             "presets": per_user_partitions
         })
