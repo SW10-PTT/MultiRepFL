@@ -20,7 +20,6 @@ from __future__ import annotations
 import json
 import os
 import tarfile
-import tempfile
 import time
 from pathlib import Path
 from typing import Any
@@ -135,14 +134,10 @@ def poll_run_status(run_id: str, timeout: int = _POLL_TIMEOUT, interval: int = _
 
 
 def fetch_run_download_url(run_id: str) -> str:
-    """POST /api/runs/{id}/upload-url and return the presigned download URL.
-
-    The same endpoint the worker uses to upload is used by the client to obtain
-    the URL for downloading the completed run's tarball.
-    """
-    url = f"{_api_url()}/api/runs/{run_id}/download-url"
+    """GET /api/runs/{id}/download-url and return the presigned download URL."""
+    url = f"{_api_url()}/runs/{run_id}/download-url"
     log("remote_client", f"Fetching download URL for run {run_id} …")
-    res = requests.post(url, timeout=15)
+    res = requests.get(url, timeout=15)
     res.raise_for_status()
     download_url = res.json()["downloadUrl"]
     log("remote_client", f"Got download URL for run {run_id}")
@@ -165,39 +160,37 @@ def download_tarball(download_url: str, dest_dir: Path) -> Path:
     return archive_path
 
 
-def extract_and_register_runrepo(archive_path: Path) -> Path:
-    """Extract *archive_path* into a temp directory, set globals.repo_dir to it,
-    and enable PlayBack | HardPlayBack so the next run_experiment call replays
-    the downloaded trace instead of training locally.
+def extract_and_register_runrepo(archive_path: Path, dest_dir: Path) -> Path:
+    """Extract *archive_path* into *dest_dir*, preserving the tarball's inner
+    folder structure.  Sets globals.repo_dir to the inner run folder and enables
+    PlayBack | HardPlayBack so the next run_experiment call replays the trace.
 
-    Returns the extraction root directory.
+    Returns the inner run folder path.
     """
     from openfl.api import globals
     from openfl.api.globals import ReplayMode
 
-    extract_dir = Path(tempfile.mkdtemp(prefix="remote_runrepo_"))
-    log("remote_client", f"Extracting tarball to {extract_dir} …")
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    log("remote_client", f"Extracting tarball to {dest_dir} …")
 
     with tarfile.open(archive_path, "r:gz") as tar:
-        tar.extractall(extract_dir)
+        tar.extractall(dest_dir)
 
-    # Walk one level down if the archive contained a single top-level directory
-    # (common pattern: tar.add(folder_path, folder_path.name))
-    children = list(extract_dir.iterdir())
-    if len(children) == 1 and children[0].is_dir():
-        extract_dir = children[0]
+    # Point repo_dir at the inner run folder (the folder inside the tarball)
+    children = list(dest_dir.iterdir())
+    run_dir = children[0] if len(children) == 1 and children[0].is_dir() else dest_dir
 
-    log("remote_client", f"Run trace extracted to {extract_dir}")
+    log("remote_client", f"Run trace extracted to {run_dir}")
 
-    # Register as the replay source
-    globals.repo_dir = str(extract_dir)
+    globals.repo_dir = str(run_dir)
     globals.reuse_runs = ReplayMode.HardPlayBack | ReplayMode.PlayBack
 
-    return extract_dir
+    return run_dir
 
 
 def run_remote_and_setup_replay(
     experiment_config,
+    fingerprint: str,
     name: str | None = None,
     wanted_runs: int = 1,
     timeout: int = _POLL_TIMEOUT,
@@ -213,12 +206,9 @@ def run_remote_and_setup_replay(
 
     download_url = fetch_run_download_url(run_id)
 
-    # Store the tarball next to the repo's data folder so it persists across
-    # runs.  Path computed directly to avoid importing auto_runner (which calls
-    # require_env_var("API_URL") at module level and would sys.exit if unset).
     _experiment_dir = Path(__file__).resolve().parents[1]
-    dest = _experiment_dir / "data" / "remote_runs" / run_id
+    dest = _experiment_dir / "data" / "remote_runs" / fingerprint
 
     archive = download_tarball(download_url, dest)
-    extract_dir = extract_and_register_runrepo(archive)
+    extract_dir = extract_and_register_runrepo(archive, dest)
     return extract_dir

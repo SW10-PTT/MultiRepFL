@@ -27,9 +27,6 @@ from openfl.utils.W3Helper import get_PRIVKEYS, get_RPC_Endpoint
 # "reputation_only" → score =              task_rep*0.6 + gir*0.4
 SCORING_MODE = "q_weighted"
 
-TASK_REP_WEIGHT = 0.6
-GLOBAL_REP_WEIGHT = 0.4
-
 
 # ---------------------------------------------------------------------------
 # Presets — fill in before running
@@ -50,15 +47,13 @@ presets: List[MultirepRunConfig] = [
 # Scoring helpers
 # ---------------------------------------------------------------------------
 
-def compute_user_score(user: User, task_type: int) -> float:
-    base = (
-        user.task_rep.get(task_type, 0) * TASK_REP_WEIGHT
-        + user.global_integrity_rep * GLOBAL_REP_WEIGHT
-    )
+def compute_user_score(user: User, task_type: int) -> int:
+    # Mirrors JobListing._selectionScore: q * (taskRep * 6 + globalIntegrity * 4) / 10
+    base = user.task_rep.get(task_type, 0) * 6 + user.global_integrity_rep * 4
     if SCORING_MODE == "q_weighted":
         q = max(1, user.q_value.get(task_type, 0))
-        return q * base
-    return base
+        return q * base // 10
+    return base // 10
 
 
 def getTopN(users: List[User], n: int, task_type: int) -> List[User]:
@@ -249,7 +244,7 @@ def _run_preset(preset: MultirepRunConfig, exp_config, all_users, manager, finge
     mode = preset.training_mode
 
     if mode == TrainingMode.REMOTE:
-        return _run_remote(preset, exp_config, all_users, manager)
+        return _run_remote(preset, exp_config, all_users, manager, fingerprint)
 
     if mode == TrainingMode.MIXED:
         return _run_mixed(preset, exp_config, all_users, manager, fingerprint)
@@ -263,14 +258,17 @@ def _run_preset(preset: MultirepRunConfig, exp_config, all_users, manager, finge
     )
 
 
-def _run_remote(preset: MultirepRunConfig, exp_config, all_users, manager):
+def _run_remote(preset: MultirepRunConfig, exp_config, all_users, manager, fingerprint: str):
     """Submit to the remote API, wait, download tarball, replay locally."""
     from experiment.multirep.remote_client import run_remote_and_setup_replay
 
     run_remote_and_setup_replay(
         exp_config,
+        fingerprint=fingerprint,
         name=exp_config.name or f"multirep-{preset.dataset}",
     )
+
+
     return ExperimentRunner.run_experiment(
         preset.dataset,
         exp_config,
@@ -339,12 +337,14 @@ def _run_mixed(preset: MultirepRunConfig, exp_config, all_users, manager, finger
         exp_config,
         name=exp_config.name or f"multirep-{preset.dataset}",
     )
-    return ExperimentRunner.run_experiment(
-        preset.dataset,
-        exp_config,
-        prebuilt_users=all_users,
-        prebuilt_manager=manager,
-    )
+
+
+    # return ExperimentRunner.run_experiment(
+    #     preset.dataset,
+    #     exp_config,
+    #     prebuilt_users=all_users,
+    #     prebuilt_manager=manager,
+    # )
 
 
 # ---------------------------------------------------------------------------

@@ -382,7 +382,8 @@ class ExperimentConfiguration:
         }
 
         blob = json.dumps(data, sort_keys=True, separators=(",", ":"))
-        return hashlib.sha256(blob.encode()).hexdigest()
+        hash = hashlib.sha256(blob.encode()).hexdigest()
+        return hash
 
 
     @staticmethod

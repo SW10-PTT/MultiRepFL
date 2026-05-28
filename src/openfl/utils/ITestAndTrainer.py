@@ -202,7 +202,7 @@ def _serialize(obj):
 
 def get_filename(finger_print, config):
     if ReplayMode.PlayBack in globals.reuse_runs:
-        files = [f for f in list(Path(globals.repo_dir).glob("*.json")) if f.is_file() and f.name.endswith(f"{finger_print}.json")]
+        files = [f for f in Path(globals.repo_dir).rglob("*.json") if f.is_file() and f.name.endswith(f"{finger_print}.json")]
         random_file = random.choice(files) if files else None
         if random_file:
             globals.reuse_runs = globals.reuse_runs | ReplayMode._actively_replaying

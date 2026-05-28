@@ -73,7 +73,7 @@ def create_tarball(folder_path: Path, fingerpint):
     archive_path = folder_path_actual.parent / f"{fingerpint.stem}.tar.gz"
 
     with tarfile.open(archive_path, "w:gz") as tar:
-        tar.add(folder_path_actual, folder_path.name)
+        tar.add(folder_path_actual, folder_path.stem)
 
     return archive_path
 
