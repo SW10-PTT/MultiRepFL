@@ -432,7 +432,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                 txs.append(tx_hash)
 
             elif self.contribution_score_strategy in ("loss_only", "loss_tolerance_aware", "loss_tolerance_snap"):
-                prev_loss = int(min(matrices.prev_losses[user_id], UINT16_MAX))
+                prev_loss = int(min(matrices.prev_losses[user_id], 10000))  # contract requires [0, 10000]
 
                 if globals.fork:
                     tx = super().build_tx(user.address, self.contractAddress)
