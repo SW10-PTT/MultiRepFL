@@ -43,7 +43,9 @@ class TrainingSpecsJobListing:
     punishfactorContrib: int
     freeriderPenalty: int
     taskType: int
-    q_weight: int = 0  # WAD-scaled (1e18); mirrors trainingSpecs.qWeight in Solidity
+    q_weight: int = 0   # WAD-scaled (1e18); mirrors trainingSpecs.qWeight in Solidity
+    tr_weight: int = 6  # taskRep multiplier; mirrors trainingSpecs.trWeight in Solidity
+    gir_weight: int = 4 # GIR multiplier; mirrors trainingSpecs.girWeight in Solidity
 
     def to_solidity_job(self):
         return (
@@ -72,6 +74,8 @@ class TrainingSpecsJobListing:
             freeriderPenalty=self.freeriderPenalty,
             taskType=self.taskType,
             q_weight=self.q_weight,
+            tr_weight=self.tr_weight,
+            gir_weight=self.gir_weight,
             contribution_score_strategy=contribution_score_strategy,
             joblisting_address=joblisting_address,
             outlier_detection=outlier_detection,

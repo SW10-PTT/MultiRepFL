@@ -112,8 +112,11 @@ contract JobListing {
         uint8 _freeriderPenalty,
         address _managerAddress,
         TaskType _taskType,
-        uint256 _qWeight
+        uint256 _qWeight,
+        uint256 _trWeight,
+        uint256 _girWeight
     ) payable {
+        require(_trWeight + _girWeight > 0, "JL: trWeight + girWeight must be > 0");
         managerAddress = _managerAddress;
         manager = OpenFLManager(_managerAddress);
         publisher = msg.sender;
@@ -129,6 +132,8 @@ contract JobListing {
         trainingSpecs.reward = _reward;
         trainingSpecs.taskType = _taskType;
         trainingSpecs.qWeight = _qWeight;
+        trainingSpecs.trWeight = _trWeight;
+        trainingSpecs.girWeight = _girWeight;
 
         challengeCodeHash = manager.getChallengeCodeHash();
     }
@@ -227,8 +232,9 @@ contract JobListing {
     }
 
     function _selectionScore(User storage u) internal view returns (uint) {
-        // score = (taskRep * 6 + gir * 4) / 10 + qWeight * q / WAD
-        uint normalWeight = (u.globalTaskRep * 6 + u.globalIntegrity * 4) / 10;
+        // score = (taskRep * trWeight + gir * girWeight) / (trWeight + girWeight) + qWeight * q / WAD
+        uint denom = trainingSpecs.trWeight + trainingSpecs.girWeight;
+        uint normalWeight = (u.globalTaskRep * trainingSpecs.trWeight + u.globalIntegrity * trainingSpecs.girWeight) / denom;
         uint qBonus = (trainingSpecs.qWeight * u.qValue) / WAD;
         return normalWeight + qBonus;
     }

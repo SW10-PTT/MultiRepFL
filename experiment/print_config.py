@@ -30,6 +30,7 @@ PRINTS_ALL = {
     "multirep",
     "autorunner",
     "remote_client",
+    "replay",
 }
 
 # PRINTS_MINIMAL = PRINTS_EVEN_LESSER

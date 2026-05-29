@@ -175,7 +175,20 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
   participating_users = get_users_from_addresses(users, participants_addresses)
 
   experiment_finger_print = experiment_config.get_finger_print(participating_users)
-  
+
+  expected_fp = globals.expected_fingerprint
+  globals.expected_fingerprint = None
+  if expected_fp is not None and expected_fp != experiment_finger_print:
+      expected_addrs = {u.address for u in users if u.address in participants_addresses}
+      actual_addrs   = {u.address for u in participating_users}
+      only_expected  = expected_addrs - actual_addrs
+      only_actual    = actual_addrs   - expected_addrs
+      log("replay", f"[fingerprint mismatch] expected={expected_fp[:8]}... actual={experiment_finger_print[:8]}...")
+      if only_expected:
+          log("replay", f"  in predicted selection but NOT on-chain: {only_expected}")
+      if only_actual:
+          log("replay", f"  on-chain but NOT in predicted selection:  {only_actual}")
+
   filename = get_filename(experiment_finger_print, experiment_config) # also sets globals.reuse_runs | _actively_replaying
   pytorch_model.setup_replay(filename, experiment_config, path)
   ############

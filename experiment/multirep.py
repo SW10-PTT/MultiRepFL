@@ -2,6 +2,7 @@ import json
 import os
 import sys
 import tarfile
+import traceback
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -41,17 +42,18 @@ preset_file = "experiment/presets/example.json"
 # Scoring helpers
 # ---------------------------------------------------------------------------
 
-def compute_user_score(user: User, task_type: int, q_weight: float = 0.0) -> int:
-    # score = (taskRep * 6 + gir * 4) / 10 + q_weight * q * WAD
-    base = user.task_rep.get(task_type, 0) * 6 + user.global_integrity_rep * 4
-    normal_weight = base // 10
+def compute_user_score(user: User, task_type: int, q_weight: float = 0.0, tr_weight: int = 6, gir_weight: int = 4) -> int:
+    # score = (taskRep * tr_weight + gir * gir_weight) / (tr_weight + gir_weight) + q_weight * q * WAD
+    denom = tr_weight + gir_weight
+    base = user.task_rep.get(task_type, 0) * tr_weight + user.global_integrity_rep * gir_weight
+    normal_weight = base // denom
     q = user.q_value.get(task_type, 0.0)
     return int(normal_weight + q_weight * q * _WAD)
 
 
-def getTopN(users: List[User], n: int, task_type: int, q_weight: float = 0.0) -> List[User]:
+def getTopN(users: List[User], n: int, task_type: int, q_weight: float = 0.0, tr_weight: int = 6, gir_weight: int = 4) -> List[User]:
     """Mirror the smart contract's participant selection for fingerprinting."""
-    scores = [(compute_user_score(u, task_type, q_weight), u) for u in users]
+    scores = [(compute_user_score(u, task_type, q_weight, tr_weight, gir_weight), u) for u in users]
     scores.sort(key=lambda x: x[0], reverse=True)
     selected = [u for _, u in scores[:n]]
     selected_set = {u.address for u in selected}
@@ -162,14 +164,14 @@ def _apply_trs_reps(users: List[User], trs: list, task_type: int, manager) -> No
 # Partition filtering
 # ---------------------------------------------------------------------------
 
-def log_user_reputations(users: List[User], task_type: int, selected_users: List[User], q_weight: float = 0.0) -> None:
+def log_user_reputations(users: List[User], task_type: int, selected_users: List[User], q_weight: float = 0.0, tr_weight: int = 6, gir_weight: int = 4) -> None:
     """Log reputation fields and selection status for every user."""
     selected_set = {u.address for u in selected_users}
     log("multirep", "─" * 80)
     log("multirep", f"{'User':<12} {'Address':<20}  {'TaskRep':>8} {'Balance':>8} {'Q':>7} {'Score':>8}  {'Selected':>8}")
     log("multirep", "─" * 80)
     for u in users:
-        score = compute_user_score(u, task_type, q_weight)
+        score = compute_user_score(u, task_type, q_weight, tr_weight, gir_weight)
         tr = u.task_rep.get(task_type, 0) / _WAD
         balance = u.global_integrity_rep / _WAD
         q = float(u.q_value.get(task_type, 0.0))
@@ -348,7 +350,7 @@ def _run_remote(preset: MultirepRunConfig, exp_config, all_users, manager, finge
         )
 
     except Exception as e:
-        log("multirep", f"[REMOTE] Failed ({e}) — falling back to LOCAL.")
+        log("multirep", f"[REMOTE] Failed — falling back to LOCAL.\nReason: {type(e).__name__}: {e}\n{traceback.format_exc()}")
         fl_globals.reuse_runs = ReplayMode.Record
         return ExperimentRunner.run_experiment(
             preset.dataset,
@@ -366,6 +368,7 @@ def main():
     preset = MultirepPreset.from_file(preset_file)
     tasks = preset.tasks
     partition_file = preset.partition_file
+    training_mode = preset.training_mode
 
     if not tasks:
         log("multirep", "No tasks configured — nothing to run.")
@@ -413,14 +416,16 @@ def main():
     manager.initialize_user_balances(all_users)
 
     q_weight = preset.q_weight
+    tr_weight = preset.tr_weight
+    gir_weight = preset.gir_weight
 
     for i, task in enumerate(tasks):
         task_type = get_task_type(task.dataset)
 
         # Mirror the contract's selection to predict participants.
         # All users still register; the contract makes the final choice.
-        log("multirep", f"\n=== Task {i+1}/{len(tasks)}: {task.dataset} (mode={task.training_mode.value}) ===")
-        selected_users = getTopN(all_users, task.number_of_participants, task_type, q_weight)
+        log("multirep", f"\n=== Task {i+1}/{len(tasks)}: {task.dataset} (mode={training_mode.value}) ===")
+        selected_users = getTopN(all_users, task.number_of_participants, task_type, q_weight, tr_weight, gir_weight)
 
         # Compute Q updates now, before the run, so q_old is the pre-run value.
         # Applied after chain sync to ensure our Python-side Q is authoritative.
@@ -430,8 +435,11 @@ def main():
         # contributor counts and the experiment fingerprint are correct.
         filtered_partitions = filter_partitions_for_users(selected_users)
         exp_config = task.to_experiment_config(partition_file)
+        task.training_mode = training_mode
 
         exp_config.q_weight = q_weight
+        exp_config.tr_weight = tr_weight
+        exp_config.gir_weight = gir_weight
         fingerprint = exp_config.get_finger_print(selected_users)
         log("multirep", f"Run {i+1}/{len(tasks)} | dataset={task.dataset} | fp={fingerprint[:8]}...")
 
@@ -441,12 +449,13 @@ def main():
             _apply_cached_reps(all_users, cached_run, task_type)
             _apply_q_updates(all_users, q_updates, task_type)
             log("multirep", f"\n--- Reputation snapshot after task {i+1} (cached) ---")
-            log_user_reputations(all_users, task_type, selected_users, q_weight)
+            log_user_reputations(all_users, task_type, selected_users, q_weight, tr_weight, gir_weight)
             continue
 
         # ------------------------------------------------------------------ #
         # Dispatch: LOCAL / REMOTE                                            #
         # ------------------------------------------------------------------ #
+        fl_globals.expected_fingerprint = fingerprint
         run_result = _run_preset(task, exp_config, all_users, manager, fingerprint)
         if run_result is None:
             continue
@@ -454,7 +463,7 @@ def main():
 
         # Upload result to the API only for LOCAL runs; REMOTE results
         # either originated on the server or are already stored there.
-        if task.training_mode == TrainingMode.LOCAL:
+        if training_mode == TrainingMode.LOCAL:
             _upload_run(fingerprint, filename, json.dumps(exp_config.to_dict()))
 
         # Sync reputations. The chain is authoritative; Python mirrors it.

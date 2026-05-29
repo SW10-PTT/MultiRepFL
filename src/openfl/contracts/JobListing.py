@@ -39,6 +39,8 @@ class JobListing(ConnectionHelper):
                 training_specs.manager_address,
                 training_specs.taskType,
                 training_specs.q_weight,
+                training_specs.tr_weight,
+                training_specs.gir_weight,
             ],
             publisher,
             value=value

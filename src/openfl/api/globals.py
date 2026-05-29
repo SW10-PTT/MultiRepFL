@@ -12,6 +12,7 @@ reuse_runs: ReplayMode = ReplayMode.Record# | ReplayMode.PlayBack | ReplayMode.H
 gas_used = {}
 repo_dir = "runs"
 progress = 0
+expected_fingerprint: str | None = None  # set by multirep before run_experiment; cleared after use
 
 
 

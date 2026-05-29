@@ -14,3 +14,14 @@ class TrainingMode(Enum):
 
     LOCAL = "local"
     REMOTE = "remote"
+    
+    @classmethod
+    def from_string(cls, value: str) -> "TrainingMode":
+        value = value.strip().lower()
+
+        for member in cls:
+            if value == member.value or value == member.name.lower():
+                return member
+
+        valid = ", ".join(m.value for m in cls)
+        raise ValueError(f"Invalid TrainingMode: {value!r}. Expected one of: {valid}")

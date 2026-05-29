@@ -63,7 +63,9 @@ class ExperimentConfiguration:
                  per_user_partitions="experiment/partitions/example.json", # Path to JSON file with per-user partition specs; see example.json for format. Or None. Example: "experiment/partitions/example.json"
                  vote_baseline="local_trained", # Reference accuracy for +/-/neutral vote thresholds. Options: local_trained (giver's own post-training acc on giver val), prev_global (previous-round global model acc on giver val)
                  global_rep_only=False, # If True, OpenFLManager is deployed in GlobalOnly mode: a single TaskRep slot per user (shared across all TaskTypes) and GIR updates are disabled. Voting still happens but does not feed GIR.
-                 q_weight=0.0): # Additive Q bonus weight: score = normalWeight + q_weight * q. WAD-converted when passed to Solidity.
+                 q_weight=0.0,   # Additive Q bonus weight: score = normalWeight + q_weight * q. WAD-converted when passed to Solidity.
+                 tr_weight=6,    # taskRep multiplier in selection score (preset-level constant).
+                 gir_weight=4):  # GIR multiplier in selection score (preset-level constant).
 
         self.name = name
         self.dataset = dataset
@@ -101,6 +103,8 @@ class ExperimentConfiguration:
         self.malicious_noise_scale = malicious_noise_scale
         self.force_merge_all = force_merge_all
         self.q_weight = float(q_weight)
+        self.tr_weight = int(tr_weight)
+        self.gir_weight = int(gir_weight)
         self.enabled_prints = (
             set(enabled_prints) if enabled_prints is not None
             else set(DEFAULT_ENABLED_PRINTS_CONFIG)
@@ -181,6 +185,8 @@ class ExperimentConfiguration:
             self.first_round_fee,
             int(TaskType.from_dataset_name(self.dataset)),
             q_weight=int(self.q_weight * 1e18),
+            tr_weight=self.tr_weight,
+            gir_weight=self.gir_weight,
         )
 
     @property
@@ -384,6 +390,8 @@ class ExperimentConfiguration:
             "partition_strategy": self.partition_strategy,
             "vote_baseline": self.vote_baseline,
             "global_rep_only": self.global_rep_only,
+            "tr_weight": self.tr_weight,
+            "gir_weight": self.gir_weight,
             "per_user_partitions": {
                 dataset_key: [
                     spec.fingerprint_dict()

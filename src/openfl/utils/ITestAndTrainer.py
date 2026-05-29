@@ -22,6 +22,7 @@ import torch
 if TYPE_CHECKING:
     from experiment.experiment_configuration import ExperimentConfiguration
 from openfl.api.globals import ReplayMode
+from openfl.utils.printer import log
 from openfl.utils.types.Attitude import Attitude
 from openfl.ml.Participant import Participant
 from openfl.utils.types.User import User
@@ -208,6 +209,10 @@ def get_filename(finger_print, config):
         if random_file:
             globals.reuse_runs = globals.reuse_runs | ReplayMode._actively_replaying
             return random_file
+        all_json = [f.name for f in Path(globals.repo_dir).rglob("*.json") if f.is_file()]
+        log("replay", f"[fallback] PlayBack set but no file matching fingerprint '{finger_print}' found in '{globals.repo_dir}'. "
+                      f"Falling back to local training. "
+                      f"Files present ({len(all_json)}): {all_json[:10]}{'...' if len(all_json) > 10 else ''}")
 
     return Path(globals.repo_dir) / make_filename(config, finger_print)
 

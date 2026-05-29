@@ -156,6 +156,8 @@ class FLManager(ConnectionHelper):
             self.contract.address if self.contract else deployer.address,  # manager addr
             0,   # taskType (enum as int)
             0,   # qWeight (WAD-scaled; 0 = disabled)
+            6,   # trWeight (default)
+            4,   # girWeight (default)
         ]
 
         contract, receipt = ConnectionHelper.deploy(
