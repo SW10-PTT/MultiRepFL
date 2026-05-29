@@ -403,6 +403,8 @@ class ExperimentConfiguration:
 
         blob = json.dumps(data, sort_keys=True, separators=(",", ":"))
         hash = hashlib.sha256(blob.encode()).hexdigest()
+        from openfl.api import globals as _fl_globals
+        _fl_globals.fp_data_cache[hash] = data
         return hash
 
 
@@ -436,6 +438,7 @@ class ExperimentConfiguration:
             if not callable(v) and not (k.startswith("_") or k.startswith("__")) and k not in excluded
         }
     
+    @staticmethod
     def build_config(run_config: dict | str) -> ExperimentConfiguration:
         if isinstance(run_config, str):
             run_config = json.loads(run_config)

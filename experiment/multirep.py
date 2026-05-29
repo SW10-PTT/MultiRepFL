@@ -16,6 +16,7 @@ from experiment.multirep.MultirepPreset import MultirepPreset
 from experiment.multirep.MultirepRunConfig import MultirepRunConfig
 from experiment.multirep.training_mode import TrainingMode
 from openfl.contracts import FLManager as Manager
+from web3 import Web3
 from openfl.utils.types.User import User
 from openfl.utils.printer import log, set_log_file, set_enabled_tags
 from openfl.utils.W3Helper import get_PRIVKEYS, get_RPC_Endpoint
@@ -30,6 +31,15 @@ from openfl.api.globals import ReplayMode
 
 _WAD = 10 ** 18  # all on-chain rep values are WAD-scaled
 
+# EWMA constants — mirror JobListing.sol exactly.
+_ALPHA = int(2e17)                    # forgetting factor for running mean + variance
+_N_BLEND = int(2e17)                  # smoothing on final ContribScore → TaskRep
+_N_0 = 5                              # maturity offset
+_LAMBDA = 20                          # variance penalty weight
+_GAIN_CAP_MULTIPLIER = 2
+_STAKE_WAD = int(1e18)                # collateral (hardcoded to 1 ETH, matching Solidity)
+_INTEGRITY_LEARNING_RATE = int(2e17)  # GIR EWMA learning rate
+
 
 # ---------------------------------------------------------------------------
 # Preset file — fill in before running
@@ -43,25 +53,34 @@ preset_file = "experiment/presets/example.json"
 # ---------------------------------------------------------------------------
 
 def compute_user_score(user: User, task_type: int, q_weight: float = 0.0, tr_weight: int = 6, gir_weight: int = 4) -> int:
-    # score = (taskRep * tr_weight + gir * gir_weight) / (tr_weight + gir_weight) + q_weight * q * WAD
+    # score = (taskRep * tr_weight + gir * gir_weight) / (tr_weight + gir_weight) + q_weight * q
+    # All values are WAD-scaled; no conversion here.
     denom = tr_weight + gir_weight
     base = user.task_rep.get(task_type, 0) * tr_weight + user.global_integrity_rep * gir_weight
     normal_weight = base // denom
-    q = user.q_value.get(task_type, 0.0)
-    return int(normal_weight + q_weight * q * _WAD)
+    q = user.q_value.get(task_type, 0)
+    return int(normal_weight + q_weight * q)
 
 
 def getTopN(users: List[User], n: int, task_type: int, q_weight: float = 0.0, tr_weight: int = 6, gir_weight: int = 4) -> List[User]:
     """Mirror the smart contract's participant selection for fingerprinting."""
+    fps = {u: u.finger_print for u in users}
     scores = [(compute_user_score(u, task_type, q_weight, tr_weight, gir_weight), u) for u in users]
-    scores.sort(key=lambda x: x[0], reverse=True)
+    scores.sort(key=lambda x: (-x[0], fps[x[1]]))
     selected = [u for _, u in scores[:n]]
     selected_set = {u.address for u in selected}
+
+    # Register every user's finger_print → label so the replay diff can resolve names.
+    for _, u in scores:
+        label = u.partition_spec.name if (u.partition_spec and u.partition_spec.name) else f"User {u.number}"
+        fl_globals.fp_user_labels[fps[u]] = label
+
     log("multirep", f"Selection (top {n} of {len(users)}, task_type={task_type}):")
     for score, u in scores:
         marker = "SELECTED" if u.address in selected_set else "       -"
         name = u.partition_spec.name if (u.partition_spec and u.partition_spec.name) else f"User {u.number}"
         log("multirep", f"  [{marker}]  score={score / _WAD:>8.4f}  {name}")
+
     return selected
 
 
@@ -71,12 +90,8 @@ def getTopN(users: List[User], n: int, task_type: int, q_weight: float = 0.0, tr
 
 def get_task_type(dataset: str) -> int:
     """Map dataset name to TaskType enum value from Types.sol."""
-    d = dataset.lower()
-    if "mnist" in d:
-        return 6  # Images_MNIST
-    if "cifar" in d:
-        return 7  # Images_CIFAR10
-    raise ValueError(f"Unknown task type for dataset: {dataset!r}")
+    from openfl.utils.types.TrainingSpecsJobListing import TaskType
+    return int(TaskType.from_dataset_name(dataset))
 
 
 def update_users_from_reps(users: List[User], reps, task_type: int) -> None:
@@ -89,9 +104,12 @@ def update_users_from_reps(users: List[User], reps, task_type: int) -> None:
             global_integrity_rep = rep["globalIntegrityRep"]
             total_contrib_score = rep["totalContribScore"]
             q_value = rep["qValue"]
+            balance = rep.get("balance", 0)
             guid = rep.get("guid")
         else:
-            address, task_rep, global_integrity_rep, total_contrib_score, q_value = rep
+            address = rep[0]
+            task_rep, global_integrity_rep, total_contrib_score, q_value = rep[1], rep[2], rep[3], rep[4]
+            balance = rep[5] if len(rep) > 5 else 0
             guid = None
         user = (users_by_guid.get(guid) if guid else None) or users_by_address.get(address.lower())
         if user is None:
@@ -100,6 +118,7 @@ def update_users_from_reps(users: List[User], reps, task_type: int) -> None:
         user.global_integrity_rep = global_integrity_rep
         user.total_contrib_score = total_contrib_score
         user.q_value[task_type] = q_value
+        user.balance = balance
 
 
 # ---------------------------------------------------------------------------
@@ -120,12 +139,12 @@ def _compute_q_updates(users: List[User], selected_users: List[User], task_type:
     selected_guids = {u.guid for u in selected_users if u.guid is not None}
     updates = {}
     for user in users:
-        q_old = float(user.q_value.get(task_type, 0.0))
+        q_old = user.q_value.get(task_type, 0) / _WAD
         is_selected = user.address in selected_addrs or (
             user.guid is not None and user.guid in selected_guids
         )
         delta = ratio - (1.0 if is_selected else 0.0)
-        updates[user.address] = max(0.0, q_old + delta)
+        updates[user.address] = int(max(0.0, q_old + delta) * _WAD)
     return updates
 
 
@@ -136,28 +155,104 @@ def _apply_q_updates(users: List[User], q_updates: dict, task_type: int) -> None
 
 
 # ---------------------------------------------------------------------------
+# EWMA helpers — mirror JobListing.sol _transform_delta / _updateRunningStats /
+# _computeConfidence / _updateContribScore / _updateIntegrityRep exactly
+# (integer arithmetic, WAD-scaled).
+# ---------------------------------------------------------------------------
+
+def _transform_delta(delta: int, stake: int, reward: int, nr_active: int) -> int:
+    max_gain = (_GAIN_CAP_MULTIPLIER * reward) // nr_active if nr_active > 0 else 0
+    range_ = stake + max_gain
+    if range_ == 0:
+        return 0
+    shifted = delta + stake
+    if shifted <= 0:
+        return 0
+    if shifted >= range_:
+        return _WAD
+    return (shifted * _WAD) // range_
+
+
+def _update_running_stats(contrib_score: int, prior_mean: int, prior_m2: int, k: int):
+    new_mean = contrib_score if k <= 1 else ((_WAD - _ALPHA) * prior_mean + _ALPHA * contrib_score) // _WAD
+    abs_delta = abs(contrib_score - prior_mean)
+    abs_delta2 = abs(contrib_score - new_mean)
+    new_m2 = ((_WAD - _ALPHA) * prior_m2) // _WAD + (_ALPHA * abs_delta * abs_delta2) // (_WAD * _WAD)
+    return new_mean, new_m2
+
+
+def _compute_confidence(k: int, s_k: int) -> int:
+    if k == 0:
+        return 0
+    maturity = (k * _WAD) // (k + _N_0)
+    stability = (_WAD * _WAD) // (_WAD + _LAMBDA * s_k)
+    return (maturity * stability) // _WAD
+
+
+def _update_contrib_score(prior_task_rep: int, confidence: int, contrib_score: int) -> int:
+    weighted = (confidence * contrib_score) // _WAD
+    return ((_WAD - _N_BLEND) * prior_task_rep + _N_BLEND * weighted) // _WAD
+
+
+def _update_integrity_rep(prior_gir: int, pos_votes: int, total_votes: int) -> int:
+    """Mirror JobListing._updateIntegrityRep: GIR = EWMA of (posVotes/totalVotes)²."""
+    if total_votes == 0:
+        v = 0
+    else:
+        ratio = (pos_votes * _WAD) // total_votes
+        v = (ratio * ratio) // _WAD
+    return ((_WAD - _INTEGRITY_LEARNING_RATE) * prior_gir + _INTEGRITY_LEARNING_RATE * v) // _WAD
+
+
+# ---------------------------------------------------------------------------
 # TRS (replay rep update)
 # ---------------------------------------------------------------------------
 
-def _apply_trs_reps(users: List[User], trs: list, task_type: int, manager) -> None:
-    """Apply task-rep delta + delta_balance on-chain and in Python for replayed runs.
+def _apply_trs_reps(users: List[User], trs: list, task_type: int, manager, reward: int) -> None:
+    """Apply EWMA TaskRep update on-chain and in Python for replayed runs.
 
     trs format: (guid, delta_task_rep, delta_balance, pos_votes, total_votes).
-    Both deltas are applied additively (clamped to 0) and written to the manager
-    contract so the chain remains the authoritative source of truth.
+    Mirrors the Solidity JobListing._applyContribAndStats EWMA chain so TaskRep
+    stays in [0, WAD] regardless of the number of tasks completed.
     """
+    nr_active = len(trs)
     users_by_guid = {u.guid: u for u in users if u.guid is not None}
+    log("multirep", f"{'User':<16} {'delta':>12} {'ContribScore':>14} {'confidence':>12} {'TaskRep→':>10} {'GIR→':>10} {'Balance(ETH)':>14}")
     for entry in trs:
         guid, delta, delta_balance = str(entry[0]), entry[1], entry[2]
+        pos_votes   = entry[3] if len(entry) > 3 else 0
+        total_votes = entry[4] if len(entry) > 4 else 0
         user = users_by_guid.get(guid)
         if user is None:
             continue
-        new_task_rep = max(0, user.task_rep.get(task_type, 0) + delta)
-        new_gir = max(0, user.global_integrity_rep + delta_balance)
+
+        prior_task_rep = user.task_rep.get(task_type, 0)
+        prior_mean, prior_m2 = manager.get_task_rep_calc_state(user.address, task_type)
+        k = user.task_count.get(task_type, 0) + 1
+
+        contrib_score = _transform_delta(delta, _STAKE_WAD, reward, nr_active)
+        new_mean, new_m2 = _update_running_stats(contrib_score, prior_mean, prior_m2, k)
+        confidence = _compute_confidence(k, new_m2)
+        new_task_rep = _update_contrib_score(prior_task_rep, confidence, contrib_score)
+
+        # GIR: seed at WAD for first-task users (mirrors Solidity effectivePrior logic).
+        prior_gir = user.global_integrity_rep or _WAD
+        new_gir = _update_integrity_rep(prior_gir, pos_votes, total_votes)
+        new_balance = max(0, user.balance + delta_balance)
+
+        name = user.partition_spec.name if (user.partition_spec and user.partition_spec.name) else f"User {user.number}"
+        log("multirep", f"  {name:<14} {delta / _WAD:>12.4f} {contrib_score / _WAD:>14.4f} {confidence / _WAD:>12.4f} "
+                        f"{prior_task_rep / _WAD:>6.4f}→{new_task_rep / _WAD:.4f} "
+                        f"{prior_gir / _WAD:>6.4f}→{new_gir / _WAD:.4f} "
+                        f"{user.balance / _WAD:>6.4f}→{new_balance / _WAD:.4f}")
+
         manager.set_user_task_rep(user.address, task_type, new_task_rep)
+        manager.set_task_rep_calc_state(user.address, task_type, new_mean, new_m2)
         manager.set_user_integrity_rep(user.address, new_gir)
-        user.task_rep[task_type] = new_task_rep
-        user.global_integrity_rep = new_gir
+        manager.set_user_balance(user.address, new_balance)
+
+        # task_count is not persisted on-chain; keep it Python-side only.
+        user.task_count[task_type] = k
 
 
 # ---------------------------------------------------------------------------
@@ -167,21 +262,39 @@ def _apply_trs_reps(users: List[User], trs: list, task_type: int, manager) -> No
 def log_user_reputations(users: List[User], task_type: int, selected_users: List[User], q_weight: float = 0.0, tr_weight: int = 6, gir_weight: int = 4) -> None:
     """Log reputation fields and selection status for every user."""
     selected_set = {u.address for u in selected_users}
-    log("multirep", "─" * 80)
-    log("multirep", f"{'User':<12} {'Address':<20}  {'TaskRep':>8} {'Balance':>8} {'Q':>7} {'Score':>8}  {'Selected':>8}")
-    log("multirep", "─" * 80)
+    log("multirep", "─" * 96)
+    log("multirep", f"{'User':<12} {'Address':<20}  {'TaskRep':>8} {'GIR':>8} {'Balance(ETH)':>13} {'Q':>7} {'Score':>8}  {'Selected':>8}")
+    log("multirep", "─" * 96)
     for u in users:
         score = compute_user_score(u, task_type, q_weight, tr_weight, gir_weight)
         tr = u.task_rep.get(task_type, 0) / _WAD
-        balance = u.global_integrity_rep / _WAD
-        q = float(u.q_value.get(task_type, 0.0))
+        gir = u.global_integrity_rep / _WAD
+        balance = u.balance / _WAD
+        q = u.q_value.get(task_type, 0) / _WAD
         score_display = score / _WAD
         selected = "YES" if u.address in selected_set else "no"
         name = u.partition_spec.name if (u.partition_spec and u.partition_spec.name) else None
         label = name if name else f"User {u.number}"
         addr = u.address[:20] if u.address else "N/A"
-        log("multirep", f"{label:<12} {addr:<20}  {tr:>8.4f} {balance:>8.4f} {q:>7.3f} {score_display:>8.4f}  {selected:>8}")
-    log("multirep", "─" * 80)
+        log("multirep", f"{label:<12} {addr:<20}  {tr:>8.4f} {gir:>8.4f} {u.balance / _WAD:>13.4f} {q:>7.3f} {score_display:>8.4f}  {selected:>8}")
+    log("multirep", "─" * 96)
+
+
+def _sync_balances_from_challenge(users: List[User], experiment, manager) -> None:
+    """Local-run path: read each participant's globalReputationScore from the
+    settled challenge contract and write it into the manager's Balance slot."""
+    challenge_contract = experiment.model.contract
+    users_by_address = {u.address.lower(): u for u in users}
+    for addr_lc, user in users_by_address.items():
+        try:
+            challenge_user = challenge_contract.functions.users(
+                Web3.to_checksum_address(user.address)
+            ).call()
+            # OpenFLChallenge.User tuple field order: weightedContribScore[0], globalReputationScore[1].
+            grs = challenge_user[1]
+            manager.set_user_balance(user.address, grs)
+        except Exception as e:
+            log("multirep", f"[warn] balance sync failed for {user.address[:10]}...: {e}")
 
 
 def filter_partitions_for_users(selected_users: List[User]) -> dict:
@@ -286,11 +399,11 @@ def _upload_run(fingerprint: str, filename: Path, config: str) -> None:
 # Training-mode dispatch
 # ---------------------------------------------------------------------------
 
-def _run_preset(preset: MultirepRunConfig, exp_config, all_users, manager, fingerprint):
+def _run_preset(preset: MultirepRunConfig, exp_config, all_users, manager, fingerprint, experiment_name):
     from experiment.multirep.training_mode import TrainingMode
 
     if preset.training_mode == TrainingMode.REMOTE:
-        return _run_remote(preset, exp_config, all_users, manager, fingerprint)
+        return _run_remote(preset, exp_config, all_users, manager, fingerprint, experiment_name)
 
     # LOCAL
     fl_globals.reuse_runs = ReplayMode.Record
@@ -302,7 +415,7 @@ def _run_preset(preset: MultirepRunConfig, exp_config, all_users, manager, finge
     )
 
 
-def _run_remote(preset: MultirepRunConfig, exp_config, all_users, manager, fingerprint: str):
+def _run_remote(preset: MultirepRunConfig, exp_config: MultirepPreset, all_users, manager, fingerprint: str, experiment_name):
     """Submit to the remote API (or reuse a pooled run), replay locally.
     Falls back to LOCAL if anything goes wrong.
 
@@ -339,7 +452,7 @@ def _run_remote(preset: MultirepRunConfig, exp_config, all_users, manager, finge
             run_remote_and_setup_replay(
                 exp_config,
                 fingerprint=fingerprint,
-                name=exp_config.name or f"multirep-{preset.dataset}",
+                name=experiment_name or f"multirep-{preset.dataset}",
             )
 
         return ExperimentRunner.run_experiment(
@@ -418,6 +531,7 @@ def main():
     q_weight = preset.q_weight
     tr_weight = preset.tr_weight
     gir_weight = preset.gir_weight
+    experiment_name = preset.name
 
     for i, task in enumerate(tasks):
         task_type = get_task_type(task.dataset)
@@ -456,7 +570,7 @@ def main():
         # Dispatch: LOCAL / REMOTE                                            #
         # ------------------------------------------------------------------ #
         fl_globals.expected_fingerprint = fingerprint
-        run_result = _run_preset(task, exp_config, all_users, manager, fingerprint)
+        run_result = _run_preset(task, exp_config, all_users, manager, fingerprint, experiment_name)
         if run_result is None:
             continue
         run_data, filename = run_result
@@ -466,20 +580,20 @@ def main():
         if training_mode == TrainingMode.LOCAL:
             _upload_run(fingerprint, filename, json.dumps(exp_config.to_dict()))
 
-        # Sync reputations. The chain is authoritative; Python mirrors it.
-        # For replay runs: first read pre-run chain state into Python, then
-        # apply trs deltas on-chain (and Python-side), keeping both in sync.
-        # For local runs: the challenge already updated the chain; just read it.
+        # Chain is authoritative. For replay: apply EWMA updates on-chain, then
+        # read back. For local: challenge settled on-chain; sync balance then read.
         # Q is computed Python-side and applied last.
         addresses = [u.address for u in all_users]
         is_replay = isinstance(run_data, list)
+        if is_replay:
+            _apply_trs_reps(all_users, run_data, task_type, manager, exp_config.reward)
+        else:
+            _sync_balances_from_challenge(all_users, run_data, manager)
         try:
             reps = manager.contract.functions.getGrsAndTrsBatch(addresses, task_type).call()
             update_users_from_reps(all_users, reps, task_type)
         except Exception as e:
             log("multirep", f"[warn] getGrsAndTrsBatch failed: {e}")
-        if is_replay:
-            _apply_trs_reps(all_users, run_data, task_type, manager)
         _apply_q_updates(all_users, q_updates, task_type)
 
         log("multirep", f"\n--- Reputation snapshot after task {i+1} ---")

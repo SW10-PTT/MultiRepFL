@@ -82,6 +82,12 @@ class User:
         self.global_integrity_rep: int = 0
         self.total_contrib_score: int = 0
         self.q_value: dict = {}
+        # Number of tasks completed per task type (used as k in EWMA maturity formula).
+        # Not persisted on-chain; Python-only.
+        self.task_count: dict = {}
+        # ETH balance mirrored from the challenge contract (globalReputationScore).
+        # Populated by update_users_from_reps after each task; not independently maintained.
+        self.balance: int = 0
 
     @property
     def guid(self) -> str | None:
@@ -212,7 +218,7 @@ class User:
     
     def register_for_job(self, job: "ConnectionHelper"):
         import openfl.api.globals as globals
-        (receipt, _) = job.transact("register", self, self.collateral, [], "User.register_for_job")
+        (receipt, _) = job.transact("register", self, self.collateral, [], "User.register_for_job", bytes.fromhex(self.finger_print))
         txHash = receipt["transactionHash"]
         self.txs.append(txHash)
         bal = globals.w3.eth.get_balance(globals.w3.eth.default_account)

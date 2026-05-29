@@ -13,6 +13,8 @@ gas_used = {}
 repo_dir = "runs"
 progress = 0
 expected_fingerprint: str | None = None  # set by multirep before run_experiment; cleared after use
+fp_data_cache: dict = {}   # fingerprint hash → raw data dict used to compute it
+fp_user_labels: dict = {}  # participant finger_print → display name (populated by getTopN)
 
 
 

@@ -56,6 +56,9 @@ contract OpenFLManager {
         uint256 GlobalIntegrityRep;
         uint128 TotalContribScore;
         mapping(TaskType => uint256) QValue;
+        // ETH balance mirrored from the challenge contract's globalReputationScore.
+        // Written by Python after each task (local: from challenge; replay: via delta).
+        uint256 Balance;
     }
 
     struct TaskSpecificUser {
@@ -64,6 +67,7 @@ contract OpenFLManager {
         uint256 globalIntegrityRep;
         uint128 totalContribScore;
         uint256 qValue;
+        uint256 balance;
     }
 
     function getGrsAndTrsBatch(
@@ -80,9 +84,20 @@ contract OpenFLManager {
                 taskRep: u.GlobalTaskRep[taskType],
                 globalIntegrityRep: u.GlobalIntegrityRep,
                 totalContribScore: u.TotalContribScore,
-                qValue: u.QValue[taskType]
+                qValue: u.QValue[taskType],
+                balance: u.Balance
             });
         }
+    }
+
+    // Set a user's mirrored ETH balance. Callable by publisher (replay path) or
+    // a registered valid job (production path).
+    function setUserBalance(address user, uint256 value) external {
+        require(
+            validJobs[msg.sender] || msg.sender == publisher,
+            "OFLM: caller not valid job or publisher"
+        );
+        users[user].Balance = value;
     }
 
     mapping(address => User) public users;
@@ -320,7 +335,7 @@ contract OpenFLManager {
         uint256 newRunningCMean,
         uint256 newM2
     ) external {
-        require(validJobs[msg.sender], "OFLM: caller not valid job");
+        require(validJobs[msg.sender] || msg.sender == publisher, "OFLM: caller not valid job or publisher");
 
         TaskType key = _repKey(taskType);
         users[user].RunningCMean[key] = newRunningCMean;

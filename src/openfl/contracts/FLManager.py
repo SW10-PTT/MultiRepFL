@@ -236,6 +236,35 @@ class FLManager(ConnectionHelper):
             new_value,
         )
 
+    def set_user_balance(self, user_address: str, new_value: int) -> None:
+        self.transact(
+            "setUserBalance",
+            self.publisher,
+            0,
+            [],
+            "manager.setUserBalance",
+            Web3.to_checksum_address(user_address),
+            new_value,
+        )
+
+    def get_task_rep_calc_state(self, user_address: str, task_type: int) -> tuple[int, int]:
+        return self.contract.functions.getTaskRepCalcState(
+            Web3.to_checksum_address(user_address), task_type
+        ).call()
+
+    def set_task_rep_calc_state(self, user_address: str, task_type: int, new_mean: int, new_m2: int) -> None:
+        self.transact(
+            "setTaskRepCalcState",
+            self.publisher,
+            0,
+            [],
+            "manager.setTaskRepCalcState",
+            Web3.to_checksum_address(user_address),
+            task_type,
+            new_mean,
+            new_m2,
+        )
+
     def initialize_user_balances(self, users: list, initial_value: int = int(1e18)) -> None:
         """Set on-chain GIR to initial_value for every user (called once at session start)."""
         for user in users:

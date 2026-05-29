@@ -18,6 +18,9 @@
       "osx": {
         "command": "${workspaceFolder}/.venv/bin/python"
       },
+      "presentation": {
+        "clear": true
+      },
       "problemMatcher": []
     }
   ]

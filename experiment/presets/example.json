@@ -20,6 +20,41 @@
       "dataset": "MNIST",
       "minimum_rounds": 3,
       "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
     }
   ]
 }
