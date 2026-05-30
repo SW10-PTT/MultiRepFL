@@ -1,9 +1,11 @@
 import json
 import os
 import random
+import re
 import sys
 import tarfile
 import traceback
+import uuid
 from pathlib import Path
 
 
@@ -15,6 +17,9 @@ from typing import List
 import requests
 import experiment.experiment_runner as ExperimentRunner
 from experiment.experiment_runner import setup_connection
+from experiment.multirep.MultirepLogger import (
+    MultirepLogger, pack_session_tarball, copy_remote_task_files, load_task_pkl_tables,
+)
 from experiment.multirep.MultirepPreset import MultirepPreset
 from experiment.multirep.MultirepRunConfig import MultirepRunConfig
 from experiment.multirep.training_mode import TrainingMode
@@ -25,6 +30,8 @@ from openfl.utils.printer import log, set_log_file, set_enabled_tags
 from openfl.utils.W3Helper import get_PRIVKEYS, get_RPC_Endpoint
 from openfl.api import globals as fl_globals
 from openfl.api.globals import ReplayMode
+from analysis.ExperimentLogger import ExperimentLogger
+from openfl.utils.async_writer import AsyncWriter
 
 
 # ---------------------------------------------------------------------------
@@ -48,7 +55,23 @@ _INTEGRITY_LEARNING_RATE = int(2e17)  # GIR EWMA learning rate
 # Preset file — fill in before running
 # ---------------------------------------------------------------------------
 
-preset_file = "experiment/presets/example.json"
+preset_file = "experiment/presets/task-hopper-showcase.json"
+
+# ---------------------------------------------------------------------------
+# Output directory for multirep sessions
+# ---------------------------------------------------------------------------
+
+MULTIREP_DATA_DIR = Path(__file__).resolve().parent / "data" / "multirepData"
+
+# CSV writer config (mirrors auto_runner.py)
+_OUTPUTHEADERS = [
+    "round", "time", "globalAcc", "globalLoss", "GRS",
+    "accAvgPerUser", "lossAvgPerUser", "rewards",
+    "conctractBalanceRewards", "punishments", "contributionScores",
+    "feedbackMatrix", "disqualifiedUsers", "userStatuses",
+    "GasTransactions", "Contrib",
+]
+_WRITERBUFFERSIZE = 200
 
 
 # ---------------------------------------------------------------------------
@@ -408,23 +431,55 @@ def _upload_run(fingerprint: str, filename: Path, config: str) -> None:
 # ---------------------------------------------------------------------------
 fallback_count = 0
 
-def _run_preset(preset: MultirepRunConfig, exp_config, all_users, manager, fingerprint, experiment_name):
+def _rep_internals_after_task(users: List[User], manager, task_type: int) -> tuple[dict, dict, dict, dict]:
+    """Return (confidence, k, running_c_mean, m2) dicts keyed by user address.
+
+    Reads getTaskRepCalcState and getUserRep from the chain for each user.
+    Falls back to Python-side task_count and zero values on error.
+    """
+    confidence, k_map, mean_map, m2_map = {}, {}, {}, {}
+    for u in users:
+        try:
+            c_mean, m2 = manager.get_task_rep_calc_state(u.address, task_type)
+            _, _, nr_tasks = manager.contract.functions.getUserRep(u.address, task_type).call()
+            conf = _compute_confidence(nr_tasks, m2)
+            confidence[u.address] = conf / _WAD
+            k_map[u.address] = nr_tasks
+            mean_map[u.address] = c_mean / _WAD
+            m2_map[u.address] = m2 / _WAD
+            if nr_tasks > 0:
+                u.task_count[task_type] = nr_tasks
+        except Exception:
+            confidence[u.address] = 0.0
+            k_map[u.address] = u.task_count.get(task_type, 0)
+            mean_map[u.address] = 0.0
+            m2_map[u.address] = 0.0
+    return confidence, k_map, mean_map, m2_map
+
+
+def _run_preset(preset: MultirepRunConfig, exp_config, all_users, manager, fingerprint, experiment_name,
+                writer=None, logger=None, path=None):
     from experiment.multirep.training_mode import TrainingMode
 
     if preset.training_mode == TrainingMode.REMOTE:
-        return _run_remote(preset, exp_config, all_users, manager, fingerprint, experiment_name)
+        return _run_remote(preset, exp_config, all_users, manager, fingerprint, experiment_name,
+                           writer=writer, logger=logger, path=path)
 
     # LOCAL
     fl_globals.reuse_runs = ReplayMode.Record
     return ExperimentRunner.run_experiment(
         preset.dataset,
         exp_config,
+        writer=writer,
+        logger=logger,
+        path=path,
         prebuilt_users=all_users,
         prebuilt_manager=manager,
     )
 
 
-def _run_remote(preset: MultirepRunConfig, exp_config: ExperimentConfiguration, all_users, manager, fingerprint: str, experiment_name):
+def _run_remote(preset: MultirepRunConfig, exp_config: ExperimentConfiguration, all_users, manager, fingerprint: str, experiment_name,
+                writer=None, logger=None, path=None):
     """Submit to the remote API (or reuse a pooled run), replay locally.
     Falls back to LOCAL if anything goes wrong.
 
@@ -476,9 +531,16 @@ def _run_remote(preset: MultirepRunConfig, exp_config: ExperimentConfiguration, 
         log("multirep", f"[REMOTE] Failed — falling back to LOCAL.\nReason: {type(e).__name__}: {e}\n{traceback.format_exc()}")
         fallback_count += 1
         fl_globals.reuse_runs = ReplayMode.Record
+        # Restore repo_dir to task_dir so the JSON lands there, not in the
+        # remote extraction dir that extract_and_register_runrepo may have set.
+        if path is not None:
+            fl_globals.repo_dir = str(path.parent)
         return ExperimentRunner.run_experiment(
             preset.dataset,
             exp_config,
+            writer=writer,
+            logger=logger,
+            path=path,
             prebuilt_users=all_users,
             prebuilt_manager=manager,
         )
@@ -499,12 +561,33 @@ def main():
         log("multirep", "No tasks configured — nothing to run.")
         return
 
-    # Set up persistent log file for this session.
+    # ---------------------------------------------------------------------- #
+    # Session setup: log file + output folder + MultirepLogger                #
+    # ---------------------------------------------------------------------- #
     log_dir = Path(__file__).resolve().parent / "logs"
     log_dir.mkdir(exist_ok=True)
     session_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     set_log_file(str(log_dir / f"multirep_{session_ts}.log"))
 
+    preset_name_safe = re.sub(r"[^a-zA-Z0-9_-]", "_", preset.name)
+    session_dir = MULTIREP_DATA_DIR / f"{preset_name_safe}_{session_ts}"
+    tasks_dir = session_dir / "tasks"
+    tasks_dir.mkdir(parents=True, exist_ok=True)
+
+    with open(preset_file, "r", encoding="utf-8") as _f:
+        preset_dict = json.load(_f)
+
+    multirep_logger = MultirepLogger(
+        session_id=str(uuid.uuid4()),
+        preset_name=preset.name,
+        session_timestamp=session_ts,
+        preset_dict=preset_dict,
+    )
+    log("multirep", f"Session folder: {session_dir}")
+
+    # ---------------------------------------------------------------------- #
+    # Build users and deploy shared manager                                   #
+    # ---------------------------------------------------------------------- #
     first_task = tasks[0]
 
     # Load ALL partition specs from the JSON once.  Users are created from
@@ -548,10 +631,22 @@ def main():
     for i, task in enumerate(tasks):
         task_type = get_task_type(task.dataset)
 
+        # Capture the rep state that will inform the selection decision.
+        pre_state = {
+            u.address: {
+                "tr":      u.task_rep.get(task_type, 0),
+                "gir":     u.global_integrity_rep,
+                "q":       u.q_value.get(task_type, 0),
+                "balance": u.balance,
+            }
+            for u in all_users
+        }
+
         # Mirror the contract's selection to predict participants.
         # All users still register; the contract makes the final choice.
         log("multirep", f"\n=== Task {i+1}/{len(tasks)}: {task.dataset} (mode={training_mode.value}) ===")
         selected_users = getTopN(all_users, task.number_of_participants, task_type, q_weight, tr_weight, gir_weight)
+        scores = {u.address: compute_user_score(u, task_type, q_weight, tr_weight, gir_weight) for u in all_users}
 
         # Compute Q updates now, before the run, so q_old is the pre-run value.
         # Applied after chain sync to ensure our Python-side Q is authoritative.
@@ -569,6 +664,11 @@ def main():
         fingerprint = exp_config.get_finger_print(selected_users)
         log("multirep", f"Run {i+1}/{len(tasks)} | Fall back runs {fallback_count} | dataset={task.dataset} | fp={fingerprint[:8]}...")
 
+        # Create a folder for this task's output files.
+        safe_dataset = task.dataset.replace("-", "_").replace(".", "_").lower()
+        task_dir = tasks_dir / f"task_{i+1:03d}_{safe_dataset}_{fingerprint[:8]}"
+        task_dir.mkdir(parents=True, exist_ok=True)
+
         cached_run = _fetch_cached_run(fingerprint)
         if cached_run is not None:
             log("multirep", f"Fingerprint {fingerprint[:8]}... found in RunRepo — skipping experiment.")
@@ -576,27 +676,87 @@ def main():
             _apply_q_updates(all_users, q_updates, task_type)
             log("multirep", f"\n--- Reputation snapshot after task {i+1} (cached) ---")
             log_user_reputations(all_users, task_type, selected_users, q_weight, tr_weight, gir_weight)
+            multirep_logger.log_task(
+                task_index=i, dataset=task.dataset, task_type=task_type,
+                fingerprint=fingerprint, was_cached=True,
+                users=all_users, selected_users=selected_users,
+                pre_state=pre_state, scores=scores,
+            )
             continue
+
+        # ------------------------------------------------------------------ #
+        # Set up per-task CSV + PKL logging (always, for every live task).   #
+        # For REMOTE replay the tarball files will overwrite the locals.     #
+        # ------------------------------------------------------------------ #
+        csv_name = (
+            f"{task.dataset}-{exp_config.contribution_score_strategy}-"
+            f"{exp_config.freerider_start_round}-{exp_config.freerider_noise_scale}-"
+            f"{exp_config.malicious_start_round}-{exp_config.malicious_noise_scale}-"
+            f"{exp_config.use_outlier_detection}-{{{uuid.uuid4()}}}.csv"
+        )
+        task_csv_path = task_dir / csv_name
+        writer = AsyncWriter(task_csv_path, _OUTPUTHEADERS, _WRITERBUFFERSIZE, exp_config, "sample")
+        task_logger = ExperimentLogger(experiment_id=task_csv_path.stem, metadata=vars(exp_config))
+        # Point repo_dir at task_dir so the JSON run-repo file lands there.
+        # For REMOTE mode this is overridden by extract_and_register_runrepo,
+        # but the fallback path resets it (see _run_remote).
+        fl_globals.repo_dir = str(task_dir)
 
         # ------------------------------------------------------------------ #
         # Dispatch: LOCAL / REMOTE                                            #
         # ------------------------------------------------------------------ #
         fl_globals.expected_fingerprint = fingerprint
-        run_result = _run_preset(task, exp_config, all_users, manager, fingerprint, experiment_name)
+        run_result = _run_preset(
+            task, exp_config, all_users, manager, fingerprint, experiment_name,
+            writer=writer, logger=task_logger, path=task_csv_path,
+        )
         if run_result is None:
+            writer.finish()
+            multirep_logger.log_task(
+                task_index=i, dataset=task.dataset, task_type=task_type,
+                fingerprint=fingerprint, was_cached=False,
+                users=all_users, selected_users=selected_users,
+                pre_state=pre_state, scores=scores,
+            )
             continue
         run_data, filename = run_result
+        is_replay = isinstance(run_data, list)
+
+        # ------------------------------------------------------------------ #
+        # Save per-task output files (CSV + PKL always; JSON via repo_dir)   #
+        # ------------------------------------------------------------------ #
+
+        # Always stop the writer thread and save the logger.  For replay runs
+        # the writer will have written only the header; the real CSV/PKL are
+        # in the tarball and copied below, overwriting the placeholder files.
+        writer.finish()
+        pkl_path = task_csv_path.with_suffix(".pkl")
+        task_logger.save(pkl_path)
+        task_pkl_path = pkl_path
+
+        if is_replay:
+            # Copy the real csv/pkl/json from the downloaded tarball into
+            # task_dir, overwriting the placeholder files created above.
+            remote_src = Path(fl_globals.repo_dir)
+            if remote_src.is_dir() and remote_src != task_dir:
+                copy_remote_task_files(remote_src, task_dir)
+            # Prefer the copied PKL (from remote server) over the empty local one.
+            copied_pkls = [
+                p for p in task_dir.glob("*.pkl")
+                if p != task_pkl_path
+            ]
+            if copied_pkls:
+                task_pkl_path = copied_pkls[0]
 
         # Upload result to the API only for LOCAL runs; REMOTE results
         # either originated on the server or are already stored there.
         if training_mode == TrainingMode.LOCAL:
             _upload_run(fingerprint, filename, json.dumps(exp_config.to_dict()))
 
-        # Chain is authoritative. For replay: apply EWMA updates on-chain, then
-        # read back. For local: challenge settled on-chain; sync balance then read.
-        # Q is computed Python-side and applied last.
+        # ------------------------------------------------------------------ #
+        # Rep updates (chain-authoritative)                                   #
+        # ------------------------------------------------------------------ #
         addresses = [u.address for u in all_users]
-        is_replay = isinstance(run_data, list)
         if is_replay:
             _apply_trs_reps(all_users, run_data, task_type, manager, exp_config.reward)
         else:
@@ -608,11 +768,46 @@ def main():
             log("multirep", f"[warn] getGrsAndTrsBatch failed: {e}")
         _apply_q_updates(all_users, q_updates, task_type)
 
+        # ------------------------------------------------------------------ #
+        # Compute confidence + internals for session logging                  #
+        # ------------------------------------------------------------------ #
+        post_confidence, post_k, post_mean, post_m2 = _rep_internals_after_task(all_users, manager, task_type)
+
+        # Load the task's tables for the session pickle (self-contained).
+        task_run_data = load_task_pkl_tables(task_pkl_path) if task_pkl_path else None
+
+        rel_pkl = (
+            str(task_pkl_path.relative_to(session_dir)) if task_pkl_path else None
+        )
+        multirep_logger.log_task(
+            task_index=i, dataset=task.dataset, task_type=task_type,
+            fingerprint=fingerprint, was_cached=False,
+            users=all_users, selected_users=selected_users,
+            pre_state=pre_state, scores=scores,
+            post_confidence=post_confidence, post_k=post_k,
+            post_running_mean=post_mean, post_m2=post_m2,
+            pkl_path=rel_pkl, run_data=task_run_data,
+        )
+
         log("multirep", f"\n--- Reputation snapshot after task {i+1} ---")
         log_user_reputations(all_users, task_type, selected_users, q_weight)
 
+    # ---------------------------------------------------------------------- #
+    # Finalise session: save session.pkl + tarball                            #
+    # ---------------------------------------------------------------------- #
+    session_pkl = session_dir / "session.pkl"
+    multirep_logger.save(session_pkl)
+    log("multirep", f"Session pickle saved: {session_pkl}")
+
+    try:
+        tarball = pack_session_tarball(session_dir)
+        log("multirep", f"Session tarball: {tarball}")
+    except Exception as e:
+        log("multirep", f"[warn] Tarball creation failed: {e}")
+
     log("multirep", "\n=== All tasks complete. ===")
     log("multirep", f"Fall back runs: {fallback_count}")
+    log("multirep", f"Session data: {session_dir}")
 
 
 # ---------------------------------------------------------------------------
