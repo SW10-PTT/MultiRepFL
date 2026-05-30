@@ -221,14 +221,28 @@ class User:
         (receipt, _) = job.transact("register", self, self.collateral, [], "User.register_for_job", bytes.fromhex(self.finger_print))
         txHash = receipt["transactionHash"]
         self.txs.append(txHash)
-        bal = globals.w3.eth.get_balance(globals.w3.eth.default_account)
-        log("setup_contracts""{:<17} {} ({}) | {} | {:>25,.0f} WEI".format("Account registered:",
+        log("setup_contracts", "{:<17} {} ({}) | {} | {:>25,.0f} WEI".format("Account registered:",
                 self.display_label(),
                 self.address[0:16] + "...",
                 txHash.hex()[0:6] + "...",
                 self.collateral
                 ))
         return self.txs
+
+    @staticmethod
+    def batch_register_for_job(users: list["User"], job: "ConnectionHelper") -> None:
+        calls = [(u, u.collateral, bytes.fromhex(u.finger_print)) for u in users]
+        results = job.batch_transact("register", calls, [], "User.register_for_job")
+        for user, (receipt, _) in zip(users, results):
+            txHash = receipt["transactionHash"]
+            user.txs.append(txHash)
+            log("setup_contracts", "{:<17} {} ({}) | {} | {:>25,.0f} WEI".format(
+                "Account registered:",
+                user.display_label(),
+                user.address[0:16] + "...",
+                txHash.hex()[0:6] + "...",
+                user.collateral,
+            ))
 
     def update_color(self, i, attitude):
         self.color = get_color(i, attitude)

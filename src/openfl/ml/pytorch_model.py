@@ -633,9 +633,9 @@ class PytorchModel:
         if num_processes == 1:
             return self.run_sequential()
 
-        with ctx.Pool(processes=num_processes) as pool:
-            start_pool = time.perf_counter()
-
+        pool = ctx.Pool(processes=num_processes)
+        start_pool = time.perf_counter()
+        try:
             async_results = []
             for idx, user in enumerate(self.participants):
                 device_id = idx % max(1, num_gpus)
@@ -662,6 +662,9 @@ class PytorchModel:
                     self.finalize_paricipant_evaluation(user)
 
             results = [r.get() for r in async_results] # Gather results from Multi-Processing
+        finally:
+            pool.close()
+            pool.join()
         log("round_training", green(f"Parallel execution time: {time.perf_counter() - start_pool:.2f} seconds"))
         return results
 
@@ -1010,6 +1013,61 @@ class PytorchModel:
 
         self.round = 1
         self.runRepo.save(-1, f"save-setup_replay-path", path)
+
+    def cleanup(self):
+        """Shut down DataLoader worker processes (pt_data_worker / forked python).
+
+        Call this after each experiment run. With persistent_workers=True the
+        workers live as long as the DataLoader object does; without an explicit
+        shutdown they accumulate across loop iterations until GC finally fires.
+        """
+        import gc
+
+        all_loaders: list = (
+            list(self.train_by_user_id.values())
+            + list(self.val_by_user_id.values())
+        )
+        if isinstance(self.DATA, tuple):
+            for group in self.DATA:
+                if isinstance(group, list):
+                    all_loaders.extend(group)
+                elif group is not None:
+                    all_loaders.append(group)
+        for p in self.participants:
+            if p.train is not None:
+                all_loaders.append(p.train)
+            if p.val is not None:
+                all_loaders.append(p.val)
+
+        seen: set = set()
+        for loader in all_loaders:
+            if loader is None or id(loader) in seen:
+                continue
+            seen.add(id(loader))
+            it = getattr(loader, '_iterator', None)
+            if it is not None:
+                if hasattr(it, '_shutdown_workers'):
+                    try:
+                        it._shutdown_workers()
+                    except Exception:
+                        pass
+                try:
+                    loader._iterator = None
+                except Exception:
+                    pass
+
+        self.train_by_user_id.clear()
+        self.val_by_user_id.clear()
+        for p in self.participants:
+            p.train = None
+            p.val = None
+        self.DATA = None
+        self.train = None
+        self.val = None
+        self.test = None
+        self.test_tensors = None
+
+        gc.collect()
 
 def get_hash(_state_dict):
     if not isinstance(_state_dict, dict):

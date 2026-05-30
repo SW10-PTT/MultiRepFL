@@ -73,6 +73,30 @@ def build_users(experiment_config: ExperimentConfiguration) -> List[User]:
   return users
 
 
+def _log_chain_applicant_scores(users: List[User], job_listing, experiment_config) -> None:
+  """Log the rep values the contract read at registration time for debugging selection divergence."""
+  _WAD = 10 ** 18
+  try:
+      tr_w  = getattr(experiment_config, "tr_weight",  6)
+      gir_w = getattr(experiment_config, "gir_weight", 4)
+      denom = tr_w + gir_w
+      log("replay", f"  Chain applicant scores (tr={tr_w}, gir={gir_w}):")
+      log("replay", f"    {'Name':<16} {'TR':>8} {'GIR':>8} {'Q':>8} {'Score':>10}  fp[:8]")
+      for u in users:
+          try:
+              chain = job_listing.contract.functions.applicants(u.address).call()
+              # struct: (globalTaskRep, globalIntegrity, qValue, tiebreaker, addr, isSelected)
+              tr, gir, q_val = chain[0], chain[1], chain[2]
+              score = (tr * tr_w + gir * gir_w) // denom  # simplified; ignores qWeight bonus
+              tb_hex = chain[3].hex()[:8] if isinstance(chain[3], (bytes, bytearray)) else str(chain[3])[:8]
+              name = u.partition_spec.name if (u.partition_spec and u.partition_spec.name) else f"User {u.number}"
+              log("replay", f"    {name:<16} {tr/_WAD:>8.4f} {gir/_WAD:>8.4f} {q_val/_WAD:>8.4f} {score/_WAD:>10.4f}  {tb_hex}")
+          except Exception:
+              pass
+  except Exception:
+      pass
+
+
 def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration, writer: AsyncWriter=None, logger=None, path=None,
                    prebuilt_users: List[User]=None, prebuilt_manager=None):
   set_enabled_tags(experiment_config.enabled_prints)
@@ -108,13 +132,14 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
       for user in users:
           user.reset_for_experiment()
 
-  pytorch_model.prepare_data_for_users(
-      users,
-      dataset_name,
-      seed=experiment_config.seed,
-      allow_overlap=experiment_config.allow_overlap,
-      replication_factor=experiment_config.replication_factor,
-  )
+  if not (globals.reuse_runs & globals.ReplayMode.HardPlayBack):
+      pytorch_model.prepare_data_for_users(
+          users,
+          dataset_name,
+          seed=experiment_config.seed,
+          allow_overlap=experiment_config.allow_overlap,
+          replication_factor=experiment_config.replication_factor,
+      )
   publisher: User = users[0]
 
   RPC_ENDPOINT = get_RPC_Endpoint()
@@ -146,8 +171,7 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
       ) # WTF is this????
 
 
-  for user in users:
-     user.register_for_job(new_job_listing)
+  User.batch_register_for_job(users, new_job_listing)
 
   while True:
       try:
@@ -170,6 +194,9 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
           else:
               raise
 
+  # Log what the contract read for each applicant so fingerprint mismatches can be debugged.
+  _log_chain_applicant_scores(users, new_job_listing, experiment_config)
+
   trainingSpecsChallenge = training_specs.to_challenge(experiment_config.contribution_score_strategy, experiment_config.use_outlier_detection, new_job_listing.contract.address, experiment_config.loss_tolerance_pct)
 
   participating_users = get_users_from_addresses(users, participants_addresses)
@@ -191,6 +218,17 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
 
   filename = get_filename(experiment_finger_print, experiment_config) # also sets globals.reuse_runs | _actively_replaying
   pytorch_model.setup_replay(filename, experiment_config, path)
+
+  # HardPlayBack was set (remote mode) but no matching file found → fingerprint mismatch fallback to local training
+  if (globals.reuse_runs & globals.ReplayMode.HardPlayBack) and not (globals.reuse_runs & globals.ReplayMode._actively_replaying):
+      pytorch_model.prepare_data_for_users(
+          users,
+          dataset_name,
+          seed=experiment_config.seed,
+          allow_overlap=experiment_config.allow_overlap,
+          replication_factor=experiment_config.replication_factor,
+      )
+
   ############
   ## REPLAY ##
   ############
@@ -203,6 +241,7 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
     users = [users_by_address.get(par_addr) for par_addr in users_by_address]
     combinedUsers = pytorch_model.runRepo.get_participants(users)
     trs = pytorch_model.runRepo.get_task_rep_delta_and_GRS(-1, "get_task_rep_delta_and_GRS-simulate", None, lambda x: pytorch_model.get_participant(x, combinedUsers))
+    pytorch_model.cleanup()
     return (trs, filename)
 
   newChallenge: Challenge = publisher.deploy_challenge_contract(trainingSpecsChallenge, new_job_listing, pytorch_model, writer, logger, manager_contract=manager)
@@ -286,6 +325,7 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
 
       logger.log_setup(total_experiment_time, hardware, config)
 
+  pytorch_model.cleanup()
   return (Experiment(newChallenge, manager), filename)
 
 

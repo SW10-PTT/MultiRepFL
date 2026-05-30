@@ -1,11 +1,14 @@
 import json
 import os
+import random
 import sys
 import tarfile
 import traceback
 from pathlib import Path
 
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from experiment.experiment_configuration import ExperimentConfiguration
 
 from datetime import datetime
 from typing import List
@@ -75,11 +78,16 @@ def getTopN(users: List[User], n: int, task_type: int, q_weight: float = 0.0, tr
         label = u.partition_spec.name if (u.partition_spec and u.partition_spec.name) else f"User {u.number}"
         fl_globals.fp_user_labels[fps[u]] = label
 
-    log("multirep", f"Selection (top {n} of {len(users)}, task_type={task_type}):")
+    log("multirep", f"Selection (top {n} of {len(users)}, task_type={task_type}, q_weight={q_weight / _WAD:.4f}, tr={tr_weight}, gir={gir_weight}):")
+    log("multirep", f"  {'Name':<16} {'TR':>8} {'GIR':>8} {'Q':>8} {'Score':>10}  fp[:8]  sel")
     for score, u in scores:
-        marker = "SELECTED" if u.address in selected_set else "       -"
+        marker = "YES" if u.address in selected_set else "no"
         name = u.partition_spec.name if (u.partition_spec and u.partition_spec.name) else f"User {u.number}"
-        log("multirep", f"  [{marker}]  score={score / _WAD:>8.4f}  {name}")
+        tr = u.task_rep.get(task_type, 0) / _WAD
+        gir = u.global_integrity_rep / _WAD
+        q = u.q_value.get(task_type, 0) / _WAD
+        fp8 = fps[u][:8]
+        log("multirep", f"  {name:<16} {tr:>8.4f} {gir:>8.4f} {q:>8.4f} {score / _WAD:>10.4f}  {fp8}  {marker}")
 
     return selected
 
@@ -398,6 +406,7 @@ def _upload_run(fingerprint: str, filename: Path, config: str) -> None:
 # ---------------------------------------------------------------------------
 # Training-mode dispatch
 # ---------------------------------------------------------------------------
+fallback_count = 0
 
 def _run_preset(preset: MultirepRunConfig, exp_config, all_users, manager, fingerprint, experiment_name):
     from experiment.multirep.training_mode import TrainingMode
@@ -415,7 +424,7 @@ def _run_preset(preset: MultirepRunConfig, exp_config, all_users, manager, finge
     )
 
 
-def _run_remote(preset: MultirepRunConfig, exp_config: MultirepPreset, all_users, manager, fingerprint: str, experiment_name):
+def _run_remote(preset: MultirepRunConfig, exp_config: ExperimentConfiguration, all_users, manager, fingerprint: str, experiment_name):
     """Submit to the remote API (or reuse a pooled run), replay locally.
     Falls back to LOCAL if anything goes wrong.
 
@@ -463,7 +472,9 @@ def _run_remote(preset: MultirepRunConfig, exp_config: MultirepPreset, all_users
         )
 
     except Exception as e:
+        global fallback_count
         log("multirep", f"[REMOTE] Failed — falling back to LOCAL.\nReason: {type(e).__name__}: {e}\n{traceback.format_exc()}")
+        fallback_count += 1
         fl_globals.reuse_runs = ReplayMode.Record
         return ExperimentRunner.run_experiment(
             preset.dataset,
@@ -478,6 +489,7 @@ def _run_remote(preset: MultirepRunConfig, exp_config: MultirepPreset, all_users
 # ---------------------------------------------------------------------------
 
 def main():
+    global fallback_count
     preset = MultirepPreset.from_file(preset_file)
     tasks = preset.tasks
     partition_file = preset.partition_file
@@ -555,7 +567,7 @@ def main():
         exp_config.tr_weight = tr_weight
         exp_config.gir_weight = gir_weight
         fingerprint = exp_config.get_finger_print(selected_users)
-        log("multirep", f"Run {i+1}/{len(tasks)} | dataset={task.dataset} | fp={fingerprint[:8]}...")
+        log("multirep", f"Run {i+1}/{len(tasks)} | Fall back runs {fallback_count} | dataset={task.dataset} | fp={fingerprint[:8]}...")
 
         cached_run = _fetch_cached_run(fingerprint)
         if cached_run is not None:
@@ -600,6 +612,7 @@ def main():
         log_user_reputations(all_users, task_type, selected_users, q_weight)
 
     log("multirep", "\n=== All tasks complete. ===")
+    log("multirep", f"Fall back runs: {fallback_count}")
 
 
 # ---------------------------------------------------------------------------

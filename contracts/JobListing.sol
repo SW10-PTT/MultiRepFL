@@ -265,12 +265,13 @@ contract JobListing {
                 heapScores[size] = score;
                 heapTBs[size]    = tb;
 
-                // heapify up — bubble while parent is strictly weaker than child
+                // heapify up — bubble while child is strictly weaker than parent
+                // (min-heap invariant: parent ≤ child, i.e. parent is weaker or equal)
                 uint idx = size;
                 while (idx > 0) {
                     uint parent = (idx - 1) / 2;
-                    // stop when parent is NOT weaker than child (heap property OK)
-                    if (!_isWeaker(heapScores[parent], heapTBs[parent], heapScores[idx], heapTBs[idx])) break;
+                    // stop when parent IS weaker than child (heap property OK for min-heap)
+                    if (_isWeaker(heapScores[parent], heapTBs[parent], heapScores[idx], heapTBs[idx])) break;
 
                     (heapScores[parent], heapScores[idx]) = (heapScores[idx], heapScores[parent]);
                     (heapTBs[parent],    heapTBs[idx])    = (heapTBs[idx],    heapTBs[parent]);

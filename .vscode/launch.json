@@ -4,6 +4,16 @@
   // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
   "version": "0.2.0",
   "inputs": [],
+  "compounds": [
+    {
+      "name": "Compile - AutoRun + MultiRep",
+      "configurations": [
+        "Compile - AutoRun",
+        "Compile - Debug: MultiRep"
+      ],
+      "stopAll": true
+    }
+  ],
   "configurations": [
     {
       "name": "Create graphs",

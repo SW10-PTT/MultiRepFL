@@ -224,6 +224,46 @@ class ConnectionHelper:
             'value': value
         }
 
+    def batch_process_receipt(self, receipt, event_names: list[str], gas_type: str, account_addr: str, func_name: str | None = None):
+        """Check status, record gas, decode events for one receipt. Used by both transact and batch_transact."""
+        globals.add_gas_usage(gas_type, receipt["gasUsed"], account_addr)
+        if receipt.get("status", 0) != 1:
+            raw = receipt.get("transactionHash", b"")
+            tx_hex = raw.hex() if hasattr(raw, "hex") else str(raw)
+            name_part = f'"{func_name}" ' if func_name else ""
+            raise RuntimeError(f"Transaction: {name_part}failed (tx={tx_hex}, status={receipt.get('status')})")
+        return (receipt, self.get_events(receipt, event_names))
+
+    def batch_transact(self, func_name: str, calls: list, event_names: list[str], gas_type: str):
+        """Send all transactions first, then wait for receipts in order.
+
+        calls: list of (account, collateral, *args)
+        Returns: list of (receipt, events) in the same order as calls.
+        """
+        func = getattr(self.contract.functions, func_name)
+        pending = []
+
+        for call in calls:
+            account, collateral, *args = call
+            if globals.fork:
+                tx = self.build_tx(account.address, self.contract.address, collateral)
+                txHash = func(*args).transact(tx)
+            else:
+                nonce = globals.w3.eth.get_transaction_count(account.address)
+                depl = self.build_non_fork_tx(account.address, nonce, value=collateral)
+                depl = func(*args).build_transaction(depl)
+                signed = globals.w3.eth.account.sign_transaction(depl, private_key=account.privateKey)
+                txHash = globals.w3.eth.send_raw_transaction(signed.raw_transaction)
+            pending.append((txHash, account.address))
+
+        return [
+            self.batch_process_receipt(
+                globals.w3.eth.wait_for_transaction_receipt(txHash, timeout=600, poll_latency=1),
+                event_names, gas_type, account_addr, func_name,
+            )
+            for txHash, account_addr in pending
+        ]
+
     def transact(self, func_name: str, account: Participant, collateral: int,  event_names: list[str], gas_type: str, *args):
         """
         Returns (receipt, event returns as tuple)
@@ -259,15 +299,7 @@ class ConnectionHelper:
             txHash = globals.w3.eth.send_raw_transaction(signed.raw_transaction)
 
         receipt = globals.w3.eth.wait_for_transaction_receipt(txHash, timeout=600, poll_latency=1)
-        globals.add_gas_usage(gas_type, receipt["gasUsed"], account_addr)
-        # todo: add gas usage
-        if receipt.get("status", 0) != 1:
-            raise RuntimeError(
-                f"Transaction: \"{func_name}\" failed (tx={txHash.hex()}, status={receipt.get('status')}). "
-            )
-
-
-        return (receipt, self.get_events(receipt, event_names))
+        return self.batch_process_receipt(receipt, event_names, gas_type, account_addr, func_name)
 
         
     def get_events(self, receipt, event_names: list[str]):
