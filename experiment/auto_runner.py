@@ -51,7 +51,7 @@ def claim_run(worker_id):
 def get_upload_url(run_id, fingerprint):
     res = requests.post(
         f"{API}/runs/{run_id}/upload-url",
-        json=str(fingerprint)
+        json=fingerprint.name
     )
 
     res.raise_for_status()

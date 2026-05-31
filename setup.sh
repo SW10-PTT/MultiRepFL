@@ -63,7 +63,7 @@ fi
 
 # Extract first version like 3.12 from requires-python
 REQUIRED_PYTHON=$(
-python3 - <<'PY'
+python - <<'PY'
 import re
 from pathlib import Path
 
@@ -85,10 +85,12 @@ PY
 
 echo "Required Python version: $REQUIRED_PYTHON"
 
-PYTHON_BIN="python${REQUIRED_PYTHON}"
-
-if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
-    echo "ERROR: $PYTHON_BIN is not installed"
+if command -v "python${REQUIRED_PYTHON}" >/dev/null 2>&1; then
+    PYTHON_BIN="python${REQUIRED_PYTHON}"
+elif command -v python >/dev/null 2>&1; then
+    PYTHON_BIN="python"
+else
+    echo "ERROR: Python ${REQUIRED_PYTHON} is not installed"
     exit 1
 fi
 
@@ -101,9 +103,14 @@ if [[ -d ".venv" ]]; then
     echo ""
     echo "==> Existing .venv found"
 
-    if [[ -f ".venv/bin/python" ]]; then
+    if [[ -f ".venv/bin/python" || -f ".venv/Scripts/python.exe" ]]; then
+        if [[ -f ".venv/bin/python" ]]; then
+            VENV_PYTHON=".venv/bin/python"
+        else
+            VENV_PYTHON=".venv/Scripts/python.exe"
+        fi
         VENV_PYTHON_VERSION=$(
-            .venv/bin/python -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')"
+            "$VENV_PYTHON" -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')"
         )
 
         echo "Existing venv Python version: $VENV_PYTHON_VERSION"
@@ -135,7 +142,11 @@ fi
 # --------------------------------------------
 # Activate venv
 # --------------------------------------------
-source .venv/bin/activate
+if [[ -f ".venv/bin/activate" ]]; then
+    source .venv/bin/activate
+else
+    source .venv/Scripts/activate
+fi
 
 python -m pip install --upgrade pip setuptools wheel
 
@@ -205,7 +216,7 @@ esac
 echo ""
 echo "==> Compiling contracts"
 
-python3 scripts/compile_contracts.py
+python scripts/compile_contracts.py
 
 echo ""
 echo "============================================"
