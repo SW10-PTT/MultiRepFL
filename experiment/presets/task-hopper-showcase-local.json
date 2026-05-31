@@ -1,0 +1,259 @@
+{
+  "_doc": [
+    "30-task showcase demonstrating task-specific reputation divergence.",
+    "Users who are good at MNIST but bad at CIFAR-10 (M3, F3) should accumulate",
+    "high MNIST TR and low CIFAR-10 TR over the session, causing the system to",
+    "select them for MNIST tasks but deprioritise them for CIFAR-10 tasks.",
+    "The reverse holds for M2/F2 (good CIFAR, bad MNIST).",
+    "Tasks alternate MNIST/CIFAR-10 to build per-task reputation in parallel.",
+    "Kept short: 1 epoch, 3 rounds, 6 participants out of 30."
+  ],
+  "name": "task-hopper-showcase",
+  "partition_file": "experiment/partitions/EXP-strong-task-hoppers-30-users.json",
+  "q_weight": 1.0,
+  "tr_weight": 6,
+  "gir_weight": 4,
+  "training_mode": "local",
+  "tasks": [
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "epochs": 1,
+      "number_of_participants": 6,
+      "contribution_score_strategy": "loss_only",
+      "use_outlier_detection": true
+    },
+    {
+      "dataset": "CIFAR-10",
+      "minimum_rounds": 3,
+      "epochs": 1,
+      "number_of_participants": 6,
+      "contribution_score_strategy": "loss_only",
+      "use_outlier_detection": true
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "epochs": 1,
+      "number_of_participants": 6,
+      "contribution_score_strategy": "loss_only",
+      "use_outlier_detection": true
+    },
+    {
+      "dataset": "CIFAR-10",
+      "minimum_rounds": 3,
+      "epochs": 1,
+      "number_of_participants": 6,
+      "contribution_score_strategy": "loss_only",
+      "use_outlier_detection": true
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "epochs": 1,
+      "number_of_participants": 6,
+      "contribution_score_strategy": "loss_only",
+      "use_outlier_detection": true
+    },
+    {
+      "dataset": "CIFAR-10",
+      "minimum_rounds": 3,
+      "epochs": 1,
+      "number_of_participants": 6,
+      "contribution_score_strategy": "loss_only",
+      "use_outlier_detection": true
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "epochs": 1,
+      "number_of_participants": 6,
+      "contribution_score_strategy": "loss_only",
+      "use_outlier_detection": true
+    },
+    {
+      "dataset": "CIFAR-10",
+      "minimum_rounds": 3,
+      "epochs": 1,
+      "number_of_participants": 6,
+      "contribution_score_strategy": "loss_only",
+      "use_outlier_detection": true
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "epochs": 1,
+      "number_of_participants": 6,
+      "contribution_score_strategy": "loss_only",
+      "use_outlier_detection": true
+    },
+    {
+      "dataset": "CIFAR-10",
+      "minimum_rounds": 3,
+      "epochs": 1,
+      "number_of_participants": 6,
+      "contribution_score_strategy": "loss_only",
+      "use_outlier_detection": true
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "epochs": 1,
+      "number_of_participants": 6,
+      "contribution_score_strategy": "loss_only",
+      "use_outlier_detection": true
+    },
+    {
+      "dataset": "CIFAR-10",
+      "minimum_rounds": 3,
+      "epochs": 1,
+      "number_of_participants": 6,
+      "contribution_score_strategy": "loss_only",
+      "use_outlier_detection": true
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "epochs": 1,
+      "number_of_participants": 6,
+      "contribution_score_strategy": "loss_only",
+      "use_outlier_detection": true
+    },
+    {
+      "dataset": "CIFAR-10",
+      "minimum_rounds": 3,
+      "epochs": 1,
+      "number_of_participants": 6,
+      "contribution_score_strategy": "loss_only",
+      "use_outlier_detection": true
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "epochs": 1,
+      "number_of_participants": 6,
+      "contribution_score_strategy": "loss_only",
+      "use_outlier_detection": true
+    },
+    {
+      "dataset": "CIFAR-10",
+      "minimum_rounds": 3,
+      "epochs": 1,
+      "number_of_participants": 6,
+      "contribution_score_strategy": "loss_only",
+      "use_outlier_detection": true
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "epochs": 1,
+      "number_of_participants": 6,
+      "contribution_score_strategy": "loss_only",
+      "use_outlier_detection": true
+    },
+    {
+      "dataset": "CIFAR-10",
+      "minimum_rounds": 3,
+      "epochs": 1,
+      "number_of_participants": 6,
+      "contribution_score_strategy": "loss_only",
+      "use_outlier_detection": true
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "epochs": 1,
+      "number_of_participants": 6,
+      "contribution_score_strategy": "loss_only",
+      "use_outlier_detection": true
+    },
+    {
+      "dataset": "CIFAR-10",
+      "minimum_rounds": 3,
+      "epochs": 1,
+      "number_of_participants": 6,
+      "contribution_score_strategy": "loss_only",
+      "use_outlier_detection": true
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "epochs": 1,
+      "number_of_participants": 6,
+      "contribution_score_strategy": "loss_only",
+      "use_outlier_detection": true
+    },
+    {
+      "dataset": "CIFAR-10",
+      "minimum_rounds": 3,
+      "epochs": 1,
+      "number_of_participants": 6,
+      "contribution_score_strategy": "loss_only",
+      "use_outlier_detection": true
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "epochs": 1,
+      "number_of_participants": 6,
+      "contribution_score_strategy": "loss_only",
+      "use_outlier_detection": true
+    },
+    {
+      "dataset": "CIFAR-10",
+      "minimum_rounds": 3,
+      "epochs": 1,
+      "number_of_participants": 6,
+      "contribution_score_strategy": "loss_only",
+      "use_outlier_detection": true
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "epochs": 1,
+      "number_of_participants": 6,
+      "contribution_score_strategy": "loss_only",
+      "use_outlier_detection": true
+    },
+    {
+      "dataset": "CIFAR-10",
+      "minimum_rounds": 3,
+      "epochs": 1,
+      "number_of_participants": 6,
+      "contribution_score_strategy": "loss_only",
+      "use_outlier_detection": true
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "epochs": 1,
+      "number_of_participants": 6,
+      "contribution_score_strategy": "loss_only",
+      "use_outlier_detection": true
+    },
+    {
+      "dataset": "CIFAR-10",
+      "minimum_rounds": 3,
+      "epochs": 1,
+      "number_of_participants": 6,
+      "contribution_score_strategy": "loss_only",
+      "use_outlier_detection": true
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "epochs": 1,
+      "number_of_participants": 6,
+      "contribution_score_strategy": "loss_only",
+      "use_outlier_detection": true
+    },
+    {
+      "dataset": "CIFAR-10",
+      "minimum_rounds": 3,
+      "epochs": 1,
+      "number_of_participants": 6,
+      "contribution_score_strategy": "loss_only",
+      "use_outlier_detection": true
+    }
+  ]
+}

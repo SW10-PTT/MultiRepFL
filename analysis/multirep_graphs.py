@@ -21,6 +21,9 @@ from analysis.plots import save_figure
 
 
 def generate_all(session_pkl: Path, out_dir: Path | None = None) -> Path:
+    session_pkl = Path(session_pkl)
+    if session_pkl.is_dir():
+        session_pkl = session_pkl / "session.pkl"
     session = load_session(session_pkl)
     rep = session.reputation_timeline
 

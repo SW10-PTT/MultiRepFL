@@ -55,7 +55,7 @@ _INTEGRITY_LEARNING_RATE = int(2e17)  # GIR EWMA learning rate
 # Preset file — fill in before running
 # ---------------------------------------------------------------------------
 
-preset_file = "experiment/presets/task-hopper-showcase.json"
+preset_file = "experiment/presets/task-hopper-showcase-remote.json"
 
 # ---------------------------------------------------------------------------
 # Output directory for multirep sessions
@@ -316,7 +316,7 @@ def _sync_balances_from_challenge(users: List[User], experiment, manager) -> Non
     settled challenge contract and write it into the manager's Balance slot."""
     challenge_contract = experiment.model.contract
     users_by_address = {u.address.lower(): u for u in users}
-    for addr_lc, user in users_by_address.items():
+    for _, user in users_by_address.items():
         try:
             challenge_user = challenge_contract.functions.users(
                 Web3.to_checksum_address(user.address)
@@ -522,14 +522,15 @@ def _run_remote(preset: MultirepRunConfig, exp_config: ExperimentConfiguration, 
         return ExperimentRunner.run_experiment(
             preset.dataset,
             exp_config,
+            writer=writer,
+            logger=logger,
+            path=path,
             prebuilt_users=all_users,
             prebuilt_manager=manager,
         )
 
     except Exception as e:
-        global fallback_count
         log("multirep", f"[REMOTE] Failed — falling back to LOCAL.\nReason: {type(e).__name__}: {e}\n{traceback.format_exc()}")
-        fallback_count += 1
         fl_globals.reuse_runs = ReplayMode.Record
         # Restore repo_dir to task_dir so the JSON lands there, not in the
         # remote extraction dir that extract_and_register_runrepo may have set.
@@ -722,6 +723,12 @@ def main():
         run_data, filename = run_result
         is_replay = isinstance(run_data, list)
 
+        # Count every REMOTE→LOCAL fallback in one place.  Both the exception
+        # path and the silent HardPlayBack fingerprint-mismatch path return a
+        # non-replay result from a REMOTE-mode call.
+        if training_mode == TrainingMode.REMOTE and not is_replay:
+            fallback_count += 1
+
         # ------------------------------------------------------------------ #
         # Save per-task output files (CSV + PKL always; JSON via repo_dir)   #
         # ------------------------------------------------------------------ #
@@ -734,24 +741,27 @@ def main():
         task_logger.save(pkl_path)
         task_pkl_path = pkl_path
 
-        if is_replay:
-            # Copy the real csv/pkl/json from the downloaded tarball into
-            # task_dir, overwriting the placeholder files created above.
-            remote_src = Path(fl_globals.repo_dir)
-            if remote_src.is_dir() and remote_src != task_dir:
+        remote_src = Path(fl_globals.repo_dir)
+        if remote_src.is_dir() and remote_src != task_dir:
+            if is_replay:
+                # Copy the real csv/pkl/json from the downloaded tarball into
+                # task_dir, overwriting the placeholder files created above.
                 copy_remote_task_files(remote_src, task_dir)
-            # Prefer the copied PKL (from remote server) over the empty local one.
-            copied_pkls = [
-                p for p in task_dir.glob("*.pkl")
-                if p != task_pkl_path
-            ]
-            if copied_pkls:
-                task_pkl_path = copied_pkls[0]
+                # Prefer the copied PKL (from remote server) over the empty local one.
+                copied_pkls = [p for p in task_dir.glob("*.pkl") if p != task_pkl_path]
+                if copied_pkls:
+                    task_pkl_path = copied_pkls[0]
+            else:
+                # HardPlayBack fingerprint-mismatch fallback: local training ran
+                # with repo_dir pointing at the extraction dir, so the JSON landed
+                # there. Copy it into task_dir.
+                copy_remote_task_files(remote_src, task_dir)
 
         # Upload result to the API only for LOCAL runs; REMOTE results
         # either originated on the server or are already stored there.
         if training_mode == TrainingMode.LOCAL:
-            _upload_run(fingerprint, filename, json.dumps(exp_config.to_dict()))
+            from experiment.multirep.remote_client import _config_to_json_element
+            _upload_run(fingerprint, filename, json.dumps(_config_to_json_element(exp_config)))
 
         # ------------------------------------------------------------------ #
         # Rep updates (chain-authoritative)                                   #
