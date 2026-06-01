@@ -2,11 +2,11 @@ class MultirepRunConfig:
   def __init__(self,
         dataset="MNIST",
         reward=int(1e18),
-        minimum_rounds=5,
+        minimum_rounds=25,
         min_buy_in=int(1e18),
         max_buy_in=int(1e18),
         standard_buy_in=int(1e18),
-        epochs=1,
+        epochs=3,
         batch_size=32,
         punish_factor=3,
         punish_factor_contrib=3,
@@ -23,8 +23,8 @@ class MultirepRunConfig:
         enabled_prints=None,
         fork=True,
         seed=123,
-        allow_overlap=False,
-        replication_factor=1.0,
+        allow_overlap=True,
+        replication_factor=4.0,
         training_mode=None,    # TrainingMode.LOCAL | REMOTE; None defaults to LOCAL
         remote_pool_size=0):   # REMOTE only: pool length; 0 = always submit fresh
     self.dataset = dataset.replace(".", "-").lower()
