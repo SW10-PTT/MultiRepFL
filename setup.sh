@@ -6,27 +6,31 @@ set -euo pipefail
 # ============================================
 
 # Usage:
-#   ./setup.sh [cpu|nvidia|amd-linux|amd-windows]
+#   ./setup.sh [cpu|nvidia|nvidia-legacy|amd-linux|amd-windows]
 #
 # Examples:
 #   ./setup.sh cpu
-#   ./setup.sh nvidia
+#   ./setup.sh nvidia           # CUDA 13.0 — driver 575+
+#   ./setup.sh nvidia-legacy    # CUDA 12.8 — driver 550-574 (e.g. driver 570)
 #   ./setup.sh amd-linux
 
 if [[ $# -lt 1 ]]; then
     echo "Usage:"
-    echo "  ./setup.sh [cpu|nvidia|amd-linux|amd-windows]"
+    echo "  ./setup.sh [cpu|nvidia|nvidia-legacy|amd-linux|amd-windows]"
     exit 1
 fi
 
 MODE="$1"
 
-VALID_MODES=("cpu" "nvidia" "amd-linux" "amd-windows")
+VALID_MODES=("cpu" "nvidia" "nvidia-legacy" "amd-linux" "amd-windows")
 
 if [[ ! " ${VALID_MODES[*]} " =~ " ${MODE} " ]]; then
     echo "Invalid mode: $MODE"
     echo "Valid modes:"
     printf '  %s\n' "${VALID_MODES[@]}"
+    echo ""
+    echo "  nvidia         — CUDA 13.0 (driver 575+)"
+    echo "  nvidia-legacy  — CUDA 12.8 (driver 550–574, e.g. driver 570)"
     exit 1
 fi
 
@@ -46,9 +50,9 @@ cd "$SCRIPT_DIR"
 echo ""
 echo "==> Resetting git state"
 
-git checkout main
+CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 git fetch origin
-git reset --hard origin/main
+git reset --hard origin/"$CURRENT_BRANCH"
 
 # --------------------------------------------
 # Detect required Python version from pyproject.toml
@@ -157,6 +161,14 @@ case "$MODE" in
         pip install -e ".[dev]"
         ;;
 
+    nvidia-legacy)
+        # CUDA 12.8 — for driver 570 (supports up to CUDA 12.8, not 13.0)
+        pip install torch torchvision \
+            --index-url https://download.pytorch.org/whl/cu128
+
+        pip install -e ".[dev]"
+        ;;
+
     amd-linux)
         pip install -e ".[dev]" \
             --extra-index-url https://download.pytorch.org/whl/rocm7.1
@@ -193,6 +205,7 @@ EOF
         echo "Valid modes:"
         echo "  cpu"
         echo "  nvidia"
+        echo "  nvidia-legacy"
         echo "  amd-linux"
         echo "  amd-windows"
         exit 1
