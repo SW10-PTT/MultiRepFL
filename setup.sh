@@ -163,10 +163,13 @@ case "$MODE" in
 
     nvidia-legacy)
         # CUDA 12.8 — for driver 570 (supports up to CUDA 12.8, not 13.0)
-        pip install torch torchvision \
+        pip install --force-reinstall torch torchvision \
             --index-url https://download.pytorch.org/whl/cu128
 
         pip install -e ".[dev]"
+
+        # torch cu128 wheels pull in a newer numpy; pin it back to what the project requires
+        pip install "numpy==2.2.6"
         ;;
 
     amd-linux)
