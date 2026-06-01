@@ -1,9 +1,9 @@
 """Load a multirep session.pkl produced by MultirepLogger."""
 
 import pickle
-from dataclasses import dataclass, field
+import tarfile
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 import pandas as pd
 
@@ -40,16 +40,39 @@ class MultirepSession:
                 yield t["task_index"], t["dataset"], rd
 
 
-def load_session(path: Path) -> MultirepSession:
-    path = Path(path)
-    with open(path, "rb") as f:
-        payload = pickle.load(f)
-
+def _payload_to_session(payload: dict) -> MultirepSession:
     return MultirepSession(
-        session_id=        payload["session_id"],
-        preset_name=       payload["preset_name"],
-        session_timestamp= payload["session_timestamp"],
-        preset=            payload.get("preset", {}),
+        session_id=          payload["session_id"],
+        preset_name=         payload["preset_name"],
+        session_timestamp=   payload["session_timestamp"],
+        preset=              payload.get("preset", {}),
         reputation_timeline= payload.get("reputation_timeline", pd.DataFrame()),
-        tasks=             payload.get("tasks", []),
+        tasks=               payload.get("tasks", []),
     )
+
+
+def load_session(path: Path) -> MultirepSession:
+    """Load a session from a session.pkl file or a session directory."""
+    path = Path(path)
+    if path.is_dir():
+        path = path / "session.pkl"
+    with open(path, "rb") as f:
+        return _payload_to_session(pickle.load(f))
+
+
+def load_session_from_tarball(tarball: Path) -> MultirepSession:
+    """Load a session directly from a .tar.gz archive without extracting to disk.
+
+    Finds the first member whose name ends with 'session.pkl' and deserialises
+    it from the in-archive byte stream.
+    """
+    tarball = Path(tarball)
+    with tarfile.open(tarball, "r:gz") as tar:
+        member = next(
+            (m for m in tar.getmembers() if m.name.endswith("session.pkl")),
+            None,
+        )
+        if member is None:
+            raise FileNotFoundError(f"session.pkl not found inside {tarball}")
+        f = tar.extractfile(member)
+        return _payload_to_session(pickle.load(f))

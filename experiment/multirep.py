@@ -266,8 +266,8 @@ def _apply_trs_reps(users: List[User], trs: list, task_type: int, manager, rewar
         confidence = _compute_confidence(k, new_m2)
         new_task_rep = _update_contrib_score(prior_task_rep, confidence, contrib_score)
 
-        # GIR: seed at WAD for first-task users (mirrors Solidity effectivePrior logic).
-        prior_gir = user.global_integrity_rep or _WAD
+        # GIR starts at 0 and earns upward; no WAD prior override.
+        prior_gir = user.global_integrity_rep
         new_gir = _update_integrity_rep(prior_gir, pos_votes, total_votes)
         new_balance = max(0, user.balance + delta_balance)
 
@@ -548,6 +548,24 @@ def _run_remote(preset: MultirepRunConfig, exp_config: ExperimentConfiguration, 
 
 
 # ---------------------------------------------------------------------------
+# Preset-level config application
+# ---------------------------------------------------------------------------
+
+def _apply_preset_config(exp_config: ExperimentConfiguration, preset) -> None:
+    """Stamp preset-level session settings onto an ExperimentConfiguration.
+
+    These fields are intentionally kept out of MultirepRunConfig so they cannot
+    accidentally vary between tasks within the same session.
+    """
+    exp_config.replication_factor = preset.replication_factor
+    exp_config.allow_overlap      = preset.allow_overlap
+    exp_config.seed               = preset.seed
+    exp_config.global_rep_only    = preset.global_rep_only
+    exp_config.vote_baseline      = preset.vote_baseline
+    exp_config.fork               = preset.fork
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -595,6 +613,7 @@ def main():
     # this full pool and keep their data partitions for the entire session.
     full_config = first_task.to_experiment_config(partition_file)
     full_config.name = preset.name
+    _apply_preset_config(full_config, preset)
 
     # Enable print tags immediately so log() calls are visible on the terminal
     # throughout the full session (setup, remote polling, replay, etc.) rather
@@ -619,10 +638,8 @@ def main():
         privkeys,
     )
 
-    # Initialize on-chain GIR to 1 WAD for all users. This mirrors the
-    # Solidity prior (WAD for new users) and makes the chain authoritative
-    # from the first task onward.
-    manager.initialize_user_balances(all_users)
+    # Initialize on-chain GIR to 0 for all users so it earns upward from honest voting.
+    manager.initialize_user_balances(all_users, initial_value=0)
 
     q_weight = preset.q_weight
     tr_weight = preset.tr_weight
@@ -636,8 +653,10 @@ def main():
         pre_state = {
             u.address: {
                 "tr":      u.task_rep.get(task_type, 0),
+                "tr_all":  dict(u.task_rep),
                 "gir":     u.global_integrity_rep,
                 "q":       u.q_value.get(task_type, 0),
+                "q_all":   dict(u.q_value),
                 "balance": u.balance,
             }
             for u in all_users
@@ -662,6 +681,7 @@ def main():
         exp_config.q_weight = q_weight
         exp_config.tr_weight = tr_weight
         exp_config.gir_weight = gir_weight
+        _apply_preset_config(exp_config, preset)
         fingerprint = exp_config.get_finger_print(selected_users)
         log("multirep", f"Run {i+1}/{len(tasks)} | Fall back runs {fallback_count} | dataset={task.dataset} | fp={fingerprint[:8]}...")
 
@@ -675,6 +695,9 @@ def main():
             log("multirep", f"Fingerprint {fingerprint[:8]}... found in RunRepo — skipping experiment.")
             _apply_cached_reps(all_users, cached_run, task_type)
             _apply_q_updates(all_users, q_updates, task_type)
+            # Read confidence/k from the manager even for cached tasks so the
+            # session pickle has a full confidence trajectory across all tasks.
+            post_confidence, post_k, post_mean, post_m2 = _rep_internals_after_task(all_users, manager, task_type)
             log("multirep", f"\n--- Reputation snapshot after task {i+1} (cached) ---")
             log_user_reputations(all_users, task_type, selected_users, q_weight, tr_weight, gir_weight)
             multirep_logger.log_task(
@@ -682,6 +705,8 @@ def main():
                 fingerprint=fingerprint, was_cached=True,
                 users=all_users, selected_users=selected_users,
                 pre_state=pre_state, scores=scores,
+                post_confidence=post_confidence, post_k=post_k,
+                post_running_mean=post_mean, post_m2=post_m2,
             )
             continue
 

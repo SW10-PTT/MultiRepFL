@@ -14,6 +14,12 @@
   "tr_weight": 6,
   "gir_weight": 4,
   "training_mode": "local",
+  "fork": true,
+  "replication_factor": 1.0,
+  "allow_overlap": false,
+  "seed": 123,
+  "global_rep_only": false,
+  "vote_baseline": "local_trained",
   "tasks": [
     {
       "dataset": "MNIST",

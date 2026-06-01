@@ -8,6 +8,7 @@ so the caller can save them with ``plots.save_figure``.
 from pathlib import Path
 
 import matplotlib
+import matplotlib.patches
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 from matplotlib.ticker import MaxNLocator
@@ -113,10 +114,15 @@ def plot_balance_over_tasks(rep: pd.DataFrame) -> plt.Figure:
 
 
 def plot_confidence_over_tasks(rep: pd.DataFrame) -> plt.Figure:
-    """Confidence score for every user who was selected, over task index."""
+    """Confidence score for users with participation history, over task index.
+
+    Only tasks where confidence data was recorded are shown (non-cached tasks
+    and cached tasks after the first non-cached task for each user).
+    Users with k=0 across all tasks are omitted (no history yet).
+    """
     fig, ax = plt.subplots(figsize=(11, 4))
-    selected = rep[rep["was_selected"] & rep["confidence"].notna()]
-    for (name, behavior), grp in selected.groupby(["user_name", "behavior"]):
+    has_history = rep[rep["confidence"].notna() & rep["k"].notna() & (rep["k"] > 0)]
+    for (name, behavior), grp in has_history.groupby(["user_name", "behavior"]):
         grp = grp.sort_values("task_index")
         color = BEHAVIOR_COLORS.get(behavior, "#888")
         ax.plot(grp["task_index"], grp["confidence"], color=color, linewidth=_LW, alpha=0.7)
@@ -278,39 +284,189 @@ def plot_score_vs_tr(rep: pd.DataFrame) -> plt.Figure:
 
 
 # ---------------------------------------------------------------------------
+# TR split by task type (requires tr_all_post column)
+# ---------------------------------------------------------------------------
+
+# Human-readable names for TaskType int values (mirrors TrainingSpecsJobListing.TaskType)
+TASK_TYPE_LABELS = {5: "MNIST", 6: "CIFAR-10", 7: "FashionMNIST"}
+
+
+def plot_tr_per_task_type(rep: pd.DataFrame) -> plt.Figure:
+    """One subplot per known task type showing each user's TR over tasks.
+
+    Requires the ``tr_all_post`` column (dict keyed by task-type int).
+    Falls back to a message if the column is absent (old session format).
+    """
+    if "tr_all_post" not in rep.columns:
+        fig, ax = plt.subplots()
+        ax.text(0.5, 0.5, "tr_all_post not available — re-run to populate",
+                ha="center", va="center", transform=ax.transAxes, color="#888")
+        return fig
+
+    # Collect all task types present across the session
+    all_tts = sorted({
+        tt
+        for d in rep["tr_all_post"].dropna()
+        if isinstance(d, dict)
+        for tt in d
+    })
+    if not all_tts:
+        fig, ax = plt.subplots()
+        ax.text(0.5, 0.5, "No TR data in tr_all_post", ha="center", va="center", transform=ax.transAxes)
+        return fig
+
+    ncols = len(all_tts)
+    fig, axes = plt.subplots(1, ncols, figsize=(9 * ncols, 4), sharey=True)
+    if ncols == 1:
+        axes = [axes]
+
+    for ax, tt in zip(axes, all_tts):
+        label = TASK_TYPE_LABELS.get(tt, f"TaskType {tt}")
+        for (name, behavior), grp in rep.groupby(["user_name", "behavior"]):
+            grp = grp.sort_values("task_index")
+            tr_vals = grp["tr_all_post"].apply(
+                lambda d: d.get(tt) if isinstance(d, dict) else None
+            )
+            mask = tr_vals.notna()
+            if not mask.any():
+                continue
+            color = BEHAVIOR_COLORS.get(behavior, "#888")
+            ax.plot(grp["task_index"][mask], tr_vals[mask],
+                    color=color, linewidth=_LW, alpha=0.7)
+
+        ax.set_title(label)
+        ax.set_xlabel("Task index")
+        ax.set_ylabel("Task Reputation (TR)")
+        ax.set_ylim(0, 1.05)
+        ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+        ax.grid(True, alpha=0.3)
+
+    _add_behavior_legend(axes[-1])
+    fig.tight_layout()
+    return fig
+
+
+def plot_tr_per_task_type_by_behavior(rep: pd.DataFrame) -> plt.Figure:
+    """Mean ± std TR per behavior group, one subplot per task type."""
+    if "tr_all_post" not in rep.columns:
+        fig, ax = plt.subplots()
+        ax.text(0.5, 0.5, "tr_all_post not available — re-run to populate",
+                ha="center", va="center", transform=ax.transAxes, color="#888")
+        return fig
+
+    all_tts = sorted({
+        tt
+        for d in rep["tr_all_post"].dropna()
+        if isinstance(d, dict)
+        for tt in d
+    })
+    if not all_tts:
+        fig, ax = plt.subplots()
+        ax.text(0.5, 0.5, "No data", ha="center", va="center", transform=ax.transAxes)
+        return fig
+
+    ncols = len(all_tts)
+    fig, axes = plt.subplots(1, ncols, figsize=(9 * ncols, 4), sharey=True)
+    if ncols == 1:
+        axes = [axes]
+
+    for ax, tt in zip(axes, all_tts):
+        label = TASK_TYPE_LABELS.get(tt, f"TaskType {tt}")
+        # Expand tr_all_post into a flat column for this task type
+        col = rep["tr_all_post"].apply(lambda d: d.get(tt) if isinstance(d, dict) else None)
+        sub = rep.assign(_tr=col).dropna(subset=["_tr"])
+        agg = sub.groupby(["behavior", "task_index"])["_tr"].agg(["mean", "std"]).reset_index()
+        for behavior, grp in agg.groupby("behavior"):
+            grp = grp.sort_values("task_index")
+            color = BEHAVIOR_COLORS.get(behavior, "#888")
+            label_b = BEHAVIOR_LABELS.get(behavior, behavior)
+            ax.plot(grp["task_index"], grp["mean"], color=color, linewidth=_LW, label=label_b)
+            ax.fill_between(grp["task_index"],
+                            grp["mean"] - grp["std"].fillna(0),
+                            grp["mean"] + grp["std"].fillna(0),
+                            alpha=_DEFAULT_ALPHA_FILL, color=color)
+        ax.set_title(TASK_TYPE_LABELS.get(tt, f"TaskType {tt}"))
+        ax.set_xlabel("Task index")
+        ax.set_ylabel("Task Reputation (TR)")
+        ax.set_ylim(0, 1.05)
+        ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+        ax.grid(True, alpha=0.3)
+
+    axes[-1].legend(title="Behavior")
+    fig.tight_layout()
+    return fig
+
+
+# ---------------------------------------------------------------------------
 # Per-task accuracy (from embedded run_data)
 # ---------------------------------------------------------------------------
 
-def plot_task_final_accuracy(tasks: list) -> plt.Figure:
-    """Bar chart of each task's final-round global accuracy from embedded run_data."""
-    indices, accuracies, datasets = [], [], []
-    for t in tasks:
-        rd = t.get("run_data")
-        if rd is None:
-            continue
-        global_df = rd.get("global", pd.DataFrame())
-        if global_df.empty or "objective_global_accuracy" not in global_df.columns:
-            continue
-        final_acc = global_df["objective_global_accuracy"].dropna().iloc[-1] if not global_df.empty else None
-        if final_acc is None:
-            continue
-        indices.append(t["task_index"])
-        accuracies.append(float(final_acc))
-        datasets.append(t.get("dataset", ""))
+DATASET_COLORS = {
+    "mnist":    "#2196F3",
+    "cifar-10": "#FF9800",
+    "cifar10":  "#FF9800",
+}
 
-    if not indices:
+def plot_task_final_accuracy(tasks: list) -> plt.Figure:
+    """Bar chart of each task's final-round global accuracy.
+
+    All task slots are shown.  Tasks without logged accuracy data (empty logger
+    due to REMOTE replay before bug-fix, or cached tasks) appear as light grey
+    bars so the slot is visible but clearly marked as missing.
+    """
+    if not tasks:
         fig, ax = plt.subplots()
-        ax.text(0.5, 0.5, "No accuracy data available", ha="center", va="center", transform=ax.transAxes)
+        ax.text(0.5, 0.5, "No tasks", ha="center", va="center", transform=ax.transAxes)
         return fig
 
-    fig, ax = plt.subplots(figsize=(max(6, len(indices) * 0.5), 4))
-    ax.bar(indices, accuracies, color="#2196F3", edgecolor="black", linewidth=0.7)
+    all_indices = [t["task_index"] for t in tasks]
+    all_datasets = [t.get("dataset", "").lower() for t in tasks]
+
+    accuracies = []
+    for t in tasks:
+        rd = t.get("run_data")
+        acc = None
+        if rd is not None:
+            global_df = rd.get("global", pd.DataFrame())
+            if not global_df.empty and "objective_global_accuracy" in global_df.columns:
+                vals = global_df["objective_global_accuracy"].dropna()
+                if len(vals):
+                    acc = float(vals.iloc[-1])
+        accuracies.append(acc)
+
+    has_any = any(a is not None for a in accuracies)
+    fig, ax = plt.subplots(figsize=(max(8, len(all_indices) * 0.45), 4))
+
+    for idx, dataset, acc in zip(all_indices, all_datasets, accuracies):
+        if acc is None:
+            ax.bar(idx, 0.02, color="#e0e0e0", edgecolor="#bdbdbd", linewidth=0.5)
+        else:
+            color = DATASET_COLORS.get(dataset, "#78909C")
+            ax.bar(idx, acc, color=color, edgecolor="black", linewidth=0.7)
+
     ax.set_xlabel("Task index")
     ax.set_ylabel("Final global accuracy")
     ax.set_ylim(0, 1.05)
     ax.xaxis.set_major_locator(MaxNLocator(integer=True))
     ax.grid(True, alpha=0.3, axis="y")
     ax.set_axisbelow(True)
+
+    if not has_any:
+        ax.text(0.5, 0.5, "No accuracy data yet — re-run to populate",
+                ha="center", va="center", transform=ax.transAxes,
+                fontsize=10, color="#888888")
+
+    # Legend for datasets + missing marker
+    seen = set()
+    handles = []
+    for dataset in all_datasets:
+        if dataset not in seen:
+            seen.add(dataset)
+            color = DATASET_COLORS.get(dataset, "#78909C")
+            handles.append(matplotlib.patches.Patch(facecolor=color, edgecolor="black", label=dataset.upper()))
+    handles.append(matplotlib.patches.Patch(facecolor="#e0e0e0", edgecolor="#bdbdbd", label="no data"))
+    ax.legend(handles=handles, title="Dataset", loc="upper left")
+
     fig.tight_layout()
     return fig
 

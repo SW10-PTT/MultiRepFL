@@ -85,14 +85,18 @@ class MultirepLogger:
                 "was_cached":        was_cached,
                 # pre-task state (values used for the selection decision)
                 "tr_pre":            pre.get("tr", 0) / _WAD,
+                "tr_all_pre":        {tt: v / _WAD for tt, v in pre.get("tr_all", {}).items()},
                 "gir_pre":           pre.get("gir", 0) / _WAD,
                 "q_pre":             pre.get("q", 0) / _WAD,
+                "q_all_pre":         {tt: v / _WAD for tt, v in pre.get("q_all", {}).items()},
                 "balance_pre":       pre.get("balance", 0) / _WAD,
                 "selection_score":   scores.get(addr, 0) / _WAD,
                 # post-task state
                 "tr_post":           user.task_rep.get(task_type, 0) / _WAD,
+                "tr_all_post":       {tt: v / _WAD for tt, v in user.task_rep.items()},
                 "gir_post":          user.global_integrity_rep / _WAD,
                 "q_post":            user.q_value.get(task_type, 0) / _WAD,
+                "q_all_post":        {tt: v / _WAD for tt, v in user.q_value.items()},
                 "balance_post":      user.balance / _WAD,
                 "total_contrib_post": user.total_contrib_score / _WAD,
                 # reputation internals (for selected users)
