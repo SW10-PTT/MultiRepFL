@@ -18,9 +18,6 @@ param(
 
 if (-not $Mode) {
     Write-Host "Usage: .\windows-startup.ps1 [ganache|anvil]"
-    Write-Host ""
-    Write-Host "  ganache  — start with Ganache (npm)"
-    Write-Host "  anvil    — start with Anvil (Foundry)"
     exit 1
 }
 
