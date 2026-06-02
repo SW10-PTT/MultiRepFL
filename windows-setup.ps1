@@ -3,7 +3,10 @@
 # ============================================
 #
 # Usage:
-#   .\windows-setup.ps1 [cpu|nvidia|amd-windows]
+#   .\windows-setup.ps1 [cpu|nvidia|nvidia-legacy|amd-windows]
+#
+#   nvidia         — CUDA 13.0 (driver 575+)
+#   nvidia-legacy  — CUDA 12.8 (driver 550-574, e.g. driver 570)
 #
 # NOTE: If you get "running scripts is disabled", run once as admin:
 #   Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
@@ -12,7 +15,7 @@
 
 param(
     [Parameter(Mandatory=$true)]
-    [ValidateSet("cpu", "nvidia", "amd-windows")]
+    [ValidateSet("cpu", "nvidia", "nvidia-legacy", "amd-windows")]
     [string]$Mode
 )
 
@@ -144,6 +147,17 @@ switch ($Mode) {
             --index-url https://download.pytorch.org/whl/cu130
 
         pip install -e ".[dev]"
+    }
+
+    "nvidia-legacy" {
+        # CUDA 12.8 — for driver 570 (supports up to CUDA 12.8, not 13.0)
+        pip install --force-reinstall torch torchvision `
+            --index-url https://download.pytorch.org/whl/cu128
+
+        pip install -e ".[dev]"
+
+        # torch cu128 wheels pull in a newer numpy; pin it back to what the project requires
+        pip install "numpy==2.2.6"
     }
 
     "amd-windows" {
