@@ -407,6 +407,86 @@ DATASET_COLORS = {
     "cifar10":  "#FF9800",
 }
 
+def plot_accuracy_per_round_per_task(global_accuracy: pd.DataFrame) -> plt.Figure:
+    """Line chart: global accuracy over rounds for every task, coloured by dataset.
+
+    Uses the top-level ``global_accuracy`` table from the session pickle.
+    """
+    if global_accuracy.empty or "objective_global_accuracy" not in global_accuracy.columns:
+        fig, ax = plt.subplots()
+        ax.text(0.5, 0.5, "No global_accuracy data — re-run to populate",
+                ha="center", va="center", transform=ax.transAxes, color="#888")
+        return fig
+
+    fig, ax = plt.subplots(figsize=(12, 4))
+    for (task_idx, dataset), grp in global_accuracy.groupby(["task_index", "dataset"]):
+        grp = grp.sort_values("round")
+        color = DATASET_COLORS.get(dataset.lower(), "#78909C")
+        ax.plot(grp["round"], grp["objective_global_accuracy"],
+                color=color, linewidth=1.4, alpha=0.6,
+                label=f"T{task_idx} {dataset}" if task_idx < 6 else "_nolegend_")
+
+    ax.set_xlabel("Round")
+    ax.set_ylabel("Global accuracy")
+    ax.set_ylim(0, 1.05)
+    ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+    ax.grid(True, alpha=0.3)
+
+    handles = [
+        matplotlib.patches.Patch(facecolor=DATASET_COLORS.get(d.lower(), "#78909C"), label=d)
+        for d in sorted({r for r in global_accuracy["dataset"].unique()})
+    ]
+    ax.legend(handles=handles, title="Dataset")
+    fig.tight_layout()
+    return fig
+
+
+def plot_final_accuracy_per_task(global_accuracy: pd.DataFrame) -> plt.Figure:
+    """Bar chart: final-round accuracy for every task, coloured by dataset.
+
+    Uses the top-level ``global_accuracy`` table from the session pickle.
+    """
+    if global_accuracy.empty or "objective_global_accuracy" not in global_accuracy.columns:
+        fig, ax = plt.subplots()
+        ax.text(0.5, 0.5, "No global_accuracy data — re-run to populate",
+                ha="center", va="center", transform=ax.transAxes, color="#888")
+        return fig
+
+    final = (
+        global_accuracy.sort_values("round")
+        .groupby(["task_index", "dataset"], sort=False)
+        .last()
+        .reset_index()
+    )
+    all_indices = sorted(global_accuracy["task_index"].unique())
+
+    fig, ax = plt.subplots(figsize=(max(8, len(all_indices) * 0.45), 4))
+    for idx in all_indices:
+        row = final[final["task_index"] == idx]
+        if row.empty:
+            ax.bar(idx, 0.02, color="#e0e0e0", edgecolor="#bdbdbd", linewidth=0.5)
+        else:
+            dataset = row["dataset"].iloc[0]
+            acc     = float(row["objective_global_accuracy"].iloc[0])
+            color   = DATASET_COLORS.get(dataset.lower(), "#78909C")
+            ax.bar(idx, acc, color=color, edgecolor="black", linewidth=0.7)
+
+    ax.set_xlabel("Task index")
+    ax.set_ylabel("Final global accuracy")
+    ax.set_ylim(0, 1.05)
+    ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+    ax.grid(True, alpha=0.3, axis="y")
+    ax.set_axisbelow(True)
+
+    handles = [
+        matplotlib.patches.Patch(facecolor=DATASET_COLORS.get(d.lower(), "#78909C"), label=d.upper())
+        for d in sorted({r for r in global_accuracy["dataset"].unique()})
+    ]
+    ax.legend(handles=handles, title="Dataset", loc="upper left")
+    fig.tight_layout()
+    return fig
+
+
 def plot_task_final_accuracy(tasks: list) -> plt.Figure:
     """Bar chart of each task's final-round global accuracy.
 

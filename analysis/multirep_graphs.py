@@ -69,13 +69,18 @@ def generate_all(source: Path, out_dir: Path | None = None) -> Path:
         save_figure(mrp.plot_selection_score_over_tasks(rep), out_dir / "selection_score.png")
         save_figure(mrp.plot_score_vs_tr(rep),                out_dir / "score_vs_tr.png")
 
-    # --- Per-task accuracy (only if embedded run_data exists) ---
-    has_run_data = any(t.get("run_data") for t in session.tasks)
-    if has_run_data:
-        save_figure(mrp.plot_task_final_accuracy(session.tasks),  out_dir / "task_final_accuracy.png")
-        save_figure(mrp.plot_task_accuracy_curves(session.tasks), out_dir / "task_accuracy_curves.png")
+    # --- Per-task accuracy ---
+    if not session.global_accuracy.empty:
+        save_figure(mrp.plot_accuracy_per_round_per_task(session.global_accuracy), out_dir / "accuracy_per_round.png")
+        save_figure(mrp.plot_final_accuracy_per_task(session.global_accuracy),     out_dir / "task_final_accuracy.png")
     else:
-        print("  [info] No embedded run_data in session — skipping accuracy graphs.")
+        # Fall back to extracting from embedded run_data (older session format)
+        has_run_data = any(t.get("run_data") for t in session.tasks)
+        if has_run_data:
+            save_figure(mrp.plot_task_final_accuracy(session.tasks),  out_dir / "task_final_accuracy.png")
+            save_figure(mrp.plot_task_accuracy_curves(session.tasks), out_dir / "task_accuracy_curves.png")
+        else:
+            print("  [info] No accuracy data in session — skipping accuracy graphs.")
 
     files = sorted(out_dir.glob("*.png"))
     print(f"  Saved {len(files)} graphs to {out_dir}")

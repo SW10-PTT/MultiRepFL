@@ -3,6 +3,11 @@ src = "contracts"   # point to your existing contracts folder
 out = "out"         # optional, compiled artifacts go here
 test = "tests/solidity"
 libs = ["lib", "dependencies"]
+remappings = ["forge-std/=dependencies/forge-std-1.9.4/src/"]
+skip = ["tests/solidity/feedback_array.t.sol", "contracts/test/**"]
+
+optimizer = true
+optimizer_runs = 200
 
 [dependencies]
 forge-std = { version = "1.9.4" }

@@ -1050,22 +1050,35 @@ class PytorchModel:
                     try:
                         it._shutdown_workers()
                     except Exception:
+                        logerror("Failed to shut down workers")
                         pass
                 try:
                     loader._iterator = None
+                    del loader
                 except Exception:
+                    logerror("Failed to shutdown loader")
                     pass
 
         self.train_by_user_id.clear()
+        del self.train_by_user_id
         self.val_by_user_id.clear()
+        del self.val_by_user_id
+        
         for p in self.participants:
             p.train = None
+            del p.train
             p.val = None
+            del p.val
         self.DATA = None
+        del self.DATA
         self.train = None
+        del self.train
         self.val = None
+        del self.val
         self.test = None
+        del self.test
         self.test_tensors = None
+        del self.test_tensors
 
         gc.collect()
 

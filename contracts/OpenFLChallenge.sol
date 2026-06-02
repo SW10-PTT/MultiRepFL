@@ -459,10 +459,11 @@ contract OpenFLChallenge {
                     uint punishment = uint(
                         user.globalReputationScore / punishfactor
                     );
-                    uint taskPunishment = uint(
-                        (user.taskRepDelta + int(1e18)) /
-                            int(uint(punishfactor))
-                    );
+                    int256 _rawTaskPunishment = (user.taskRepDelta + int(1e18)) /
+                        int(uint(punishfactor));
+                    uint taskPunishment = _rawTaskPunishment > 0
+                        ? uint(_rawTaskPunishment)
+                        : 0;
 
                     if (
                         user.globalReputationScore >
@@ -493,7 +494,7 @@ contract OpenFLChallenge {
                         user.whitelistedForRewards = false;
 
                         totalPunishment += user.globalReputationScore;
-                        user.taskRepDelta -= -1e18;
+                        user.taskRepDelta = -int256(1e18);
 
                         emit Disqualification(
                             user.addr,
@@ -624,10 +625,10 @@ contract OpenFLChallenge {
                     uint punishment = (user.globalReputationScore /
                         punishfactorContrib) *
                         absUint((contributionScore[round][user.addr]));
-                    int taskPunishment = (user.taskRepDelta +
-                        int(1e18) /
+                    int taskPunishment = ((user.taskRepDelta + int(1e18)) /
                         int(uint(punishfactorContrib))) *
-                        int(absUint((contributionScore[round][user.addr])));
+                        int(absUint((contributionScore[round][user.addr]))) /
+                        int(1e18);
                     require(punishment > 0, "punishment is <= 0 in settle! 1");
                     punishment /= 1e18;
                     require(punishment > 0, "punishment is <= 0 in settle! 2");

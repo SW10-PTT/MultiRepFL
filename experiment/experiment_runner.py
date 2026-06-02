@@ -162,8 +162,6 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
   
   new_job_listing: JobListing = publisher.deploy_joblisting_contract(training_specs, manager)
 
-  
-
   extra_configs = {}
   if experiment_config.contribution_score_strategy is not None:
       extra_configs["contribution_score_strategy"] = (

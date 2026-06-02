@@ -55,7 +55,7 @@ _INTEGRITY_LEARNING_RATE = int(2e17)  # GIR EWMA learning rate
 # Preset file — fill in before running
 # ---------------------------------------------------------------------------
 
-preset_file = "experiment/presets/task-hopper-showcase-remote.json"
+preset_file = "experiment/presets/EXP-globalrep-mixed-distribution-5-task-dataset-switch-10-rounds.json"
 
 # ---------------------------------------------------------------------------
 # Output directory for multirep sessions
@@ -78,17 +78,17 @@ _WRITERBUFFERSIZE = 200
 # Scoring helpers
 # ---------------------------------------------------------------------------
 
-def compute_user_score(user: User, task_type: int, q_weight: float = 0.0, tr_weight: int = 6, gir_weight: int = 4) -> int:
-    # score = (taskRep * tr_weight + gir * gir_weight) / (tr_weight + gir_weight) + q_weight * q
-    # All values are WAD-scaled; no conversion here.
+def compute_user_score(user: User, task_type: int, q_weight: int = 0, tr_weight: int = 6, gir_weight: int = 4) -> int:
+    # Mirrors Solidity _selectionScore exactly (integer arithmetic, WAD-scaled).
+    # q_weight is WAD-scaled (1e18 = 1.0). q_bonus = (q_weight * q) // WAD.
     denom = tr_weight + gir_weight
     base = user.task_rep.get(task_type, 0) * tr_weight + user.global_integrity_rep * gir_weight
     normal_weight = base // denom
     q = user.q_value.get(task_type, 0)
-    return int(normal_weight + q_weight * q)
+    return normal_weight + (q_weight * q) // _WAD
 
 
-def getTopN(users: List[User], n: int, task_type: int, q_weight: float = 0.0, tr_weight: int = 6, gir_weight: int = 4) -> List[User]:
+def getTopN(users: List[User], n: int, task_type: int, q_weight: int = 0, tr_weight: int = 6, gir_weight: int = 4) -> List[User]:
     """Mirror the smart contract's participant selection for fingerprinting."""
     fps = {u: u.finger_print for u in users}
     scores = [(compute_user_score(u, task_type, q_weight, tr_weight, gir_weight), u) for u in users]
@@ -279,10 +279,10 @@ def _apply_trs_reps(users: List[User], trs: list, task_type: int, manager, rewar
 
         manager.set_user_task_rep(user.address, task_type, new_task_rep)
         manager.set_task_rep_calc_state(user.address, task_type, new_mean, new_m2)
+        manager.increment_task_count(user.address, task_type)
         manager.set_user_integrity_rep(user.address, new_gir)
         manager.set_user_balance(user.address, new_balance)
 
-        # task_count is not persisted on-chain; keep it Python-side only.
         user.task_count[task_type] = k
 
 
@@ -290,7 +290,7 @@ def _apply_trs_reps(users: List[User], trs: list, task_type: int, manager, rewar
 # Partition filtering
 # ---------------------------------------------------------------------------
 
-def log_user_reputations(users: List[User], task_type: int, selected_users: List[User], q_weight: float = 0.0, tr_weight: int = 6, gir_weight: int = 4) -> None:
+def log_user_reputations(users: List[User], task_type: int, selected_users: List[User], q_weight: int = 0, tr_weight: int = 6, gir_weight: int = 4) -> None:
     """Log reputation fields and selection status for every user."""
     selected_set = {u.address for u in selected_users}
     log("multirep", "─" * 96)
@@ -641,7 +641,7 @@ def main():
     # Initialize on-chain GIR to 0 for all users so it earns upward from honest voting.
     manager.initialize_user_balances(all_users, initial_value=0)
 
-    q_weight = preset.q_weight
+    q_weight = int(preset.q_weight * _WAD) if isinstance(preset.q_weight, float) else int(preset.q_weight)
     tr_weight = preset.tr_weight
     gir_weight = preset.gir_weight
     experiment_name = preset.name
@@ -683,6 +683,23 @@ def main():
         exp_config.gir_weight = gir_weight
         _apply_preset_config(exp_config, preset)
         fingerprint = exp_config.get_finger_print(selected_users)
+        selected_set = {u.address for u in selected_users}
+        fl_globals.fp_score_cache[fingerprint] = [
+            {
+                "name": u.partition_spec.name if (u.partition_spec and u.partition_spec.name) else f"User {u.number}",
+                "fp": u.finger_print,
+                "task_rep": u.task_rep.get(task_type, 0),
+                "gir": u.global_integrity_rep,
+                "q": u.q_value.get(task_type, 0),
+                "score": compute_user_score(u, task_type, q_weight, tr_weight, gir_weight),
+                "selected": u.address in selected_set,
+                "q_weight": q_weight,
+                "tr_weight": tr_weight,
+                "gir_weight": gir_weight,
+                "task_type": task_type,
+            }
+            for u in all_users
+        ]
         log("multirep", f"Run {i+1}/{len(tasks)} | Fall back runs {fallback_count} | dataset={task.dataset} | fp={fingerprint[:8]}...")
 
         # Create a folder for this task's output files.

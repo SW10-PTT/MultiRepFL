@@ -248,8 +248,8 @@ def worker_loop():
                 {"guid": u.guid, "address": u.address}
                 for u in users if u.guid is not None
             ]
-            reset()
             complete_run(run_id, user_guids)
+            reset(experiment, filename)
             #stop_heartbeat_loop()
 
         except Exception as e:
@@ -257,16 +257,19 @@ def worker_loop():
             log("autorunner", "Run failed:", e)
             try:
                 fail_run(run_id, e)
-                reset()
+                reset(experiment, filename)
             except Exception:
-                reset()
+                reset(experiment, filename)
                 time.sleep(10)
                 continue
 
 heartbeat_stop = None
 heartbeat_thread = None
 
-def reset():
+def reset(experiment, filename):
+    experiment.py
+    del experiment
+    del filename
     globals.progress = 0
     User.user_count = 0
 

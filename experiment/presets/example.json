@@ -1,9 +1,9 @@
 {
   "name": "example",
-  "partition_file": "experiment/partitions/EXP-strong-task-hoppers-30-users.json",
-  "q_weight": 1.0,
-  "tr_weight": 6,
-  "gir_weight": 4,
+  "partition_file": "experiment/partitions/EXP-avg-distribution-30-users.json",
+  "q_weight": 0.5,
+  "tr_weight": 7,
+  "gir_weight": 3,
   "training_mode": "remote",
   "tasks": [
     {

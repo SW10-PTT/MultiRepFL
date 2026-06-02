@@ -236,6 +236,17 @@ class FLManager(ConnectionHelper):
             new_value,
         )
 
+    def increment_task_count(self, user_address: str, task_type: int) -> None:
+        self.transact(
+            "incrementTaskCount",
+            self.publisher,
+            0,
+            [],
+            "manager.incrementTaskCount",
+            Web3.to_checksum_address(user_address),
+            task_type,
+        )
+
     def set_user_balance(self, user_address: str, new_value: int) -> None:
         self.transact(
             "setUserBalance",
