@@ -12,10 +12,17 @@
 # Linux / macOS users: use startup.sh instead.
 
 param(
-    [Parameter(Mandatory=$true)]
     [ValidateSet("ganache", "anvil")]
-    [string]$Mode
+    [string]$Mode = ""
 )
+
+if (-not $Mode) {
+    Write-Host "Usage: .\windows-startup.ps1 [ganache|anvil]"
+    Write-Host ""
+    Write-Host "  ganache  — start with Ganache (npm)"
+    Write-Host "  anvil    — start with Anvil (Foundry)"
+    exit 1
+}
 
 $ErrorActionPreference = "Stop"
 
