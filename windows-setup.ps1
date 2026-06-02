@@ -36,9 +36,9 @@ Set-Location $PSScriptRoot
 Write-Host ""
 Write-Host "==> Resetting git state"
 
-git checkout main
+$currentBranch = git rev-parse --abbrev-ref HEAD
 git fetch origin
-git reset --hard origin/main
+git reset --hard origin/$currentBranch
 
 # --------------------------------------------
 # Detect required Python version from pyproject.toml
