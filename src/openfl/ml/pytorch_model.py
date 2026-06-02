@@ -30,6 +30,7 @@ from openfl.api.globals import ReplayMode
 from openfl.ml.data_partition import DataPartition
 
 # Imported only for type hints; skipped at runtime to avoid import errors when not on sys.path.
+from experiment.print_config import AGGRESSIVE_GC
 if TYPE_CHECKING:
     from experiment.experiment_configuration import ExperimentConfiguration
 from openfl.ml.Participant import Participant
@@ -66,7 +67,7 @@ _IS_AMD_WINDOWS = _IS_AMD_GPU and _IS_WINDOWS
 # DataLoaders these accumulate and eventually exhaust the per-process FD
 # limit. 'file_system' shares tensors via /dev/shm files instead and avoids
 # the leak. No-op on Windows where workers use spawn.
-if not _IS_WINDOWS:
+if AGGRESSIVE_GC and not _IS_WINDOWS:
     mp.set_sharing_strategy("file_system")
 # pin_memory and non_blocking benefit NVIDIA but add overhead with no gain on AMD Windows
 PIN_MEMORY = USE_CUDA and not _IS_AMD_WINDOWS
@@ -77,7 +78,7 @@ NUM_WORKERS = 0 if _IS_WINDOWS else (min(4, os.cpu_count() // 2) if torch.cuda.i
 # stall between runs in the auto sweep, and they hold FDs the whole time.
 # Short-lived workers spread that cost across the run with negligible overhead
 # on small datasets (MNIST/CIFAR).
-PERSISTENT_WORKERS = False
+PERSISTENT_WORKERS = False if AGGRESSIVE_GC else (USE_CUDA and NUM_WORKERS > 0)
 # AMP is well-supported on NVIDIA and AMD Linux (ROCm); skip on AMD Windows where support is unreliable
 AMP = USE_CUDA and not _IS_AMD_WINDOWS
 COMPILE = False

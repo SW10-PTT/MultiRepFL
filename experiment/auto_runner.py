@@ -13,6 +13,7 @@ import tarfile
 import tempfile
 
 from experiment.experiment_configuration import ExperimentConfiguration
+from experiment.print_config import AGGRESSIVE_GC
 import requests
 import time
 import json
@@ -266,11 +267,12 @@ def worker_loop():
                 reset(experiment, filename)
                 time.sleep(10)
         finally:
-            # Drop the prior run's PytorchModel + DataLoaders before claiming
-            # the next run, so persistent DataLoader workers (and their FDs)
-            # are reclaimed instead of accumulating across iterations.
-            del experiment, writer, logger
-            gc.collect()
+            if AGGRESSIVE_GC:
+                # Drop the prior run's PytorchModel + DataLoaders before claiming
+                # the next run, so persistent DataLoader workers (and their FDs)
+                # are reclaimed instead of accumulating across iterations.
+                del experiment, writer, logger
+                gc.collect()
 
 heartbeat_stop = None
 heartbeat_thread = None
