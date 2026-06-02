@@ -20,11 +20,7 @@ if [[ ! -d ".venv" ]]; then
     exit 1
 fi
 
-if [[ -f ".venv/bin/activate" ]]; then
-    source .venv/bin/activate
-else
-    source .venv/Scripts/activate
-fi
+source .venv/bin/activate
 
 # --------------------------------------------
 # Detect Ganache variant
@@ -61,7 +57,7 @@ echo "Using: $GANACHE_CMD"
 # --------------------------------------------
 # Prepare directories
 # --------------------------------------------
-mkdir -p .env
+mkdir -p env
 
 # --------------------------------------------
 # Start Ganache
@@ -124,39 +120,23 @@ PRIVATE_KEYS=$(
 )
 
 # --------------------------------------------
-# Create/update .env/.env.ganache (preserves existing keys like API_URL)
+# Create .env/.env.ganache
 # --------------------------------------------
-ENV_FILE=".env/.env.ganache"
+ENV_FILE="env/.env.ganache"
 
-python - "$PRIVATE_KEYS" "$ENV_FILE" <<'PYEOF'
-import sys
-from pathlib import Path
+touch "$ENV_FILE"
 
-private_keys = sys.argv[1]
-env_file = Path(sys.argv[2])
-content = env_file.read_text(encoding="utf-8") if env_file.exists() else ""
+# Update or insert PRIVATE_KEYS
+if grep -q '^PRIVATE_KEYS=' "$ENV_FILE"; then
+    sed -i "s|^PRIVATE_KEYS=.*|PRIVATE_KEYS=\"$PRIVATE_KEYS\"|" "$ENV_FILE"
+else
+    echo "PRIVATE_KEYS=\"$PRIVATE_KEYS\"" >> "$ENV_FILE"
+fi
 
-lines = [l for l in content.splitlines() if l.strip()]
-new_lines = []
-found_pk = found_rpc = False
-
-for line in lines:
-    if line.startswith("PRIVATE_KEYS="):
-        new_lines.append(f'PRIVATE_KEYS="{private_keys}"')
-        found_pk = True
-    elif line.startswith("RPC_URL="):
-        new_lines.append('RPC_URL="http://127.0.0.1:8545"')
-        found_rpc = True
-    else:
-        new_lines.append(line)
-
-if not found_pk:
-    new_lines.append(f'PRIVATE_KEYS="{private_keys}"')
-if not found_rpc:
-    new_lines.append('RPC_URL="http://127.0.0.1:8545"')
-
-env_file.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
-PYEOF
+# Only add RPC_URL if missing
+if ! grep -q '^RPC_URL=' "$ENV_FILE"; then
+    echo 'RPC_URL="http://127.0.0.1:8545"' >> "$ENV_FILE"
+fi
 
 echo "Created .env/.env.ganache"
 
