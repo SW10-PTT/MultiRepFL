@@ -27,6 +27,10 @@ PRINTS_ALL = {
     "writer",
     "gas_report",
     "latex_output",
+    "multirep",
+    "autorunner",
+    "remote_client",
+    "replay",
 }
 
 # PRINTS_MINIMAL = PRINTS_EVEN_LESSER

@@ -95,5 +95,7 @@ class Participant(User):
         participant.partition_spec = user.partition_spec
         participant.noise_scale = user.noise_scale
         participant.start_round = user.start_round
+        participant.seed = user.seed
+        participant.flip_map = user.flip_map
         return participant
 

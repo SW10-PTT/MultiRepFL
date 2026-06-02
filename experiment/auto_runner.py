@@ -20,6 +20,7 @@ from datetime import datetime
 
 from analysis import ExperimentLogger
 from experiment import experiment_runner
+from experiment.experiment_runner import build_users
 from experiment.helper import getPath
 from openfl.utils.async_writer import AsyncWriter
 from openfl.api import globals
@@ -74,7 +75,7 @@ def create_tarball(folder_path: Path, fingerpint):
     archive_path = folder_path_actual.parent / f"{fingerpint.stem}.tar.gz"
 
     with tarfile.open(archive_path, "w:gz") as tar:
-        tar.add(folder_path_actual, folder_path.name)
+        tar.add(folder_path_actual, folder_path.stem)
 
     return archive_path
 
@@ -92,13 +93,17 @@ def upload_file(upload_url, file_path: Path):
             timeout=300
         )
 
-    log("autorunner",res.status_code)
-    log("autorunner",res.text)
+    log("autorunner", res.status_code)
+    log("autorunner", res.text)
 
     res.raise_for_status()
 
-def complete_run(run_id):
-    requests.post(f"{API}/runs/{run_id}/complete", json={"RunId": str(run_id) })
+def complete_run(run_id, user_guids=None):
+    body = {"RunId": str(run_id)}
+    if user_guids:
+        body["userGuids"] = user_guids
+    response = requests.post(f"{API}/runs/{run_id}/complete", json=body)
+    response.raise_for_status()
 
 def fail_run(run_id, error):
     requests.post(f"{API}/runs/{run_id}/fail", json={
@@ -186,8 +191,6 @@ def registerWorkerLoop():
 def worker_loop():
     global worker_id
     
-    
-
     while True:
         experiment = None
         writer = None
@@ -226,8 +229,10 @@ def worker_loop():
             writer = AsyncWriter(path, OUTPUTHEADERS, WRITERBUFFERSIZE, config, "sample")
             logger = ExperimentLogger(experiment_id=path.stem, metadata=vars(config))
 
+            users = build_users(config)
             (experiment, filename) = experiment_runner.run_experiment(
-                config.dataset, config, writer, logger, path
+                config.dataset, config, writer, logger, path,
+                prebuilt_users=users,
             )
 
             writer.finish()
@@ -243,9 +248,13 @@ def worker_loop():
                 archive_path
             )
 
+            user_guids = [
+                {"guid": u.guid, "address": u.address}
+                for u in users if u.guid is not None
+            ]
             reset()
-            complete_run(run_id)
-            stop_heartbeat_loop()
+            complete_run(run_id, user_guids)
+            #stop_heartbeat_loop()
 
         except Exception as e:
             stop_heartbeat_loop()

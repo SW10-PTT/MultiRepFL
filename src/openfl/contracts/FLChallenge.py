@@ -28,6 +28,7 @@ from openfl.api import globals
 from openfl.utils.async_writer import AsyncWriter, NullWriter
 from openfl.utils.shapley import check_shapley_compliance
 from openfl.utils.types.User import User
+from analysis import NullExperimentLogger
 
 # Smart-contract–backed federated learning simulation.
 # Handles:
@@ -46,9 +47,11 @@ import numpy as np
 
 
 class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManager to ConnectionHelper
-    def __init__(self, publisher: User, pyTorchModel, training_specs: TrainingSpecsChallenge, jobListing, writer: AsyncWriter=None, logger: Logger=None):
+    def __init__(self, publisher: User, pyTorchModel, training_specs: TrainingSpecsChallenge, jobListing, writer: AsyncWriter=None, logger: Logger=None, manager_contract=None):
 
         self.pytorch_model: PytorchModel = pyTorchModel
+        self.manager_contract = manager_contract
+        self._publisher = publisher
         self.MIN_BUY_IN = training_specs.min_collateral
         self.MAX_BUY_IN = training_specs.max_collateral
         self.REWARD = training_specs.reward
@@ -75,7 +78,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
         self._punishments = []
         self.config = config.get_contracts_config()
         self.writer = writer or NullWriter()
-        self._logger = logger
+        self._logger = logger or NullExperimentLogger()
         self.writeTxProgress = 0
 
 
@@ -289,7 +292,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                     continue
                 if user.attitude == "inactive":
                     continue
-                txHash = self.giveFeedback(user, self.pytorch_model.participants[ix], int(vote))
+                txHash = self.give_feedback(user, self.pytorch_model.participants[ix], int(vote))
                 txs.append(txHash)
            
         l = len(txs)
@@ -429,7 +432,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                 txs.append(tx_hash)
 
             elif self.contribution_score_strategy in ("loss_only", "loss_tolerance_aware", "loss_tolerance_snap"):
-                prev_loss = int(min(matrices.prev_losses[user_id], UINT16_MAX))
+                prev_loss = int(min(matrices.prev_losses[user_id], 10000))  # contract requires [0, 10000]
 
                 if globals.fork:
                     tx = super().build_tx(user.address, self.contractAddress)
@@ -625,6 +628,17 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
     
     
     
+    def _finalize_reputations(self):
+        """Push this challenge's reputation deltas to the manager before participants exit."""
+        if self.manager_contract is None:
+            return
+        try:
+            if (False): ## TODO WHEN IN REMOTE STATE SKIP
+                self.transact("finalizeReputations", self._publisher, 0, [], "challenge.finalizeReputations")
+                log("setup_contracts", "Reputation sync pushed to manager via finalizeReputations()")
+        except Exception as e:
+            log("setup_contracts", f"[warn] finalizeReputations failed: {e}")
+
     def exit_system(self):
 
         log("experiment_end", b(f"Terminating Model..."))
@@ -1449,7 +1463,6 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                 "globalLoss": self.pytorch_model.loss[-1] or 0,
                 "conctractBalanceRewards": self._reward_balance[-1],
                 "round_rewards": [],
-                "round_rewards": [],
                 "accAvgPerUser": [],
                 "lossAvgPerUser": [],
                 "feedbackMatrix": None,
@@ -1525,7 +1538,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                 "globalAcc": self.pytorch_model.accuracy[-1] or 0, # Checks out
                 "globalLoss": self.pytorch_model.loss[-1] or 0, # Checks out
                 "conctractBalanceRewards": self._reward_balance[-1],
-                "round_rewards": round_punishment,
+                "round_punishments": round_punishment,
                 "round_rewards": self.get_round_rewards(receipt),
                 "accAvgPerUser": self.evaluation.prev_accuracies, # Check - Should come from am
                 "lossAvgPerUser": self.evaluation.prev_losses, # Check - Should come from lm
@@ -1547,12 +1560,15 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
             for warn in runtime_warnings:
                 log("round_scoring", colored(warn, 'yellow'))
             log("round_scoring", red("!" * 78))
-
-        self.writer.write_comment(f"$gasCosts${self.gas_feedback},{self.gas_register},{self.gas_slot},{self.gas_weights},{self.gas_close},{self.gas_deploy},{self.gas_exit},{self.gas_contrib}")
+        if self.writer is not None:
+            self.writer.write_comment(f"$gasCosts${self.gas_feedback},{self.gas_register},{self.gas_slot},{self.gas_weights},{self.gas_close},{self.gas_deploy},{self.gas_exit}")
         trs = self.pytorch_model.runRepo.get_task_rep_delta_and_GRS(-1, "get_task_rep_delta_and_GRS-simulate", self.contract, self.pytorch_model.get_participant)
         self.writer.write_comment(f"$trs${trs}")
         self._logger.log_trs(trs)
         self.pytorch_model.runRepo.flush()
+
+        self._finalize_reputations()
+
         self.exit_system()
 
 
@@ -1710,20 +1726,17 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
 
     def make_participants_from_users(self, users: List[User]):
         users_by_address = {u.address: u for u in users}
-        selected_users = []
 
         if self.pytorch_model.replaying:
             users = [users_by_address.get(par_addr) for par_addr in users_by_address]
             combinedUsers = self.pytorch_model.runRepo.get_participants(users)
             for user in combinedUsers:
-                selected_users.append(user)
                 self.pytorch_model.add_participant(user)
         else:
             for par_addr in self.participant_addresses:
                 user = users_by_address.get(par_addr)
                 if user is not None:
                     self.pytorch_model.add_participant(user)
-                    selected_users.append(user)
 
         self.pytorch_model.runRepo.set_participants(self.pytorch_model.participants)
 

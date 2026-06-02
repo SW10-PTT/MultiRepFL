@@ -76,6 +76,23 @@ class User:
         # the spec field maps 1:1 onto the user. None for Honest/Inactive.
         self.start_round: int | None = None
 
+        # On-chain reputation — populated between multirep runs by update_users_from_reps.
+        # task_rep and q_value are dicts keyed by TaskType int (enum value from Types.sol).
+        self.task_rep: dict = {}
+        self.global_integrity_rep: int = 0
+        self.total_contrib_score: int = 0
+        self.q_value: dict = {}
+        # Number of tasks completed per task type (used as k in EWMA maturity formula).
+        # Not persisted on-chain; Python-only.
+        self.task_count: dict = {}
+        # ETH balance mirrored from the challenge contract (globalReputationScore).
+        # Populated by update_users_from_reps after each task; not independently maintained.
+        self.balance: int = 0
+
+    @property
+    def guid(self) -> str | None:
+        return self.partition_spec.guid if self.partition_spec is not None else None
+
     @property
     def finger_print(self):
         data = {
@@ -138,6 +155,13 @@ class User:
         user.start_round = start_round
         return user
 
+    def reset_for_experiment(self):
+        """Clear per-experiment on-chain state so this user can join a new job."""
+        self.isRegistered = False
+        self.id = None
+        self.txs = []
+        self.secret = int(RNG.integers(0, np.int64(10 ** 18), dtype=np.int64))
+
     def to_dict(self):
         return {
             k: v for k, v in self.__dict__.items()
@@ -182,10 +206,11 @@ class User:
         pyTorch_model,
         writer: AsyncWriter = None,
         logger: logging.Logger = None,
+        manager_contract=None,
         ):
         from openfl.contracts.FLChallenge import FLChallenge
 
-        new_challenge = FLChallenge(self, pyTorch_model, training_specs, joblisting, writer, logger)
+        new_challenge = FLChallenge(self, pyTorch_model, training_specs, joblisting, writer, logger, manager_contract=manager_contract)
         
         if joblisting.register_challenge_contract(joblisting.publisher, new_challenge.contract.address):
             return new_challenge
@@ -193,17 +218,31 @@ class User:
     
     def register_for_job(self, job: "ConnectionHelper"):
         import openfl.api.globals as globals
-        (receipt, _) = job.transact("register", self, self.collateral, [], "User.register_for_job")
+        (receipt, _) = job.transact("register", self, self.collateral, [], "User.register_for_job", bytes.fromhex(self.finger_print))
         txHash = receipt["transactionHash"]
         self.txs.append(txHash)
-        bal = globals.w3.eth.get_balance(globals.w3.eth.default_account)
-        log("setup_contracts""{:<17} {} ({}) | {} | {:>25,.0f} WEI".format("Account registered:",
+        log("setup_contracts", "{:<17} {} ({}) | {} | {:>25,.0f} WEI".format("Account registered:",
                 self.display_label(),
                 self.address[0:16] + "...",
                 txHash.hex()[0:6] + "...",
                 self.collateral
                 ))
         return self.txs
+
+    @staticmethod
+    def batch_register_for_job(users: list["User"], job: "ConnectionHelper") -> None:
+        calls = [(u, u.collateral, bytes.fromhex(u.finger_print)) for u in users]
+        results = job.batch_transact("register", calls, [], "User.register_for_job")
+        for user, (receipt, _) in zip(users, results):
+            txHash = receipt["transactionHash"]
+            user.txs.append(txHash)
+            log("setup_contracts", "{:<17} {} ({}) | {} | {:>25,.0f} WEI".format(
+                "Account registered:",
+                user.display_label(),
+                user.address[0:16] + "...",
+                txHash.hex()[0:6] + "...",
+                user.collateral,
+            ))
 
     def update_color(self, i, attitude):
         self.color = get_color(i, attitude)

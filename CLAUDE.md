@@ -6,6 +6,27 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 OpenFL 2.0 is a federated learning research platform that integrates PyTorch-based distributed ML training with Ethereum smart contracts. It simulates Byzantine-resilient federated learning with on-chain reputation and incentive mechanisms.
 
+
+## Purpose
+
+Task-Conditioned Reputation for Participant Selection and
+Robust Aggregation in Federated Learning Marketplaces
+Many Federated Learning systems rely on reputation to determine participant selection
+and participant influence on the FL process. Often, a single global reputation score is
+used. However, in Federated Learning, different participants will excel at different types of
+tasks. One participant may be excellent at vision tasks, but worse on NLP tasks, or on a
+specific subtask of that category. Data quality is often task-specific, distribution-specific
+and time-sensitive. This opens up a few issues. Participants who have built up a great
+global reputation, will be favored for selection in all tasks, even though they may not be
+able to provide value corresponding to their reputation for specific tasks, compared to
+participants who have not been in the system for as long, but have great data for that
+specific task type.
+We propose a two-layer reputation system that separates Global integrity reputation and
+Task-specific reputation to improve participant selection and thereby final model
+performance compared to other selection methods. We will then experiment with our
+proposed approach and compare it with the traditional approach of using global reputation
+only.
+
 ## Rules
 
 - Never run `git commit` or `git push`. Always leave committing and pushing to the user.

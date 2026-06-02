@@ -3,7 +3,51 @@ pragma solidity ^0.8.0;
 import "./Types.sol";
 import "./OpenFLManager.sol";
 
+// Minimal interface to read TaskRep round results from the challenge contract.
+// Mirrors OpenFLChallenge.TaskRep + getTaskRepDeltaAndGRS().
+interface IOpenFLChallengeTaskRep {
+    struct TaskRep {
+        address user;
+        int256 delta;
+        uint globalReputationScore;
+        uint256 positiveVotes;
+        uint256 totalVotes;
+    }
+
+    function getTaskRepDeltaAndGRS() external view returns (TaskRep[] memory);
+
+    function taskType() external view returns (TaskType);
+
+    function nrOfActiveParticipants() external view returns (uint);
+}
+
 contract JobListing {
+    uint256 private constant MAX_BIDS = 10;
+
+    // ---- TaskRepCalc fixed-point constants (WAD = 1e18) ----
+    // Values map 1:1 to the ContribScoreCalc.xlsx workbook:
+    //   ALPHA   = M3 = 0.2  (EWMA forgetting factor for mean + variance)
+    //   N_0     = M6 = 5    (maturity offset)
+    //   LAMBDA  = M9 = 20   (variance penalty weight; dimensionless on s_k)
+    //   N_BLEND = M12 = 0.2 (smoothing on the final ContribScore)
+    // STAKE_WAD is hardcoded to 1 ETH for now — should later read the actual
+    // collateral the participant locked when registering.
+    uint256 internal constant WAD = 1e18;
+    uint256 internal constant ALPHA = 2e17;
+    uint256 internal constant N_BLEND = 2e17;
+    uint256 internal constant N_0 = 5;
+    uint256 internal constant LAMBDA = 20;
+    uint256 internal constant STAKE_WAD = 1e18;
+    // EWMA learning rate on the Global Integrity Reputation (GIR).
+    // GIR = (1 - INTEGRITY_LEARNING_RATE) * priorGIR + INTEGRITY_LEARNING_RATE * V,
+    // V = (positiveVotes / totalVotes)^2 in [0, WAD].
+    uint256 internal constant INTEGRITY_LEARNING_RATE = 2e17;
+    // Upper bound on per-task positive delta = GAIN_CAP_MULTIPLIER * (reward /
+    // nrActive). 1x flattens top performers (their ContributionScore caps at
+    // the equal-share baseline). 2x gives outperformers headroom while keeping
+    // the average participant near the middle of [0, WAD]. Tune as needed.
+    uint256 internal constant GAIN_CAP_MULTIPLIER = 2;
+
     modifier onlyNotYetRegisteredUsers() {
         require(applicants[msg.sender].addr == address(0), "SAR");
         _;
@@ -14,13 +58,30 @@ contract JobListing {
         _;
     }
 
+    // Authorized callers for updateUserTaskReps:
+    //   - the registered challenge contract (normal runs, called from FLChallenge)
+    //   - the publisher EOA who deployed this JobListing (replay runs, called from Python)
+    modifier onlyTaskRepUpdater() {
+        require(
+            msg.sender == challengeAddress || msg.sender == publisher,
+            "JL: not authorized for task rep update"
+        );
+        _;
+    }
+
     event SelectionComplete(address[] participants);
     event ChallengeRegistered(address challengeAddress, bool success);
+    event TaskRepsApplied(
+        address indexed challengeAddress,
+        TaskType indexed taskType,
+        uint participantCount
+    );
 
     struct User {
         uint globalTaskRep; // 32
         uint globalIntegrity; // 32
-        uint nrOfTasksParticipated; // 1
+        uint qValue; // 32  — Q-value from manager at registration time
+        bytes32 tiebreaker; // 32  — deterministic tie-breaker (hash of off-chain fingerprint)
         address addr; // 20
         bool isSelected; // 1
     }
@@ -32,7 +93,12 @@ contract JobListing {
     uint16 nrOfApplicants;
     address managerAddress;
     bytes32 challengeCodeHash;
-    address challengeAddress;
+    address public challengeAddress;
+    address public publisher;
+
+    // True once updateUserTaskReps has run for this JobListing's challenge.
+    // Idempotency guard: TaskRep deltas must apply at most once per challenge.
+    bool public taskRepsApplied;
 
     TrainingSpecifications trainingSpecs;
     address[] selectedParticipants;
@@ -46,10 +112,15 @@ contract JobListing {
         uint8 _punishfactorContrib,
         uint8 _freeriderPenalty,
         address _managerAddress,
-        TaskType _taskType
+        TaskType _taskType,
+        uint256 _qWeight,
+        uint256 _trWeight,
+        uint256 _girWeight
     ) payable {
+        require(_trWeight + _girWeight > 0, "JL: trWeight + girWeight must be > 0");
         managerAddress = _managerAddress;
         manager = OpenFLManager(_managerAddress);
+        publisher = msg.sender;
         applicationWindowCloseTime = block.timestamp + 0 seconds;
 
         trainingSpecs.freeriderPenalty = _freeriderPenalty;
@@ -61,6 +132,9 @@ contract JobListing {
         trainingSpecs.punishfactorContrib = _punishfactorContrib;
         trainingSpecs.reward = _reward;
         trainingSpecs.taskType = _taskType;
+        trainingSpecs.qWeight = _qWeight;
+        trainingSpecs.trWeight = _trWeight;
+        trainingSpecs.girWeight = _girWeight;
 
         challengeCodeHash = manager.getChallengeCodeHash();
     }
@@ -93,26 +167,29 @@ contract JobListing {
         return selectedParticipants;
     }
 
-    function register() public payable onlyNotYetRegisteredUsers {
+    function register(bytes32 _tiebreaker) public payable onlyNotYetRegisteredUsers {
         require(
             msg.value >= trainingSpecs.min_collateral &&
                 msg.value <= trainingSpecs.max_collateral,
             "NWR"
         );
-        registrationProcess(msg.sender);
+        registrationProcess(msg.sender, _tiebreaker);
     }
 
-    function registrationProcess(address userAddr) internal {
+    function registrationProcess(address userAddr, bytes32 _tiebreaker) internal {
         User storage user = applicants[userAddr];
 
-        (
-            uint taskRep,
-            uint globalIntegrity,
-            uint nrOfTasksParticipated
-        ) = manager.getUserRep(userAddr, trainingSpecs.taskType);
+        // TaskRep is per-task (TaskType acts as dataset key) — getUserRep
+        // returns the user's TaskRep specifically for this job's task.
+        (uint taskRep, uint globalIntegrity, uint qValue) = manager.getUserRep(
+            userAddr,
+            trainingSpecs.taskType
+        );
+
         user.globalTaskRep = taskRep;
         user.globalIntegrity = globalIntegrity;
-        user.nrOfTasksParticipated = nrOfTasksParticipated;
+        user.qValue = qValue;
+        user.tiebreaker = _tiebreaker;
         user.addr = userAddr;
         user.isSelected = false;
 
@@ -146,75 +223,362 @@ contract JobListing {
 
         selectedParticipants = selected;
 
+        // Update Q-values: patience bonus for non-selected, reset for selected.
+        manager.updateQValuesAfterSelection(
+            applicantAddresses,
+            selected,
+            trainingSpecs.taskType
+        );
+
         emit SelectionComplete(selected);
     }
 
+    function _selectionScore(User storage u) internal view returns (uint) {
+        // score = (taskRep * trWeight + gir * girWeight) / (trWeight + girWeight) + qWeight * q / WAD
+        uint denom = trainingSpecs.trWeight + trainingSpecs.girWeight;
+        uint normalWeight = (u.globalTaskRep * trainingSpecs.trWeight + u.globalIntegrity * trainingSpecs.girWeight) / denom;
+        uint qBonus = (trainingSpecs.qWeight * u.qValue) / WAD;
+        return normalWeight + qBonus;
+    }
+
+    // Returns true when candidate A is strictly weaker than B and should be
+    // evicted first. Weaker = lower score, or same score with higher tiebreaker.
+    function _isWeaker(uint sA, bytes32 tbA, uint sB, bytes32 tbB) internal pure returns (bool) {
+        if (sA != sB) return sA < sB;
+        return tbA > tbB;
+    }
 
     function getTopN(uint N) public view returns (address[] memory) {
-        address[] memory heapUsers = new address[](N);
-        uint[] memory heapScores = new uint[](N);
+        address[] memory heapUsers     = new address[](N);
+        uint[]    memory heapScores    = new uint[](N);
+        bytes32[] memory heapTBs       = new bytes32[](N);
 
         uint size = 0;
 
         for (uint i = 0; i < applicantAddresses.length; i++) {
-            uint score = applicants[applicantAddresses[i]].globalTaskRep;
+            address  addr  = applicantAddresses[i];
+            uint     score = _selectionScore(applicants[addr]);
+            bytes32  tb    = applicants[addr].tiebreaker;
 
             if (size < N) {
-                heapUsers[size] = applicantAddresses[i];
+                heapUsers[size]  = addr;
                 heapScores[size] = score;
+                heapTBs[size]    = tb;
 
-                // heapify up
+                // heapify up — bubble while child is strictly weaker than parent
+                // (min-heap invariant: parent ≤ child, i.e. parent is weaker or equal)
                 uint idx = size;
                 while (idx > 0) {
                     uint parent = (idx - 1) / 2;
-                    if (heapScores[parent] <= heapScores[idx]) break;
+                    // stop when parent IS weaker than child (heap property OK for min-heap)
+                    if (_isWeaker(heapScores[parent], heapTBs[parent], heapScores[idx], heapTBs[idx])) break;
 
-                    (heapScores[parent], heapScores[idx]) = (
-                        heapScores[idx],
-                        heapScores[parent]
-                    );
-                    (heapUsers[parent], heapUsers[idx]) = (
-                        heapUsers[idx],
-                        heapUsers[parent]
-                    );
+                    (heapScores[parent], heapScores[idx]) = (heapScores[idx], heapScores[parent]);
+                    (heapTBs[parent],    heapTBs[idx])    = (heapTBs[idx],    heapTBs[parent]);
+                    (heapUsers[parent],  heapUsers[idx])  = (heapUsers[idx],  heapUsers[parent]);
 
                     idx = parent;
                 }
 
                 size++;
-            } else if (score > heapScores[0]) {
-                heapUsers[0] = applicantAddresses[i];
+            } else if (!_isWeaker(score, tb, heapScores[0], heapTBs[0])) {
+                // new candidate is not weaker than heap minimum → evict minimum
+                heapUsers[0]  = addr;
                 heapScores[0] = score;
+                heapTBs[0]    = tb;
 
-                // heapify down
+                // heapify down — sink the new root to its correct position
                 uint idx = 0;
                 while (true) {
-                    uint left = 2 * idx + 1;
-                    uint right = 2 * idx + 2;
-                    uint smallest = idx;
+                    uint left    = 2 * idx + 1;
+                    uint right   = 2 * idx + 2;
+                    uint weakest = idx;
 
-                    if (left < N && heapScores[left] < heapScores[smallest])
-                        smallest = left;
+                    if (left  < N && _isWeaker(heapScores[left],  heapTBs[left],  heapScores[weakest], heapTBs[weakest])) weakest = left;
+                    if (right < N && _isWeaker(heapScores[right], heapTBs[right], heapScores[weakest], heapTBs[weakest])) weakest = right;
 
-                    if (right < N && heapScores[right] < heapScores[smallest])
-                        smallest = right;
+                    if (weakest == idx) break;
 
-                    if (smallest == idx) break;
+                    (heapScores[idx], heapScores[weakest]) = (heapScores[weakest], heapScores[idx]);
+                    (heapTBs[idx],    heapTBs[weakest])    = (heapTBs[weakest],    heapTBs[idx]);
+                    (heapUsers[idx],  heapUsers[weakest])  = (heapUsers[weakest],  heapUsers[idx]);
 
-                    (heapScores[idx], heapScores[smallest]) = (
-                        heapScores[smallest],
-                        heapScores[idx]
-                    );
-                    (heapUsers[idx], heapUsers[smallest]) = (
-                        heapUsers[smallest],
-                        heapUsers[idx]
-                    );
-
-                    idx = smallest;
+                    idx = weakest;
                 }
             }
         }
 
         return heapUsers;
+    }
+
+    // Returns the TaskType (= dataset) bound to this JobListing — convenience
+    // getter for off-chain callers and verification.
+    function getTaskType() external view returns (TaskType) {
+        return trainingSpecs.taskType;
+    }
+
+    // Pass-through view helper: forwards the round's TaskRep deltas + GRS from
+    // the registered challenge contract. Useful for Python/off-chain code that
+    // wants to inspect what updateUserTaskReps would consume without making a
+    // separate call into the challenge.
+    function getChallengeTaskReps()
+        external
+        view
+        returns (IOpenFLChallengeTaskRep.TaskRep[] memory)
+    {
+        require(challengeAddress != address(0), "JL: challenge not registered");
+        return
+            IOpenFLChallengeTaskRep(challengeAddress).getTaskRepDeltaAndGRS();
+    }
+
+    // Calculate and apply the updated per-task (= per-dataset) TaskRep for
+    // every participant of the registered challenge. TaskRep is updated once
+    // per task on completion (not per round), so this runs at end-of-task.
+    //
+    // The formula computes the *new absolute TaskRep* for each participant
+    // (typically a weighted blend of their prior TaskRep and the rep earned
+    // for this task). The new value overwrites the previous TaskRep stored on
+    // OpenFLManager via setUserTaskRep.
+    //
+    // Inputs available to the formula (per participant `rep`):
+    //   - rep.user                    : participant address
+    //   - rep.delta                   : signed taskRepDelta produced by this task
+    //                                   (treat as "rep earned for this task")
+    //   - rep.globalReputationScore   : participant's current GRS (collateral, not integrity rep)
+    //   - tt                          : TaskType (= dataset) bound to this job
+    //   - priorTaskRep                : participant's existing TaskRep for tt
+    //                                   (from manager.getUserRep)
+    //   - nrOfTasksParticipated       : from manager.getUserRep
+    //
+    // Output: `uint256 newTaskRep` — the absolute replacement value.
+    //
+    // Auth: callable by the registered challenge contract (normal flow) or by
+    // the JobListing publisher EOA (replay flow). Idempotent — taskRepsApplied
+    // flag prevents double application.
+    function updateUserTaskReps() external onlyTaskRepUpdater {
+        require(!taskRepsApplied, "JL: task reps already applied");
+        require(challengeAddress != address(0), "JL: challenge not registered");
+
+        IOpenFLChallengeTaskRep challenge = IOpenFLChallengeTaskRep(
+            challengeAddress
+        );
+        IOpenFLChallengeTaskRep.TaskRep[] memory reps = challenge
+            .getTaskRepDeltaAndGRS();
+
+        TaskType tt = trainingSpecs.taskType;
+        uint256 reward = trainingSpecs.reward;
+        // Use the challenge's active (non-disqualified) count so the
+        // per-participant reward cap reflects the true distribution pool,
+        // not the inflated raw participant count.
+        uint256 nrActive = challenge.nrOfActiveParticipants();
+        // Cache the manager's reputation mode once so the per-participant
+        // loop doesn't repeat an external call on every iteration.
+        bool applyGIR = manager.reputationMode() == ReputationMode.PerTask;
+
+        for (uint i = 0; i < reps.length; i++) {
+            _applyTaskRepCalc(reps[i], tt, reward, nrActive, applyGIR);
+        }
+
+        taskRepsApplied = true;
+        emit TaskRepsApplied(challengeAddress, tt, reps.length);
+    }
+
+    // Per-participant body of updateUserTaskReps, extracted so the loop's
+    // stack stays shallow enough for the compiler.
+    // Thin dispatcher: each sub-step runs in its own frame to keep this loop
+    // body under the EVM's 16-slot stack limit.
+    //
+    // GIR is intentionally skipped when the manager is configured for
+    // ReputationMode.GlobalOnly — votes are still cast and tallied on the
+    // challenge contract, they just don't update the on-chain GIR value.
+    function _applyTaskRepCalc(
+        IOpenFLChallengeTaskRep.TaskRep memory rep,
+        TaskType tt,
+        uint256 reward,
+        uint256 nrActive,
+        bool applyGIR
+    ) internal {
+        _applyContribAndStats(rep.user, tt, rep.delta, reward, nrActive);
+        if (applyGIR) {
+            _applyIntegrityCalc(
+                rep.user,
+                tt,
+                rep.positiveVotes,
+                rep.totalVotes
+            );
+        }
+    }
+
+    // TaskRepCalc body: updates RunningCMean, M2, TaskRep + bumps task count.
+    function _applyContribAndStats(
+        address user,
+        TaskType tt,
+        int256 rawDelta,
+        uint256 reward,
+        uint256 nrActive
+    ) internal {
+        (uint256 PriorTaskRep, , uint256 priorTaskCount) = manager.getUserRep(
+            user,
+            tt
+        );
+        (uint256 priorRunningCMean, uint256 priorM2) = manager
+            .getTaskRepCalcState(user, tt);
+
+        // k is the current task index (1-based)
+        uint256 k = priorTaskCount + 1;
+        // maps raw delta to ContributionScore in [0, WAD]
+        uint256 ContributionScore = _transformDelta(
+            rawDelta,
+            STAKE_WAD,
+            reward,
+            nrActive
+        );
+
+        (uint256 newRunningCMean, uint256 newM2) = _updateRunningStats(
+            ContributionScore,
+            priorRunningCMean,
+            priorM2,
+            k
+        );
+        uint256 newK = _updateContribScore(
+            PriorTaskRep,
+            _computeConfidence(k, newM2),
+            ContributionScore
+        );
+
+        manager.setTaskRepCalcState(user, tt, newRunningCMean, newM2);
+        manager.setUserTaskRep(user, tt, newK);
+        //manager.incrementNumberOfTasksJoined(user); //Todo check
+    }
+
+    // End-of-task GIR write. Reads the participant's current Global Integrity
+    // Reputation off the manager, blends in V = (positive/total)^2, and
+    // persists the updated value.
+    function _applyIntegrityCalc(
+        address user,
+        TaskType tt,
+        uint256 positiveVotes,
+        uint256 totalVotes
+    ) internal {
+        (, uint256 priorIntegrityRep, ) = manager.getUserRep(user, tt);
+        // GIR starts at 0 and earns upward from honest voting.
+        uint256 newIntegrityRep = _updateIntegrityRep(
+            priorIntegrityRep,
+            positiveVotes,
+            totalVotes
+        );
+        manager.setUserIntegrityRep(user, newIntegrityRep);
+    }
+
+    // Global Integrity Reputation (GIR) EWMA update.
+    //   V   = (positiveVotes / totalVotes)^2 in [0, WAD]
+    //   GIR = (1 - INTEGRITY_LEARNING_RATE) * priorGIR + INTEGRITY_LEARNING_RATE * V
+    // totalVotes == 0 (no votes received this task) collapses V to 0 — prior
+    // GIR simply decays toward 0 with no new evidence.
+    function _updateIntegrityRep(
+        uint256 priorIntegrityRep,
+        uint256 positiveVotes,
+        uint256 totalVotes
+    ) internal pure returns (uint256) {
+        uint256 V;
+        if (totalVotes == 0) {
+            V = 0;
+        } else {
+            uint256 ratio = (positiveVotes * WAD) / totalVotes; // [0, WAD]
+            V = (ratio * ratio) / WAD; // [0, WAD]
+        }
+        return
+            ((WAD - INTEGRITY_LEARNING_RATE) *
+                priorIntegrityRep +
+                INTEGRITY_LEARNING_RATE *
+                V) / WAD;
+    }
+
+    // Linearly maps a signed per-task reputation delta (wei) into a raw
+    // ContributionScore in [0, WAD]. Worst case (-stake) maps to 0,
+    // ceiling is GAIN_CAP_MULTIPLIER * (reward / nrActive) — anything above
+    // is clipped to WAD. nrActive is the non-disqualified count, so kicked
+    // participants do not deflate the per-participant reward share.
+    function _transformDelta(
+        int256 delta,
+        uint256 stake,
+        uint256 reward,
+        uint256 nrActive
+    ) internal pure returns (uint256) {
+        uint256 maxGain = nrActive == 0
+            ? 0
+            : (GAIN_CAP_MULTIPLIER * reward) / nrActive;
+        uint256 range = stake + maxGain;
+        if (range == 0) return 0;
+
+        int256 shifted = delta + int256(stake);
+        if (shifted <= 0) return 0;
+
+        uint256 num = uint256(shifted);
+        if (num >= range) return WAD;
+        return (num * WAD) / range;
+    }
+
+    // EWMA running mean (E_k = RunningCMean) and variance proxy
+    // (F_k = M2). On the first task (k == 1) E is seeded directly from
+    // ContributionScore (no smoothing) — matches the workbook's row-3 seed
+    // semantics; F stays 0 because Delta2 = ContributionScore - E_k = 0.
+    //
+    // Welford identity: D = (1-ALPHA)*C, so C*D >= 0 always — safe to compute
+    // with unsigned absolutes.
+    function _updateRunningStats(
+        uint256 ContributionScore,
+        uint256 priorRunningCMean,
+        uint256 priorM2,
+        uint256 k
+    ) internal pure returns (uint256 newRunningCMean, uint256 newM2) {
+        if (k <= 1) {
+            newRunningCMean = ContributionScore;
+        } else {
+            newRunningCMean =
+                ((WAD - ALPHA) *
+                    priorRunningCMean +
+                    ALPHA *
+                    ContributionScore) /
+                WAD;
+        }
+
+        uint256 absDelta = ContributionScore > priorRunningCMean
+            ? ContributionScore - priorRunningCMean
+            : priorRunningCMean - ContributionScore;
+        uint256 absDelta2 = ContributionScore > newRunningCMean
+            ? ContributionScore - newRunningCMean
+            : newRunningCMean - ContributionScore;
+
+        newM2 =
+            ((WAD - ALPHA) * priorM2) /
+            WAD +
+            (ALPHA * absDelta * absDelta2) /
+            (WAD * WAD);
+    }
+
+    // Confidence in [0, WAD]. Combines maturity k/(k+N_0) with
+    // stability 1/(1 + LAMBDA * s_k). Marked `virtual` so a subclass can
+    // swap in a different confidence formula without touching the rest of
+    // the update logic.
+    function _computeConfidence(
+        uint256 k,
+        uint256 s_k
+    ) internal pure virtual returns (uint256) {
+        if (k == 0) return 0;
+        uint256 maturity = (k * WAD) / (k + N_0);
+        uint256 stability = (WAD * WAD) / (WAD + LAMBDA * s_k);
+        return (maturity * stability) / WAD;
+    }
+
+    // EWMA-smoothed ContribScore (TaskRepCalc = K_k).
+    function _updateContribScore(
+        uint256 PriorTaskRep,
+        uint256 Confidence,
+        uint256 ContributionScore
+    ) internal pure returns (uint256) {
+        // Return New TaskRep
+        uint256 weighted = (Confidence * ContributionScore) / WAD;
+        return ((WAD - N_BLEND) * PriorTaskRep + N_BLEND * weighted) / WAD;
     }
 }

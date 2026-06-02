@@ -156,7 +156,7 @@ class NullWriter:
     def writeResult(self, *args, **kwargs):
         pass
 
-    def writeComment(self, *args, **kwargs):
+    def write_comment(self, *args, **kwargs):
         pass
 
     def finish(self, *args, **kwargs):

@@ -19,41 +19,17 @@ from types import SimpleNamespace
 from web3 import Web3, Account
 from openfl.api import globals
 
+import uuid
+
 from openfl.utils.async_writer import AsyncWriter
 from openfl.utils.types.User import User
+from openfl.ml.partition_spec import UserPartitionSpec
 from openfl.utils.printer import set_enabled_tags, log
 
 
-def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration, writer: AsyncWriter=None, logger=None, path=None):
-  set_enabled_tags(experiment_config.enabled_prints)
-
-  dataset_name = dataset_name.replace(".", "-")
-  # Refresh first so per_user mode resolves contributor counts from the spec
-  # for the active dataset before any downstream consumer reads them.
-  experiment_config.refresh_for_dataset(dataset_name)
-
-  experiment_start = time.perf_counter()
-
-  setup_connection(experiment_config)
-
-
+def build_users(experiment_config: ExperimentConfiguration) -> List[User]:
+  """Create User objects from an ExperimentConfiguration. Does not load data."""
   users: List[User] = []
-
-  pytorch_model = PM.PytorchModel(
-      experiment_config,
-      dataset_name,
-      experiment_config.number_of_good_contributors,
-      experiment_config.number_of_contributors,
-      experiment_config.epochs,
-      experiment_config.batch_size,
-      experiment_config.standard_buy_in,
-      experiment_config.max_buy_in,
-      experiment_config.freerider_noise_scale,
-      experiment_config.freerider_start_round,
-      experiment_config.malicious_start_round,
-      experiment_config.malicious_noise_scale,
-      experiment_config.force_merge_all)
-
   if experiment_config.partition_strategy == "per_user":
       # Spec drives both id→behavior mapping and data shares. Iterate spec
       # keys in sorted order so account allocation is deterministic across
@@ -94,26 +70,92 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
               )
               apply_user_data_and_label_config(user, user_index, experiment_config)
               users.append(user)
+  return users
 
-  pytorch_model.prepare_data_for_users(
-      users,
+
+def _log_chain_applicant_scores(users: List[User], job_listing, experiment_config) -> None:
+  """Log the rep values the contract read at registration time for debugging selection divergence."""
+  _WAD = 10 ** 18
+  try:
+      tr_w  = getattr(experiment_config, "tr_weight",  6)
+      gir_w = getattr(experiment_config, "gir_weight", 4)
+      denom = tr_w + gir_w
+      log("replay", f"  Chain applicant scores (tr={tr_w}, gir={gir_w}):")
+      log("replay", f"    {'Name':<16} {'TR':>8} {'GIR':>8} {'Q':>8} {'Score':>10}  fp[:8]")
+      for u in users:
+          try:
+              chain = job_listing.contract.functions.applicants(u.address).call()
+              # struct: (globalTaskRep, globalIntegrity, qValue, tiebreaker, addr, isSelected)
+              tr, gir, q_val = chain[0], chain[1], chain[2]
+              score = (tr * tr_w + gir * gir_w) // denom  # simplified; ignores qWeight bonus
+              tb_hex = chain[3].hex()[:8] if isinstance(chain[3], (bytes, bytearray)) else str(chain[3])[:8]
+              name = u.partition_spec.name if (u.partition_spec and u.partition_spec.name) else f"User {u.number}"
+              log("replay", f"    {name:<16} {tr/_WAD:>8.4f} {gir/_WAD:>8.4f} {q_val/_WAD:>8.4f} {score/_WAD:>10.4f}  {tb_hex}")
+          except Exception:
+              pass
+  except Exception:
+      pass
+
+
+def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration, writer: AsyncWriter=None, logger=None, path=None,
+                   prebuilt_users: List[User]=None, prebuilt_manager=None):
+  set_enabled_tags(experiment_config.enabled_prints)
+
+  dataset_name = dataset_name.replace(".", "-")
+  # Refresh first so per_user mode resolves contributor counts from the spec
+  # for the active dataset before any downstream consumer reads them.
+  experiment_config.refresh_for_dataset(dataset_name)
+
+  experiment_start = time.perf_counter()
+
+  setup_connection(experiment_config)
+
+  pytorch_model = PM.PytorchModel(
+      experiment_config,
       dataset_name,
-      seed=experiment_config.seed,
-      allow_overlap=experiment_config.allow_overlap,
-      replication_factor=experiment_config.replication_factor,
-  )
+      experiment_config.number_of_good_contributors,
+      experiment_config.number_of_contributors,
+      experiment_config.epochs,
+      experiment_config.batch_size,
+      experiment_config.standard_buy_in,
+      experiment_config.max_buy_in,
+      experiment_config.freerider_noise_scale,
+      experiment_config.freerider_start_round,
+      experiment_config.malicious_start_round,
+      experiment_config.malicious_noise_scale,
+      experiment_config.force_merge_all)
+
+  if prebuilt_users is None:
+      users = build_users(experiment_config)
+  else:
+      users = prebuilt_users
+      for user in users:
+          user.reset_for_experiment()
+
+  if not (globals.reuse_runs & globals.ReplayMode.HardPlayBack):
+      pytorch_model.prepare_data_for_users(
+          users,
+          dataset_name,
+          seed=experiment_config.seed,
+          allow_overlap=experiment_config.allow_overlap,
+          replication_factor=experiment_config.replication_factor,
+      )
   publisher: User = users[0]
 
   RPC_ENDPOINT = get_RPC_Endpoint()
-  PRIVKEYS = get_PRIVKEYS(experiment_config) # TODO : HUH, private keys?
+  PRIVKEYS = get_PRIVKEYS(experiment_config)
 
-  manager = Manager(pytorch_model, publisher,True).init(experiment_config.number_of_good_contributors,
+  if prebuilt_manager is None:
+      manager = Manager(publisher, True).init(experiment_config.number_of_good_contributors,
                                               experiment_config.number_of_bad_contributors,
                                               experiment_config.number_of_freerider_contributors,
                                               experiment_config.number_of_inactive_contributors,
                                               experiment_config.minimum_rounds,
                                               RPC_ENDPOINT,
                                               PRIVKEYS)
+  else:
+      manager = prebuilt_manager
+  manager.pytorch_model = pytorch_model
 
 
   training_specs = experiment_config.get_training_specs(manager.contract.address, pytorch_model.get_global_model_hash())
@@ -129,8 +171,7 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
       ) # WTF is this????
 
 
-  for user in users:
-     user.register_for_job(new_job_listing)
+  User.batch_register_for_job(users, new_job_listing)
 
   while True:
       try:
@@ -153,14 +194,41 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
           else:
               raise
 
+  # Log what the contract read for each applicant so fingerprint mismatches can be debugged.
+  _log_chain_applicant_scores(users, new_job_listing, experiment_config)
+
   trainingSpecsChallenge = training_specs.to_challenge(experiment_config.contribution_score_strategy, experiment_config.use_outlier_detection, new_job_listing.contract.address, experiment_config.loss_tolerance_pct)
 
   participating_users = get_users_from_addresses(users, participants_addresses)
 
   experiment_finger_print = experiment_config.get_finger_print(participating_users)
-  
+
+  expected_fp = globals.expected_fingerprint
+  globals.expected_fingerprint = None
+  if expected_fp is not None and expected_fp != experiment_finger_print:
+      expected_addrs = {u.address for u in users if u.address in participants_addresses}
+      actual_addrs   = {u.address for u in participating_users}
+      only_expected  = expected_addrs - actual_addrs
+      only_actual    = actual_addrs   - expected_addrs
+      log("replay", f"[fingerprint mismatch] expected={expected_fp[:8]}... actual={experiment_finger_print[:8]}...")
+      if only_expected:
+          log("replay", f"  in predicted selection but NOT on-chain: {only_expected}")
+      if only_actual:
+          log("replay", f"  on-chain but NOT in predicted selection:  {only_actual}")
+
   filename = get_filename(experiment_finger_print, experiment_config) # also sets globals.reuse_runs | _actively_replaying
   pytorch_model.setup_replay(filename, experiment_config, path)
+
+  # HardPlayBack was set (remote mode) but no matching file found → fingerprint mismatch fallback to local training
+  if (globals.reuse_runs & globals.ReplayMode.HardPlayBack) and not (globals.reuse_runs & globals.ReplayMode._actively_replaying):
+      pytorch_model.prepare_data_for_users(
+          users,
+          dataset_name,
+          seed=experiment_config.seed,
+          allow_overlap=experiment_config.allow_overlap,
+          replication_factor=experiment_config.replication_factor,
+      )
+
   ############
   ## REPLAY ##
   ############
@@ -172,9 +240,11 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
 
     users = [users_by_address.get(par_addr) for par_addr in users_by_address]
     combinedUsers = pytorch_model.runRepo.get_participants(users)
-    return pytorch_model.runRepo.get_task_rep_delta_and_GRS(-1, "get_task_rep_delta_and_GRS-simulate", None, lambda x: pytorch_model.get_participant(x, combinedUsers))
+    trs = pytorch_model.runRepo.get_task_rep_delta_and_GRS(-1, "get_task_rep_delta_and_GRS-simulate", None, lambda x: pytorch_model.get_participant(x, combinedUsers))
+    pytorch_model.cleanup()
+    return (trs, filename)
 
-  newChallenge: Challenge = publisher.deploy_challenge_contract(trainingSpecsChallenge, new_job_listing, pytorch_model, writer, logger)
+  newChallenge: Challenge = publisher.deploy_challenge_contract(trainingSpecsChallenge, new_job_listing, pytorch_model, writer, logger, manager_contract=manager)
 
   newChallenge.make_participants_from_users(participating_users)
   for user in newChallenge.pytorch_model.participants:
@@ -183,19 +253,29 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
       except ContractLogicError as e:
           if "SUO" in str(e):
               log("round_models", "Participant tried joining but was not selected")
-  writer.write_comment(f"$startingUserConfig${[p.get_status() for p in pytorch_model.participants]}")
+  if writer is not None:
+      writer.write_comment(f"$startingUserConfig${[p.get_status() for p in pytorch_model.participants]}")
   
   # This happens after deciding on users
   newChallenge.simulate(rounds=experiment_config.minimum_rounds)
+
+  try:
+      new_job_listing.update_user_task_reps(publisher)
+  except Exception as e:
+      log("experiment_end", f"[warn] update_user_task_reps failed: {e}")
+
   experiment_end = time.perf_counter()
   total_experiment_time = experiment_end - experiment_start
 
   log("experiment_end", "\n" + "="*75)
   log("experiment_end", f"TOTAL EXPERIMENT TIME: {total_experiment_time:.2f} seconds")
-  writer.write_comment(f"TOTAL EXPERIMENT TIME: {total_experiment_time:.2f} seconds")
+  if writer is not None:
+      writer.write_comment(f"TOTAL EXPERIMENT TIME: {total_experiment_time:.2f} seconds")
   log("experiment_end", "="*75 + "\n")
 
   if logger is not None:
+      _log_task_rep_calc(logger, newChallenge, manager, new_job_listing, pytorch_model)
+
       try:
           import torch
           gpu_name = torch.cuda.get_device_name(0) if torch.cuda.is_available() else "None"
@@ -238,13 +318,72 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
           "seed":                              cfg.seed,
           "allow_overlap":                     cfg.allow_overlap,
           "replication_factor":                cfg.replication_factor,
+          "global_rep_only":                   cfg.global_rep_only,
           "user_seeds":                        {u.number: u.seed for u in users},
           "data_percentages":                  {u.number: u.data_percent for u in users},
       }
 
       logger.log_setup(total_experiment_time, hardware, config)
 
+  pytorch_model.cleanup()
   return (Experiment(newChallenge, manager), filename)
+
+
+# Run a sequence of experiments that share ONE on-chain OpenFLManager so
+# reputation (TaskRep / GIR / per-user task counters) accumulates across them.
+# The first run deploys the manager; every later run attaches to that same
+# contract instead of redeploying, which is what makes the per-task TaskRep
+# EWMA actually compound (k = 1, 2, 3, ... per user instead of resetting to 1).
+#
+# `jobs` is a list of (dataset_name, experiment_config) pairs, run in order.
+# `make_io` is an optional callable (dataset, config) -> (writer, logger, path)
+# invoked per job; return (None, None, None) to skip writer/logger wiring.
+#
+# Requirements / caveats for accumulation to be meaningful:
+#   - Every config must agree on global_rep_only (mode is fixed on the shared
+#     manager at first deploy; attach_existing raises on mismatch).
+#   - The participant roster must map the same identity to the same on-chain
+#     address across jobs (in per_user mode: keep the same user_index set so
+#     sorted-key account slots stay stable). Differing rosters will accrue rep
+#     to whoever lands on each address slot.
+#   - Replaying runs (HardPlayBack) is unsupported here — run_experiment
+#     returns early without an Experiment, so there is no manager to thread.
+def run_experiment_sequence(jobs, make_io=None):
+    results = []
+    shared_manager_contract = None
+
+    for dataset_name, experiment_config in jobs:
+        writer = logger = path = None
+        if make_io is not None:
+            writer, logger, path = make_io(dataset_name, experiment_config)
+
+        outcome = run_experiment(
+            dataset_name,
+            experiment_config,
+            writer,
+            logger,
+            path,
+            shared_manager_contract=shared_manager_contract,
+        )
+
+        if writer is not None:
+            writer.finish()
+        if logger is not None and path is not None:
+            logger.save(path.with_suffix(".pkl"))
+
+        # Replay path returns a non-Experiment payload (no manager to reuse);
+        # surface it and stop threading rather than guessing.
+        if not isinstance(outcome, tuple) or not isinstance(outcome[0], Experiment):
+            results.append(outcome)
+            continue
+
+        experiment, filename = outcome
+        results.append((experiment, filename))
+
+        if shared_manager_contract is None:
+            shared_manager_contract = experiment.manager.contract
+
+    return results
 
 
 def apply_user_data_and_label_config(user: User, user_index, experiment_config: ExperimentConfiguration):
@@ -278,6 +417,23 @@ def apply_user_data_and_label_config(user: User, user_index, experiment_config: 
         user.flip_map = user_rule.get("flip_map", {})
 
     user.seed = derive_user_seed(experiment_config, user_index)
+
+    if user.partition_spec is None:
+        guid = str(uuid.UUID(bytes=hashlib.sha256(
+            f"{experiment_config.seed}:guid:{user_index}".encode()
+        ).digest()[:16]))
+        noise_scale = user.noise_scale
+        start_round = user.start_round
+        user.partition_spec = UserPartitionSpec(
+            user_index=str(user_index),
+            data_percent=user.data_percent,
+            only_labels=list(user.only_labels) if user.only_labels is not None else None,
+            flip_map=dict(user.flip_map),
+            behavior=user.futureAttitude,
+            noise_scale=float(noise_scale) if noise_scale is not None else None,
+            start_round=int(start_round) if start_round is not None else None,
+            guid=guid,
+        )
 
 
 # Independent per-user RNG stream. Hashing master+user_id keeps streams
@@ -392,6 +548,49 @@ def table_with_gas_and_transactions_latex(experiment):
   log("latex_output", "\\hline\n\\hline")
   log("latex_output", "complete round & {:,.0f} & {:.5f} \\ ".format(tot, tot * 20e9 / 1e18))
   log("latex_output", "\\hline\n\\end{tabular}")
+
+def _log_task_rep_calc(logger, challenge, manager, job_listing, pytorch_model):
+    """Read per-participant TaskRepCalc state from the manager contract after
+    updateUserTaskReps has fired and log it as the task_rep_calc table.
+
+    Columns with WAD-normalised values (running_c_mean, m2, global_task_rep)
+    are stored as floats in [0, 1]. All other on-chain integers are stored raw.
+    """
+    WAD = 10 ** 18
+    task_type = job_listing.get_task_type()
+
+    # getTaskRepDeltaAndGRS returns
+    #   [(address, int256 delta, uint grs, uint positiveVotes, uint totalVotes), ...]
+    # for all participants registered in the challenge contract.
+    trs_raw = challenge.contract.functions.getTaskRepDeltaAndGRS().call()
+    trs_by_addr = {
+        entry[0].lower(): (entry[1], entry[2], entry[3], entry[4])
+        for entry in trs_raw
+    }
+
+    all_participants = pytorch_model.participants + pytorch_model.disqualified
+    for user in all_participants:
+        addr = user.address
+        e, f = manager.contract.functions.getTaskRepCalcState(addr, task_type).call()
+        task_rep_wad, integrity_rep, nr_tasks = manager.contract.functions.getUserRep(addr, task_type).call()
+        delta, grs, positive_votes, total_votes = trs_by_addr.get(
+            addr.lower(), (None, None, None, None)
+        )
+        logger.log_task_rep_calc(
+            address=addr,
+            user_id=str(user.id),
+            task_type=task_type,
+            k=nr_tasks,
+            running_c_mean=e / WAD,
+            m2=f / WAD,
+            global_task_rep=task_rep_wad / WAD,
+            global_integrity_rep=integrity_rep / WAD,
+            task_rep_delta=delta,
+            final_grs=grs,
+            positive_votes=positive_votes,
+            total_votes=total_votes,
+        )
+
 
 class Experiment:
   def __init__(self, model, manager):

@@ -223,7 +223,8 @@ class PytorchModel:
         p.val_tensors = preload_to_gpu(val_loader, DEVICE) if USE_CUDA else None
         self.participants.append(p)
 
-        log("setup_contracts","Participant added: [{:<9}] {}".format(rb(user.futureAttitude.name.upper()[0]+user.futureAttitude.name[1:]), rb(user.display_label())))
+        attitude = (user.futureAttitude.name[0].upper() + user.futureAttitude.name[1:]).ljust(9)
+        log("setup_contracts", f"Participant added: [{rb(attitude)}] {rb(user.display_label())}")
 
     # seed/allow_overlap/replication_factor forward to DataPartition for reproducible, optionally overlapping splits.
     def prepare_data_for_users(self, users, dataset_name, seed=42, allow_overlap=False, replication_factor=1.0):
@@ -232,7 +233,7 @@ class PytorchModel:
         if dataset_name == "mnist":
             trainset = MNIST("./data", train=True, download=True, transform=transforms.ToTensor())
             testset = MNIST("./data", train=False, download=True, transform=transforms.ToTensor())
-        if dataset_name == "cifar-10":
+        elif dataset_name == "cifar-10":
             transform = transforms.Compose([
                 transforms.RandomCrop(32, padding=4),
                 transforms.RandomHorizontalFlip(),
@@ -245,6 +246,8 @@ class PytorchModel:
             ])
             trainset = CIFAR10("./data", train=True, download=True, transform=transform)
             testset = CIFAR10("./data", train=False, download=True, transform=transform_test)
+        else:
+            raise ValueError(f"Unknown dataset {dataset_name!r}. Expected 'mnist' or 'cifar-10'.")
 
         per_user_specs = (
             self.config.get_partition_specs(dataset_name)
@@ -642,9 +645,9 @@ class PytorchModel:
         if num_processes == 1:
             return self.run_sequential()
 
-        with ctx.Pool(processes=num_processes) as pool:
-            start_pool = time.perf_counter()
-
+        pool = ctx.Pool(processes=num_processes)
+        start_pool = time.perf_counter()
+        try:
             async_results = []
             for idx, user in enumerate(self.participants):
                 device_id = idx % max(1, num_gpus)
@@ -671,6 +674,9 @@ class PytorchModel:
                     self.finalize_paricipant_evaluation(user)
 
             results = [r.get() for r in async_results] # Gather results from Multi-Processing
+        finally:
+            pool.close()
+            pool.join()
         log("round_training", green(f"Parallel execution time: {time.perf_counter() - start_pool:.2f} seconds"))
         return results
 
@@ -993,7 +999,11 @@ class PytorchModel:
         p = next((x for x in participants if x.id == address_or_id), None)
         if p:
             return p
-        return next((x for x in participants if x.address == address_or_id), None)
+        p = next((x for x in participants if x.address == address_or_id), None)
+        if p:
+            return p
+        as_str = str(address_or_id)
+        return next((x for x in participants if x.guid is not None and x.guid == as_str), None)
 
     @property
     def _test_data(self):
@@ -1015,6 +1025,61 @@ class PytorchModel:
 
         self.round = 1
         self.runRepo.save(-1, f"save-setup_replay-path", path)
+
+    def cleanup(self):
+        """Shut down DataLoader worker processes (pt_data_worker / forked python).
+
+        Call this after each experiment run. With persistent_workers=True the
+        workers live as long as the DataLoader object does; without an explicit
+        shutdown they accumulate across loop iterations until GC finally fires.
+        """
+        import gc
+
+        all_loaders: list = (
+            list(self.train_by_user_id.values())
+            + list(self.val_by_user_id.values())
+        )
+        if isinstance(self.DATA, tuple):
+            for group in self.DATA:
+                if isinstance(group, list):
+                    all_loaders.extend(group)
+                elif group is not None:
+                    all_loaders.append(group)
+        for p in self.participants:
+            if p.train is not None:
+                all_loaders.append(p.train)
+            if p.val is not None:
+                all_loaders.append(p.val)
+
+        seen: set = set()
+        for loader in all_loaders:
+            if loader is None or id(loader) in seen:
+                continue
+            seen.add(id(loader))
+            it = getattr(loader, '_iterator', None)
+            if it is not None:
+                if hasattr(it, '_shutdown_workers'):
+                    try:
+                        it._shutdown_workers()
+                    except Exception:
+                        pass
+                try:
+                    loader._iterator = None
+                except Exception:
+                    pass
+
+        self.train_by_user_id.clear()
+        self.val_by_user_id.clear()
+        for p in self.participants:
+            p.train = None
+            p.val = None
+        self.DATA = None
+        self.train = None
+        self.val = None
+        self.test = None
+        self.test_tensors = None
+
+        gc.collect()
 
 def get_hash(_state_dict):
     if not isinstance(_state_dict, dict):
