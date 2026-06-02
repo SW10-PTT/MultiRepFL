@@ -10,7 +10,7 @@ import "../../contracts/Types.sol";
 // the two test suites can evolve independently without sharing fixtures.
 contract GlobalOnlyHarness is JobListing {
     constructor(address mgr)
-        JobListing(1e18, 1.8e18, 1e18, 3, 3, 3, 50, mgr, TaskType.MNIST)
+        JobListing(1e18, 1.8e18, 1e18, 3, 3, 3, 50, mgr, TaskType.MNIST, 0, 6, 4)
     {}
 
     function tApplyOne(

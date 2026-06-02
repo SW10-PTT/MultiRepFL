@@ -366,3 +366,90 @@ def test_insertion_order_does_not_affect_heap_result():
     sol2 = {u.address for u in _sol_get_top_n(shuffled, task_type, 4, 0, 6, 4)}
 
     assert sol1 == sol2, "Heap result changed with insertion order"
+
+
+# ===========================================================================
+# q_weight integer arithmetic — no float non-determinism
+# ===========================================================================
+
+def test_compute_user_score_q_weight_integer():
+    """compute_user_score must accept a WAD-scaled integer q_weight and produce
+    the same result as the Solidity formula (q_weight * q) // WAD."""
+    task_type = 6
+    u = _User(seed=1, task_rep=0, gir=_WAD, q=0)
+    u.set_rep(task_type, 2 * _WAD, 3 * _WAD // 4)  # q = 0.75 WAD
+
+    q_weight = _WAD // 2   # 0.5 WAD  (integer, not float)
+    tr_weight, gir_weight = 6, 4
+
+    denom = tr_weight + gir_weight
+    normal_weight = (u.task_rep[task_type] * tr_weight + u.global_integrity_rep * gir_weight) // denom
+    expected_q_bonus = (q_weight * u.q_value[task_type]) // _WAD
+    expected = normal_weight + expected_q_bonus
+
+    # _py_get_top_n uses the same formula — verify score matches
+    import importlib, sys
+    spec = importlib.util.spec_from_file_location("multirep_main", "experiment/multirep.py")
+    mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+    compute_user_score = mod.compute_user_score
+    assert compute_user_score(u, task_type, q_weight, tr_weight, gir_weight) == expected
+
+
+def test_compute_user_score_matches_solidity_formula():
+    """Python compute_user_score must match Solidity _selectionScore exactly."""
+    task_type = 5
+    users = _make_users(6, task_type)
+    for i, u in enumerate(users):
+        u.set_rep(task_type, task_rep=(i + 1) * _WAD // 3, q=(i * _WAD) // 7)
+        u.global_integrity_rep = (i + 2) * _WAD // 5
+
+    q_weight  = int(0.3 * _WAD)   # 0.3 WAD — integer
+    tr_weight, gir_weight = 7, 3
+
+    import importlib, sys
+    spec = importlib.util.spec_from_file_location("multirep_main", "experiment/multirep.py")
+    mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+    compute_user_score = mod.compute_user_score
+    for u in users:
+        py_score  = compute_user_score(u, task_type, q_weight, tr_weight, gir_weight)
+        sol_score = _sol_score(
+            u.task_rep[task_type], u.global_integrity_rep,
+            u.q_value[task_type], q_weight, tr_weight, gir_weight,
+        )
+        assert py_score == sol_score, (
+            f"Score mismatch for user {u.address}: py={py_score}  sol={sol_score}"
+        )
+
+
+def test_selection_deterministic_across_repeated_calls():
+    """Selection algorithm must return the same set for the same inputs every time."""
+    task_type = 6
+    users = _make_users(12, task_type, task_rep=0, gir=_WAD, q=0)
+    for i, u in enumerate(users):
+        u.set_rep(task_type, (i % 4) * _WAD // 3, q=(i % 3) * _WAD // 5)
+        u.global_integrity_rep = ((i * 7) % 5) * _WAD // 4
+
+    q_weight = int(0.2 * _WAD)
+    result1 = {u.address for u in _py_get_top_n(users, task_type, 5, q_weight, 6, 4)}
+    result2 = {u.address for u in _py_get_top_n(users, task_type, 5, q_weight, 6, 4)}
+    assert result1 == result2, "Python getTopN is not deterministic"
+
+    sol1 = {u.address for u in _sol_get_top_n(users, task_type, 5, q_weight, 6, 4)}
+    sol2 = {u.address for u in _sol_get_top_n(users, task_type, 5, q_weight, 6, 4)}
+    assert sol1 == sol2, "Solidity heap simulation is not deterministic"
+
+    assert result1 == sol1, "Python and Solidity must agree"
+
+
+def test_selection_parity_with_nonzero_q_weight():
+    """Python and Solidity must agree when q_weight > 0 (integer WAD-scaled)."""
+    task_type = 5
+    users = _make_users(10, task_type, task_rep=0, gir=_WAD, q=0)
+    for i, u in enumerate(users):
+        u.set_rep(task_type, (i % 3) * _WAD // 4, q=(i % 5) * _WAD // 6)
+        u.global_integrity_rep = (i % 4) * _WAD // 3
+
+    q_weight = int(0.4 * _WAD)  # integer, not float
+    py  = _py_get_top_n(users, task_type, 4, q_weight, 6, 4)
+    sol = _sol_get_top_n(users, task_type, 4, q_weight, 6, 4)
+    _assert_same_selection(py, sol)

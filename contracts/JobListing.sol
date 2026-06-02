@@ -117,7 +117,10 @@ contract JobListing {
         uint256 _trWeight,
         uint256 _girWeight
     ) payable {
-        require(_trWeight + _girWeight > 0, "JL: trWeight + girWeight must be > 0");
+        require(
+            _trWeight + _girWeight > 0,
+            "JL: trWeight + girWeight must be > 0"
+        );
         managerAddress = _managerAddress;
         manager = OpenFLManager(_managerAddress);
         publisher = msg.sender;
@@ -163,11 +166,13 @@ contract JobListing {
             );
     }
 
-    function getSelectedParticipants() public returns (address[] memory) {
+    function getSelectedParticipants() public view returns (address[] memory) {
         return selectedParticipants;
     }
 
-    function register(bytes32 _tiebreaker) public payable onlyNotYetRegisteredUsers {
+    function register(
+        bytes32 _tiebreaker
+    ) public payable onlyNotYetRegisteredUsers {
         require(
             msg.value >= trainingSpecs.min_collateral &&
                 msg.value <= trainingSpecs.max_collateral,
@@ -176,7 +181,10 @@ contract JobListing {
         registrationProcess(msg.sender, _tiebreaker);
     }
 
-    function registrationProcess(address userAddr, bytes32 _tiebreaker) internal {
+    function registrationProcess(
+        address userAddr,
+        bytes32 _tiebreaker
+    ) internal {
         User storage user = applicants[userAddr];
 
         // TaskRep is per-task (TaskType acts as dataset key) — getUserRep
@@ -236,34 +244,42 @@ contract JobListing {
     function _selectionScore(User storage u) internal view returns (uint) {
         // score = (taskRep * trWeight + gir * girWeight) / (trWeight + girWeight) + qWeight * q / WAD
         uint denom = trainingSpecs.trWeight + trainingSpecs.girWeight;
-        uint normalWeight = (u.globalTaskRep * trainingSpecs.trWeight + u.globalIntegrity * trainingSpecs.girWeight) / denom;
+        uint normalWeight = (u.globalTaskRep *
+            trainingSpecs.trWeight +
+            u.globalIntegrity *
+            trainingSpecs.girWeight) / denom;
         uint qBonus = (trainingSpecs.qWeight * u.qValue) / WAD;
         return normalWeight + qBonus;
     }
 
     // Returns true when candidate A is strictly weaker than B and should be
     // evicted first. Weaker = lower score, or same score with higher tiebreaker.
-    function _isWeaker(uint sA, bytes32 tbA, uint sB, bytes32 tbB) internal pure returns (bool) {
+    function _isWeaker(
+        uint sA,
+        bytes32 tbA,
+        uint sB,
+        bytes32 tbB
+    ) internal pure returns (bool) {
         if (sA != sB) return sA < sB;
         return tbA > tbB;
     }
 
     function getTopN(uint N) public view returns (address[] memory) {
-        address[] memory heapUsers     = new address[](N);
-        uint[]    memory heapScores    = new uint[](N);
-        bytes32[] memory heapTBs       = new bytes32[](N);
+        address[] memory heapUsers = new address[](N);
+        uint[] memory heapScores = new uint[](N);
+        bytes32[] memory heapTBs = new bytes32[](N);
 
         uint size = 0;
 
         for (uint i = 0; i < applicantAddresses.length; i++) {
-            address  addr  = applicantAddresses[i];
-            uint     score = _selectionScore(applicants[addr]);
-            bytes32  tb    = applicants[addr].tiebreaker;
+            address addr = applicantAddresses[i];
+            uint score = _selectionScore(applicants[addr]);
+            bytes32 tb = applicants[addr].tiebreaker;
 
             if (size < N) {
-                heapUsers[size]  = addr;
+                heapUsers[size] = addr;
                 heapScores[size] = score;
-                heapTBs[size]    = tb;
+                heapTBs[size] = tb;
 
                 // heapify up — bubble while child is strictly weaker than parent
                 // (min-heap invariant: parent ≤ child, i.e. parent is weaker or equal)
@@ -271,11 +287,27 @@ contract JobListing {
                 while (idx > 0) {
                     uint parent = (idx - 1) / 2;
                     // stop when parent IS weaker than child (heap property OK for min-heap)
-                    if (_isWeaker(heapScores[parent], heapTBs[parent], heapScores[idx], heapTBs[idx])) break;
+                    if (
+                        _isWeaker(
+                            heapScores[parent],
+                            heapTBs[parent],
+                            heapScores[idx],
+                            heapTBs[idx]
+                        )
+                    ) break;
 
-                    (heapScores[parent], heapScores[idx]) = (heapScores[idx], heapScores[parent]);
-                    (heapTBs[parent],    heapTBs[idx])    = (heapTBs[idx],    heapTBs[parent]);
-                    (heapUsers[parent],  heapUsers[idx])  = (heapUsers[idx],  heapUsers[parent]);
+                    (heapScores[parent], heapScores[idx]) = (
+                        heapScores[idx],
+                        heapScores[parent]
+                    );
+                    (heapTBs[parent], heapTBs[idx]) = (
+                        heapTBs[idx],
+                        heapTBs[parent]
+                    );
+                    (heapUsers[parent], heapUsers[idx]) = (
+                        heapUsers[idx],
+                        heapUsers[parent]
+                    );
 
                     idx = parent;
                 }
@@ -283,25 +315,50 @@ contract JobListing {
                 size++;
             } else if (!_isWeaker(score, tb, heapScores[0], heapTBs[0])) {
                 // new candidate is not weaker than heap minimum → evict minimum
-                heapUsers[0]  = addr;
+                heapUsers[0] = addr;
                 heapScores[0] = score;
-                heapTBs[0]    = tb;
+                heapTBs[0] = tb;
 
                 // heapify down — sink the new root to its correct position
                 uint idx = 0;
                 while (true) {
-                    uint left    = 2 * idx + 1;
-                    uint right   = 2 * idx + 2;
+                    uint left = 2 * idx + 1;
+                    uint right = 2 * idx + 2;
                     uint weakest = idx;
 
-                    if (left  < N && _isWeaker(heapScores[left],  heapTBs[left],  heapScores[weakest], heapTBs[weakest])) weakest = left;
-                    if (right < N && _isWeaker(heapScores[right], heapTBs[right], heapScores[weakest], heapTBs[weakest])) weakest = right;
+                    if (
+                        left < N &&
+                        _isWeaker(
+                            heapScores[left],
+                            heapTBs[left],
+                            heapScores[weakest],
+                            heapTBs[weakest]
+                        )
+                    ) weakest = left;
+                    if (
+                        right < N &&
+                        _isWeaker(
+                            heapScores[right],
+                            heapTBs[right],
+                            heapScores[weakest],
+                            heapTBs[weakest]
+                        )
+                    ) weakest = right;
 
                     if (weakest == idx) break;
 
-                    (heapScores[idx], heapScores[weakest]) = (heapScores[weakest], heapScores[idx]);
-                    (heapTBs[idx],    heapTBs[weakest])    = (heapTBs[weakest],    heapTBs[idx]);
-                    (heapUsers[idx],  heapUsers[weakest])  = (heapUsers[weakest],  heapUsers[idx]);
+                    (heapScores[idx], heapScores[weakest]) = (
+                        heapScores[weakest],
+                        heapScores[idx]
+                    );
+                    (heapTBs[idx], heapTBs[weakest]) = (
+                        heapTBs[weakest],
+                        heapTBs[idx]
+                    );
+                    (heapUsers[idx], heapUsers[weakest]) = (
+                        heapUsers[weakest],
+                        heapUsers[idx]
+                    );
 
                     idx = weakest;
                 }
@@ -417,15 +474,12 @@ contract JobListing {
         uint256 reward,
         uint256 nrActive
     ) internal {
-        (uint256 PriorTaskRep, , uint256 priorTaskCount) = manager.getUserRep(
-            user,
-            tt
-        );
+        (uint256 PriorTaskRep, , ) = manager.getUserRep(user, tt);
         (uint256 priorRunningCMean, uint256 priorM2) = manager
             .getTaskRepCalcState(user, tt);
 
         // k is the current task index (1-based)
-        uint256 k = priorTaskCount + 1;
+        uint256 k = manager.getTaskCount(user, tt) + 1;
         // maps raw delta to ContributionScore in [0, WAD]
         uint256 ContributionScore = _transformDelta(
             rawDelta,
@@ -448,7 +502,7 @@ contract JobListing {
 
         manager.setTaskRepCalcState(user, tt, newRunningCMean, newM2);
         manager.setUserTaskRep(user, tt, newK);
-        //manager.incrementNumberOfTasksJoined(user); //Todo check
+        manager.incrementTaskCount(user, tt);
     }
 
     // End-of-task GIR write. Reads the participant's current Global Integrity

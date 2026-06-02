@@ -46,7 +46,7 @@ import numpy as np
 
 
 
-class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManager to ConnectionHelper
+class FLChallenge(ConnectionHelper):
     def __init__(self, publisher: User, pyTorchModel, training_specs: TrainingSpecsChallenge, jobListing, writer: AsyncWriter=None, logger: Logger=None, manager_contract=None):
 
         self.pytorch_model: PytorchModel = pyTorchModel

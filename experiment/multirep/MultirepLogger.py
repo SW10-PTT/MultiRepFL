@@ -116,6 +116,32 @@ class MultirepLogger:
             "run_data":   run_data,
         })
 
+    def _build_global_accuracy(self) -> pd.DataFrame:
+        """Concatenate per-round global accuracy from every task into one DataFrame.
+
+        Columns: task_index, dataset, round, objective_global_accuracy,
+                 objective_global_loss, reward_pool, punishment_pool.
+        Only tasks with non-empty run_data are included.
+        """
+        frames = []
+        want = ["round", "round_time", "objective_global_accuracy",
+                "objective_global_loss", "reward_pool", "punishment_pool"]
+        for t in self._task_entries:
+            rd = t.get("run_data")
+            if not rd:
+                continue
+            gdf = rd.get("global")
+            if gdf is None or not hasattr(gdf, "empty") or gdf.empty:
+                continue
+            cols = [c for c in want if c in gdf.columns]
+            if "objective_global_accuracy" not in cols:
+                continue
+            frame = gdf[cols].copy()
+            frame["task_index"] = t["task_index"]
+            frame["dataset"]    = t["dataset"]
+            frames.append(frame)
+        return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+
     def save(self, path: Path) -> None:
         path = Path(path)
         payload = {
@@ -124,6 +150,7 @@ class MultirepLogger:
             "session_timestamp":    self.session_timestamp,
             "preset":               self.preset_dict,
             "reputation_timeline":  pd.DataFrame(self._rep_rows),
+            "global_accuracy":      self._build_global_accuracy(),
             "tasks":                self._task_entries,
         }
         with open(path, "wb") as f:

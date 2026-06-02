@@ -58,7 +58,7 @@ class PyTorchTrainer(ITestAndTrainer):
             if participant is None:
                 continue
             new_grs = u[2]
-            delta_grs = new_grs - participant.global_integrity_rep
+            delta_grs = new_grs - participant.balance
             formatted_data.append((str(participant.guid), u[1], delta_grs, u[3], u[4]))
         if ReplayMode.Record in reuse_runs:
             self.save(round, tag, formatted_data)

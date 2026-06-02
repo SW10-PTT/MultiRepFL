@@ -59,7 +59,7 @@ class RunRepo(ITestAndTrainer):
     
     def get_task_rep_delta_and_GRS(self, round, tag, contract: Contract, get_participant_func):
         data = self.load(round, tag)
-        # Recorded tuple shape is (user_id, delta, grs, positiveVotes, totalVotes).
+        # Recorded tuple shape is (user_id, delta_task_rep, delta_balance, positiveVotes, totalVotes).
         # Old traces written before GIR landed only carry the first three; pad
         # with zero vote tallies so replays of pre-GIR runs still work.
         formatted_data = [

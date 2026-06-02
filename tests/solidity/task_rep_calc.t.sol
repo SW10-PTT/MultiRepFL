@@ -10,7 +10,7 @@ import "../../contracts/Types.sol";
 // direct unit testing.
 contract JobListingHarness is JobListing {
     constructor(address mgr)
-        JobListing(1e18, 1.8e18, 1e18, 3, 3, 3, 50, mgr, TaskType.MNIST)
+        JobListing(1e18, 1.8e18, 1e18, 3, 3, 3, 50, mgr, TaskType.MNIST, 0, 6, 4)
     {}
 
     function tTransformDelta(
@@ -422,7 +422,8 @@ contract TaskRepCalcTest is Test {
             });
         h.tApplyOne(rep, tt, 10e18, 5);
 
-        (uint256 storedK, , uint256 nrTasks) = manager.getUserRep(user, tt);
+        (uint256 storedK, , ) = manager.getUserRep(user, tt);
+        uint256 nrTasks = manager.getTaskCount(user, tt);
         (uint256 storedE, uint256 storedF) =
             manager.getTaskRepCalcState(user, tt);
 
@@ -456,7 +457,8 @@ contract TaskRepCalcTest is Test {
             });
         h.tApplyOne(rep1, tt, 10e18, 5);
 
-        (uint256 k1, , uint256 nr1) = manager.getUserRep(user, tt);
+        (uint256 k1, , ) = manager.getUserRep(user, tt);
+        uint256 nr1 = manager.getTaskCount(user, tt);
         (uint256 e1, uint256 f1) = manager.getTaskRepCalcState(user, tt);
         assertEq(nr1, 1);
         assertEq(e1, 6e17);
@@ -466,7 +468,8 @@ contract TaskRepCalcTest is Test {
         // priorRunningCMean=0.6, ContributionScore=0.6 -> newRunningCMean = 0.6 (no movement); Delta=0 -> newM2=0
         h.tApplyOne(rep1, tt, 10e18, 5);
 
-        (uint256 k2, , uint256 nr2) = manager.getUserRep(user, tt);
+        (uint256 k2, , ) = manager.getUserRep(user, tt);
+        uint256 nr2 = manager.getTaskCount(user, tt);
         (uint256 e2, uint256 f2) = manager.getTaskRepCalcState(user, tt);
         assertEq(nr2, 2);
         assertEq(e2, 6e17);
@@ -516,5 +519,102 @@ contract TaskRepCalcTest is Test {
         (uint256 newK, , ) = manager.getUserRep(user, tt);
         // K_new = (1-N_BLEND)*PriorTaskRep + N_BLEND * Confidence * 0 = 0.8 * PriorTaskRep
         assertEq(newK, (PriorTaskRep * (WAD - N_BLEND)) / WAD);
+    }
+
+    // ============================================================
+    // TaskCount — getTaskCount / incrementTaskCount
+    // ============================================================
+
+    function testTaskCount_startsAtZero() public {
+        assertEq(manager.getTaskCount(address(0xABCD), TaskType.MNIST), 0);
+        assertEq(manager.getTaskCount(address(0xABCD), TaskType.CIFAR10), 0);
+    }
+
+    function testTaskCount_incrementsPerApply() public {
+        _registerAsValidJob(h);
+
+        address user = address(0x1234);
+        TaskType tt = TaskType.MNIST;
+
+        IOpenFLChallengeTaskRep.TaskRep memory rep = IOpenFLChallengeTaskRep
+            .TaskRep({user: user, delta: 0, globalReputationScore: 0, positiveVotes: 0, totalVotes: 0});
+
+        assertEq(manager.getTaskCount(user, tt), 0);
+        h.tApplyOne(rep, tt, 10e18, 5);
+        assertEq(manager.getTaskCount(user, tt), 1, "after first apply");
+        h.tApplyOne(rep, tt, 10e18, 5);
+        assertEq(manager.getTaskCount(user, tt), 2, "after second apply");
+        h.tApplyOne(rep, tt, 10e18, 5);
+        assertEq(manager.getTaskCount(user, tt), 3, "after third apply");
+    }
+
+    function testTaskCount_independentPerTaskType() public {
+        _registerAsValidJob(h);
+
+        address user = address(0x5678);
+        IOpenFLChallengeTaskRep.TaskRep memory rep = IOpenFLChallengeTaskRep
+            .TaskRep({user: user, delta: 0, globalReputationScore: 0, positiveVotes: 0, totalVotes: 0});
+
+        h.tApplyOne(rep, TaskType.MNIST,   10e18, 5);
+        h.tApplyOne(rep, TaskType.MNIST,   10e18, 5);
+        h.tApplyOne(rep, TaskType.CIFAR10, 10e18, 5);
+
+        assertEq(manager.getTaskCount(user, TaskType.MNIST),   2, "MNIST count");
+        assertEq(manager.getTaskCount(user, TaskType.CIFAR10), 1, "CIFAR10 count");
+    }
+
+    function testTaskCount_drivesConfidenceGrowth() public {
+        // With correct k, confidence grows each task instead of being stuck at k=1.
+        _registerAsValidJob(h);
+
+        address user = address(0x9ABC);
+        TaskType tt = TaskType.CIFAR10;
+        IOpenFLChallengeTaskRep.TaskRep memory rep = IOpenFLChallengeTaskRep
+            .TaskRep({user: user, delta: int256(2e18), globalReputationScore: 0, positiveVotes: 0, totalVotes: 0});
+
+        // Apply 10 tasks; TaskRep should increase monotonically towards ~0.6.
+        uint256 prevK = 0;
+        for (uint i = 0; i < 10; i++) {
+            h.tApplyOne(rep, tt, 10e18, 5);
+            (uint256 storedK, , ) = manager.getUserRep(user, tt);
+            assertGe(storedK, prevK, "task rep must not decrease under constant positive delta");
+            prevK = storedK;
+        }
+        assertEq(manager.getTaskCount(user, tt), 10, "count after 10 tasks");
+        // After 10 tasks, confidence should be > 1/6 (k=1 case) since k now = 10.
+        // maturity(10) = 10/15 ≈ 0.667 > 1/6 ≈ 0.167
+        (uint256 finalK, , ) = manager.getUserRep(user, tt);
+        // A rough lower-bound: K > threshold from k=1 run (computed above as N_BLEND*ContribScore/6/WAD ≈ tiny).
+        // More useful: after 10 perfect tasks, TR should be well above the k=1 first-task value.
+        uint256 k1Rep;
+        {
+            OpenFLManager m2 = new OpenFLManager(ReputationMode.PerTask);
+            JobListingHarness h2 = new JobListingHarness(address(m2));
+            m2.setJobListingCodeHash(address(h2).codehash);
+            m2.registerJob(address(h2));
+            h2.tApplyOne(rep, tt, 10e18, 5);
+            (k1Rep, , ) = m2.getUserRep(user, tt);
+        }
+        assertGt(finalK, k1Rep, "10-task TR must exceed 1-task TR");
+    }
+
+    function testTaskCount_globalOnlyMode_sharedSlot() public {
+        // In GlobalOnly mode _repKey collapses all task types onto template.
+        // TaskCount must also use _repKey so the count is shared.
+        OpenFLManager globalMgr = new OpenFLManager(ReputationMode.GlobalOnly);
+        JobListingHarness gh = new JobListingHarness(address(globalMgr));
+        globalMgr.setJobListingCodeHash(address(gh).codehash);
+        globalMgr.registerJob(address(gh));
+
+        address user = address(0xDEAD);
+        IOpenFLChallengeTaskRep.TaskRep memory rep = IOpenFLChallengeTaskRep
+            .TaskRep({user: user, delta: 0, globalReputationScore: 0, positiveVotes: 0, totalVotes: 0});
+
+        gh.tApplyOne(rep, TaskType.MNIST,   10e18, 5);
+        gh.tApplyOne(rep, TaskType.CIFAR10, 10e18, 5);
+
+        // GlobalOnly: both task types map to the same slot → shared count = 2.
+        assertEq(globalMgr.getTaskCount(user, TaskType.MNIST),   2, "shared count via MNIST");
+        assertEq(globalMgr.getTaskCount(user, TaskType.CIFAR10), 2, "shared count via CIFAR10");
     }
 }

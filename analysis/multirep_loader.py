@@ -15,6 +15,7 @@ class MultirepSession:
     session_timestamp: str
     preset: dict
     reputation_timeline: pd.DataFrame
+    global_accuracy: pd.DataFrame       # per-round accuracy across all tasks
     tasks: list[dict]
 
     @property
@@ -47,6 +48,7 @@ def _payload_to_session(payload: dict) -> MultirepSession:
         session_timestamp=   payload["session_timestamp"],
         preset=              payload.get("preset", {}),
         reputation_timeline= payload.get("reputation_timeline", pd.DataFrame()),
+        global_accuracy=     payload.get("global_accuracy", pd.DataFrame()),
         tasks=               payload.get("tasks", []),
     )
 

@@ -56,6 +56,10 @@ contract OpenFLManager {
         uint256 GlobalIntegrityRep;
         uint128 TotalContribScore;
         mapping(TaskType => uint256) QValue;
+        // Number of tasks completed per TaskType. Used by the JobListing's
+        // confidence formula (k in k/(k+N_0)) so maturity grows correctly
+        // across tasks. Incremented by incrementTaskCount after each task.
+        mapping(TaskType => uint256) TaskCount;
         // ETH balance mirrored from the challenge contract's globalReputationScore.
         // Written by Python after each task (local: from challenge; replay: via delta).
         uint256 Balance;
@@ -139,12 +143,19 @@ contract OpenFLManager {
         address addr,
         TaskType taskType
     ) public view returns (uint, uint, uint) {
-        TaskType key = _repKey(taskType);
+        TaskType _taskType = _repKey(taskType);
         return (
-            users[addr].GlobalTaskRep[key],
+            users[addr].GlobalTaskRep[_taskType],
             users[addr].GlobalIntegrityRep,
-            users[addr].QValue[taskType]
+            users[addr].QValue[_taskType]
         );
+    }
+
+    function getTaskCount(
+        address addr,
+        TaskType taskType
+    ) public view returns (uint256) {
+        return users[addr].TaskCount[_repKey(taskType)];
     }
 
     function setChallengeCodeHash(bytes32 _hash) external {
@@ -335,13 +346,28 @@ contract OpenFLManager {
         uint256 newRunningCMean,
         uint256 newM2
     ) external {
-        require(validJobs[msg.sender] || msg.sender == publisher, "OFLM: caller not valid job or publisher");
+        require(
+            validJobs[msg.sender] || msg.sender == publisher,
+            "OFLM: caller not valid job or publisher"
+        );
 
         TaskType key = _repKey(taskType);
         users[user].RunningCMean[key] = newRunningCMean;
         users[user].M2[key] = newM2;
 
         emit TaskRepCalcStateUpdated(user, key, newRunningCMean, newM2);
+    }
+
+    // Increment the per-(user, taskType) task count by 1. Called by a
+    // JobListing after computing the new TaskRep so k grows correctly
+    // across tasks for the confidence formula.
+    function incrementTaskCount(address user, TaskType taskType) external {
+        require(
+            validJobs[msg.sender] || msg.sender == publisher,
+            "OFLM: caller not valid job or publisher"
+        );
+        TaskType key = _repKey(taskType);
+        users[user].TaskCount[key] += 1;
     }
 
     event UserIntegrityRepUpdated(
