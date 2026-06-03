@@ -19,7 +19,7 @@ def set_log_file(path: str):
     global _log_file
     if _log_file is not None:
         _log_file.close()
-    _log_file = open(path, "a", buffering=1)  # line-buffered
+    _log_file = open(path, "a", buffering=1, encoding="utf-8")  # line-buffered, UTF-8 for unicode (e.g. arrows)
 
 def log(tag, *args, **kwargs):
     if tag in ENABLED_TAGS:

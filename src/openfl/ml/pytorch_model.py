@@ -90,6 +90,45 @@ def cuda_safe_dataloader(ds, batch_size, shuffle=False):
     )
 
 
+# Torchvision datasets are read-only once built (.data/.targets never mutate;
+# transforms apply lazily per __getitem__), so one instance is safe to share
+# across every run in this process. Building MNIST/CIFAR from disk is the bulk
+# of per-run data overhead — cache by dataset name so both load_data() and
+# prepare_data_for_users() reuse one instance. Shared by multirep (many tasks)
+# and auto_runner (many runs) in the same process.
+_DATASET_CACHE: dict[str, tuple] = {}
+
+
+def _build_dataset_transforms(dataset_name):
+    if dataset_name == "mnist":
+        return transforms.ToTensor(), transforms.ToTensor()
+    if dataset_name == "cifar-10":
+        train_t = transforms.Compose([
+            transforms.RandomCrop(32, padding=4),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+        ])
+        test_t = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+        ])
+        return train_t, test_t
+    raise ValueError(f"Unknown dataset {dataset_name!r}. Expected 'mnist' or 'cifar-10'.")
+
+
+def get_cached_datasets(dataset_name):
+    """Return a process-cached (trainset, testset) pair, built from disk once."""
+    cached = _DATASET_CACHE.get(dataset_name)
+    if cached is not None:
+        return cached
+    train_t, test_t = _build_dataset_transforms(dataset_name)
+    cls = MNIST if dataset_name == "mnist" else CIFAR10
+    trainset = cls("./data", train=True, download=True, transform=train_t)
+    testset = cls("./data", train=False, download=True, transform=test_t)
+    _DATASET_CACHE[dataset_name] = (trainset, testset)
+    return trainset, testset
+
 
 class Net_CIFAR(nn.Module):
     def __init__(self):
@@ -161,7 +200,18 @@ class PytorchModel:
         self.test_tensors = None  # GPU-preloaded (images, labels) for the global test set
         # self.EPOCHS = epochs
         # self.BATCHSIZE = batchsize
-        self.train, self.val, self.test = self.load_data(self.NUMBER_OF_CONTRIBUTERS, _print=True)
+        # In per_user mode run_experiment calls prepare_data_for_users(), which
+        # builds and overwrites self.DATA/test — so load_data() here is wasted.
+        # Skip it, except in HardPlayBack replay where prepare_data_for_users is
+        # not called and load_data supplies the test set for global evaluation.
+        _skip_init_load = (
+            config.partition_strategy == "per_user"
+            and not (globals.reuse_runs & globals.ReplayMode.HardPlayBack)
+        )
+        if _skip_init_load:
+            self.train, self.val, self.test = None, None, None
+        else:
+            self.train, self.val, self.test = self.load_data(self.NUMBER_OF_CONTRIBUTERS, _print=True)
         # self.default_collateral = default_collateral
         # self.max_collateral = max_collateral
         # self.force_merge_all = force_merge_all
@@ -218,24 +268,7 @@ class PytorchModel:
     def prepare_data_for_users(self, users, dataset_name, seed=42, allow_overlap=False, replication_factor=1.0):
         users = list(users)
 
-        if dataset_name == "mnist":
-            trainset = MNIST("./data", train=True, download=True, transform=transforms.ToTensor())
-            testset = MNIST("./data", train=False, download=True, transform=transforms.ToTensor())
-        elif dataset_name == "cifar-10":
-            transform = transforms.Compose([
-                transforms.RandomCrop(32, padding=4),
-                transforms.RandomHorizontalFlip(),
-                transforms.ToTensor(),
-                transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
-            ])
-            transform_test = transforms.Compose([
-                transforms.ToTensor(),
-                transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
-            ])
-            trainset = CIFAR10("./data", train=True, download=True, transform=transform)
-            testset = CIFAR10("./data", train=False, download=True, transform=transform_test)
-        else:
-            raise ValueError(f"Unknown dataset {dataset_name!r}. Expected 'mnist' or 'cifar-10'.")
+        trainset, testset = get_cached_datasets(dataset_name)
 
         per_user_specs = (
             self.config.get_partition_specs(dataset_name)
@@ -476,23 +509,7 @@ class PytorchModel:
         if self.DATA:
             return self.DATA
 
-        if self.config.dataset == "cifar-10":
-            transform = transforms.Compose([
-                transforms.RandomCrop(32, padding=4),
-                transforms.RandomHorizontalFlip(),
-                transforms.ToTensor(),
-                transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
-            ])
-            transform_test = transforms.Compose([
-                transforms.ToTensor(),
-                transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
-            ])
-            trainset = CIFAR10("./data", train=True, download=True, transform=transform)
-            testset = CIFAR10("./data", train=False, download=True, transform=transform_test)
-        else:
-            trainset = MNIST("./data", train=True, download=True, transform=transforms.ToTensor())
-            testset = MNIST("./data", train=False, download=True, transform=transforms.ToTensor())
-
+        trainset, testset = get_cached_datasets(self.config.dataset)
 
         if _print:
             log("setup_data", "Data Loaded:")

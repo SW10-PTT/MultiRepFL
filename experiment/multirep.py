@@ -404,6 +404,37 @@ def filter_partitions_for_users(selected_users: List[User]) -> dict:
     }
 
 
+def rebind_user_specs_for_dataset(all_users: List[User], full_config: ExperimentConfiguration, dataset: str) -> None:
+    """Re-bind each prebuilt user's partition_spec to the spec for `dataset`.
+
+    Users are built once from the first task's dataset, so without this their
+    spec (data_percent, behavior, only_labels, flip_map, noise) stays frozen to
+    that dataset for every later task — e.g. a MNIST-strong user would keep its
+    8% MNIST share on CIFAR-10 tasks instead of its 2% CIFAR share. Match by
+    user_index (the stable preset id, shared across a user's dataset blocks).
+    """
+    from openfl.ml.partition_spec import normalize_dataset_name
+    from openfl.utils.types.Attitude import Attitude
+    specs = full_config.per_user_partitions.get(normalize_dataset_name(dataset), {})
+    for user in all_users:
+        if user.partition_spec is None:
+            continue
+        spec = specs.get(user.partition_spec.user_index)
+        if spec is None:
+            continue
+        user.partition_spec = spec
+        user.partition_name = spec.name
+        user.data_percent = float(spec.data_percent)
+        user.only_labels = list(spec.only_labels) if spec.only_labels is not None else None
+        user.flip_map = dict(spec.flip_map)
+        user.noise_scale = None if spec.noise_scale is None else float(spec.noise_scale)
+        user.start_round = None if spec.start_round is None else int(spec.start_round)
+        # Behavior is per-dataset too; reset attitude so the switch re-gates per task.
+        user.futureAttitude = spec.behavior
+        user.attitudeSwitch = int(spec.start_round) if spec.start_round is not None else 1
+        user.attitude = Attitude.Honest
+
+
 # ---------------------------------------------------------------------------
 # RunRepo cache lookup
 # ---------------------------------------------------------------------------
@@ -723,6 +754,11 @@ def main():
 
     for i, task in enumerate(tasks):
         task_type = get_task_type(task.dataset)
+
+        # Re-bind specs to THIS task's dataset. Users are built once from the
+        # first task's dataset, so their spec (data_percent, behavior, labels)
+        # would otherwise stay frozen to that dataset across the dataset switch.
+        rebind_user_specs_for_dataset(all_users, full_config, task.dataset)
 
         # Pull authoritative state from manager before selection so Python and
         # the contract use identical values. Q is on-chain (persisted after each
