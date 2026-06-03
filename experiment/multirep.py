@@ -7,6 +7,7 @@ import tarfile
 import traceback
 import uuid
 from pathlib import Path
+from xml.dom import NotFoundErr
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -60,7 +61,7 @@ _INTEGRITY_LEARNING_RATE = int(2e17)  # GIR EWMA learning rate
 # Preset file — fill in before running
 # ---------------------------------------------------------------------------
 
-preset_file = "experiment/presets/fast-test-local.json"
+preset_file = "experiment/presets/EXP-multirep-mixed-distribution-5-task-dataset-switch copy.json"
 
 # ---------------------------------------------------------------------------
 # Output directory for multirep sessions
@@ -372,11 +373,9 @@ def _sync_balances_from_challenge(users: List[User], run_data, manager) -> None:
     if not isinstance(run_data, Experiment):
         log("multirep", "[warn] _sync_balances_from_challenge: unexpected run_data type — skipping")
         return
-    challenge_contract = run_data.model.contract
-    try:
-        raw = challenge_contract.functions.getTaskRepDeltaAndGRS().call()
-    except Exception as e:
-        log("multirep", f"[warn] _sync_balances_from_challenge: getTaskRepDeltaAndGRS failed: {e}")
+    raw = run_data.grs_snapshot
+    if not raw:
+        log("multirep", "[warn] _sync_balances_from_challenge: GRS snapshot empty — skipping")
         return
     users_by_address = {u.address.lower(): u for u in users}
     for entry in raw:
@@ -384,7 +383,7 @@ def _sync_balances_from_challenge(users: List[User], run_data, manager) -> None:
         grs = entry[2]  # globalReputationScore in the challenge after the task
         user = users_by_address.get(addr)
         if user is None:
-            continue
+            raise NotFoundErr("User not found")
         delta_balance = grs - _STAKE_WAD  # net gain/loss this task (strip out 1 ETH collateral)
         new_balance = user.balance + delta_balance
         user.balance = new_balance

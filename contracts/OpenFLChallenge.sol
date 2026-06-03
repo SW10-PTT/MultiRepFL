@@ -459,8 +459,8 @@ contract OpenFLChallenge {
                     uint punishment = uint(
                         user.globalReputationScore / punishfactor
                     );
-                    int256 _rawTaskPunishment = (user.taskRepDelta + int(1e18)) /
-                        int(uint(punishfactor));
+                    int256 _rawTaskPunishment = (user.taskRepDelta +
+                        int(min_collateral)) / int(uint(punishfactor));
                     uint taskPunishment = _rawTaskPunishment > 0
                         ? uint(_rawTaskPunishment)
                         : 0;
@@ -625,9 +625,9 @@ contract OpenFLChallenge {
                     uint punishment = (user.globalReputationScore /
                         punishfactorContrib) *
                         absUint((contributionScore[round][user.addr]));
-                    int taskPunishment = ((user.taskRepDelta + int(1e18)) /
+                    int taskPunishment = (((user.taskRepDelta + int(min_collateral)) /
                         int(uint(punishfactorContrib))) *
-                        int(absUint((contributionScore[round][user.addr]))) /
+                        int(absUint((contributionScore[round][user.addr])))) /
                         int(1e18);
                     require(punishment > 0, "punishment is <= 0 in settle! 1");
                     punishment /= 1e18;
@@ -757,8 +757,9 @@ contract OpenFLChallenge {
 
         for (uint i = 0; i < participants.length; i++) {
             if (participants[i] == msg.sender) {
-                delete participants[i];
-                break; // important
+                participants[i] = participants[participants.length - 1];
+                participants.pop();
+                break;
             }
         }
 

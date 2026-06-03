@@ -13,7 +13,7 @@ from openfl.contracts.JobListing import JobListing
 from openfl.ml import pytorch_model as PM
 from openfl.contracts import FLChallenge as Challenge, FLManager as Manager
 from openfl.utils import require_env_var
-from openfl.utils.ITestAndTrainer import get_filename
+from openfl.utils.ITestAndTrainer import get_filename, _log_fp_diff
 from openfl.utils.W3Helper import get_PRIVKEYS, get_RPC_Endpoint, get_account_RPC
 from openfl.utils.types.Attitude import Attitude
 from types import SimpleNamespace
@@ -214,6 +214,25 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
           log("replay", f"  in predicted selection but NOT on-chain: {only_expected}")
       if only_actual:
           log("replay", f"  on-chain but NOT in predicted selection:  {only_actual}")
+      expected_data = globals.fp_data_cache.get(expected_fp)
+      actual_data   = globals.fp_data_cache.get(experiment_finger_print)
+      if expected_data is not None and actual_data is not None:
+          _log_fp_diff(expected_fp, experiment_finger_print, expected_data, actual_data)
+      else:
+          log("replay", f"  [fingerprint diff] data not in cache — expected_in_cache={expected_data is not None}  actual_in_cache={actual_data is not None}")
+      import json as _json, datetime as _dt
+      _mismatch_dir = Path(__file__).resolve().parent / "logs" / "fp_mismatches"
+      _mismatch_dir.mkdir(parents=True, exist_ok=True)
+      _ts = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
+      _mismatch_file = _mismatch_dir / f"fp_mismatch_{_ts}_{expected_fp[:8]}_{experiment_finger_print[:8]}.json"
+      with open(_mismatch_file, "w") as _f:
+          _json.dump({
+              "expected_fp": expected_fp,
+              "actual_fp": experiment_finger_print,
+              "expected_data": expected_data,
+              "actual_data": actual_data,
+          }, _f, indent=2, default=str)
+      log("replay", f"  [fingerprint diff] written to {_mismatch_file}")
 
   filename = get_filename(experiment_finger_print, experiment_config) # also sets globals.reuse_runs | _actively_replaying
   pytorch_model.setup_replay(filename, experiment_config, path)
@@ -263,6 +282,12 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
   except Exception as e:
       log("experiment_end", f"[warn] update_user_task_reps failed: {e}")
 
+  try:
+      grs_snapshot = newChallenge.contract.functions.getTaskRepDeltaAndGRS().call()
+  except Exception as e:
+      log("experiment_end", f"[warn] GRS snapshot failed: {e}")
+      grs_snapshot = []
+
   newChallenge.exit_system()
 
   # Diagnostic: verify task rep written to manager after updateUserTaskReps.
@@ -291,7 +316,7 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
   log("experiment_end", "="*75 + "\n")
 
   if logger is not None:
-      _log_task_rep_calc(logger, newChallenge, manager, new_job_listing, pytorch_model)
+      _log_task_rep_calc(logger, newChallenge, manager, new_job_listing, pytorch_model, grs_snapshot=grs_snapshot)
 
       try:
           import torch
@@ -343,7 +368,7 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
       logger.log_setup(total_experiment_time, hardware, config)
 
   pytorch_model.cleanup()
-  return (Experiment(newChallenge, manager), filename)
+  return (Experiment(newChallenge, manager, grs_snapshot), filename)
 
 
 # Run a sequence of experiments that share ONE on-chain OpenFLManager so
@@ -566,7 +591,7 @@ def table_with_gas_and_transactions_latex(experiment):
   log("latex_output", "complete round & {:,.0f} & {:.5f} \\ ".format(tot, tot * 20e9 / 1e18))
   log("latex_output", "\\hline\n\\end{tabular}")
 
-def _log_task_rep_calc(logger, challenge, manager, job_listing, pytorch_model):
+def _log_task_rep_calc(logger, challenge, manager, job_listing, pytorch_model, grs_snapshot=None):
     """Read per-participant TaskRepCalc state from the manager contract after
     updateUserTaskReps has fired and log it as the task_rep_calc table.
 
@@ -576,13 +601,12 @@ def _log_task_rep_calc(logger, challenge, manager, job_listing, pytorch_model):
     WAD = 10 ** 18
     task_type = job_listing.get_task_type()
 
-    # getTaskRepDeltaAndGRS returns
-    #   [(address, int256 delta, uint grs, uint positiveVotes, uint totalVotes), ...]
-    # for all participants registered in the challenge contract.
-    trs_raw = challenge.contract.functions.getTaskRepDeltaAndGRS().call()
+    # Use pre-exit snapshot when available; fall back to live contract query.
+    trs_raw = grs_snapshot if grs_snapshot else challenge.contract.functions.getTaskRepDeltaAndGRS().call()
     trs_by_addr = {
         entry[0].lower(): (entry[1], entry[2], entry[3], entry[4])
         for entry in trs_raw
+        if entry[0] != "0x0000000000000000000000000000000000000000"
     }
 
     all_participants = pytorch_model.participants + pytorch_model.disqualified
@@ -610,6 +634,7 @@ def _log_task_rep_calc(logger, challenge, manager, job_listing, pytorch_model):
 
 
 class Experiment:
-  def __init__(self, model, manager):
+  def __init__(self, model, manager, grs_snapshot=None):
     self.model = model
     self.manager = manager
+    self.grs_snapshot = grs_snapshot or []

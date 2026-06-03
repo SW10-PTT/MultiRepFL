@@ -6,7 +6,7 @@ from openfl.utils.config import get_print_config
 config = get_print_config()
 
 # PRITNS ONLY IF IT IS IN ENBALED_TAGES
-ENABLED_TAGS = set(["autorunner"])
+ENABLED_TAGS = set(["autorunner", "setup_env"])
 
 _log_file = None  # file handle set by set_log_file()
 
