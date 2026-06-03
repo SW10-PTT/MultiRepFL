@@ -45,7 +45,7 @@ contract GlobalRepOnlyTest is Test {
     {
         return IOpenFLChallengeTaskRep.TaskRep({
             user: USER,
-            delta: delta,
+            taskRepDelta: delta,
             globalReputationScore: 0,
             positiveVotes: pos,
             totalVotes: tot

@@ -261,7 +261,8 @@ class PytorchModel:
         # coordinate-wise FedAvg in the_merge stays valid (neuron alignment).
         _model.load_state_dict(self.global_model.state_dict())
 
-        optimizer = optim.SGD(_model.parameters(), lr=0.001, momentum=0.9)
+        lr = 0.001 if self.config.dataset == "mnist" else 0.05
+        optimizer = optim.SGD(_model.parameters(), lr=lr, momentum=0.9)
         criterion = nn.CrossEntropyLoss()
 
         l = len(self.participants)
@@ -1141,10 +1142,10 @@ def preload_to_gpu(dataloader, device):
 
 
 # PYTORCH FUNCTIONS
-def train(net, trainloader: torch.utils.data.DataLoader, epochs: int, device: torch.device) -> None:
+def train(net, trainloader: torch.utils.data.DataLoader, epochs: int, device: torch.device, lr: float = 0.001) -> None:
 
     criterion = nn.CrossEntropyLoss()
-    optimizer = torch.optim.SGD(net.parameters(), lr=0.001, momentum=0.9)
+    optimizer = torch.optim.SGD(net.parameters(), lr=lr, momentum=0.9)
 
     scaler = torch.amp.GradScaler(enabled=AMP)
 
@@ -1159,8 +1160,7 @@ def train(net, trainloader: torch.utils.data.DataLoader, epochs: int, device: to
 
             with torch.autocast(device_type=device.type, enabled=AMP):
                 outputs = net(images)
-
-            loss = criterion(outputs, labels)
+                loss = criterion(outputs, labels)
 
             scaler.scale(loss).backward()
             scaler.step(optimizer)
@@ -1261,7 +1261,8 @@ def train_user_proc(user_addr, user_label, model_state, train_ds, val_ds, epochs
     val_loader = DataLoader(val_ds, batch_size=batchsize, shuffle=False,
                             pin_memory=pin_memory)  # TODO: Investigate if this breaks something
 
-    train(model, train_loader, epochs, device)  # Line 285 in original code
+    lr = 0.001 if dataset == "mnist" else 0.01
+    train(model, train_loader, epochs, device, lr=lr)  # Line 285 in original code
     val_loss, val_acc = test(model, val_loader, device)  # Line 286 in original code
 
     # del: Mark for GC

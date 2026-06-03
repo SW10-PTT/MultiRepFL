@@ -25,7 +25,7 @@ contract MockChallenge {
         reps = new IOpenFLChallengeTaskRep.TaskRep[](1);
         reps[0] = IOpenFLChallengeTaskRep.TaskRep({
             user:                 participant,
-            delta:                delta,
+            taskRepDelta:                delta,
             globalReputationScore:uint256(1e18),   // 1 ETH collateral
             positiveVotes:        3,
             totalVotes:           4

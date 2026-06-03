@@ -98,9 +98,9 @@ contract TaskRepCalcTest is Test {
     // ============================================================
 
     function testTransform_zeroDelta_mapsToStakeOverRange() public {
-        // stake=1, reward=10, nrActive=5 -> maxGain = 2*10/5 = 4
-        // range = 5, shifted = 1 -> ContributionScore = 1/5 * WAD = 0.2e18
-        assertEq(h.tTransformDelta(0, 1e18, 10e18, 5), 2e17);
+        // stake=1, reward=10, nrActive=5 -> maxGain = 1*10/5 = 2
+        // range = 3, shifted = 1 -> ContributionScore = 1/3 * WAD ≈ 0.333e18
+        assertEq(h.tTransformDelta(0, 1e18, 10e18, 5), WAD / 3);
     }
 
     function testTransform_atMaxGain_returnsWAD() public {
@@ -124,9 +124,9 @@ contract TaskRepCalcTest is Test {
         assertEq(h.tTransformDelta(0, 1e18, 10e18, 0), WAD);
     }
 
-    function testTransform_at1xAverage_isMidUpperBand() public {
-        // delta = reward/nrActive = 2; with 2x cap range=5, shifted=3 -> 0.6
-        assertEq(h.tTransformDelta(int256(2e18), 1e18, 10e18, 5), 6e17);
+    function testTransform_at1xAverage_clipsToWAD() public {
+        // delta = reward/nrActive = 2; with 1x cap maxGain=2, range=3, shifted=3 -> clips to WAD
+        assertEq(h.tTransformDelta(int256(2e18), 1e18, 10e18, 5), WAD);
     }
 
     // ============================================================
@@ -175,16 +175,16 @@ contract TaskRepCalcTest is Test {
         assertEq(h.tComputeConfidence(0, 0), 0);
     }
 
-    function testConfidence_k1_sZero_oneOverSix() public {
-        assertEq(h.tComputeConfidence(1, 0), WAD / 6);
+    function testConfidence_k1_sZero_oneOverThree() public {
+        assertEq(h.tComputeConfidence(1, 0), WAD / 3);
     }
 
     function testConfidence_largeK_approachesOne() public {
-        assertEq(h.tComputeConfidence(1000, 0), (1000 * WAD) / 1005);
+        assertEq(h.tComputeConfidence(1000, 0), (1000 * WAD) / 1002);
     }
 
     function testConfidence_highVariance_drivesDown() public {
-        uint256 maturity = (10 * WAD) / 15;
+        uint256 maturity = (10 * WAD) / 12;
         uint256 stability = (WAD * WAD) / (WAD + 20 * WAD);
         assertEq(h.tComputeConfidence(10, WAD), (maturity * stability) / WAD);
     }
@@ -212,7 +212,7 @@ contract TaskRepCalcTest is Test {
     // ============================================================
 
     function testContribScore_freshUser_firstTask() public {
-        uint256 Confidence = WAD / 6;
+        uint256 Confidence = WAD / 3;
         uint256 ContributionScore = 5e17;
         uint256 weighted = (Confidence * ContributionScore) / WAD;
         uint256 expected = (N_BLEND * weighted) / WAD;
@@ -297,7 +297,7 @@ contract TaskRepCalcTest is Test {
         IOpenFLChallengeTaskRep.TaskRep memory rep = IOpenFLChallengeTaskRep
             .TaskRep({
                 user: user,
-                delta: 0,
+                taskRepDelta: 0,
                 globalReputationScore: 0,
                 positiveVotes: 5,
                 totalVotes: 5
@@ -318,7 +318,7 @@ contract TaskRepCalcTest is Test {
         IOpenFLChallengeTaskRep.TaskRep memory rep = IOpenFLChallengeTaskRep
             .TaskRep({
                 user: user,
-                delta: 0,
+                taskRepDelta: 0,
                 globalReputationScore: 0,
                 positiveVotes: 0,
                 totalVotes: 0
@@ -411,11 +411,11 @@ contract TaskRepCalcTest is Test {
         TaskType tt = TaskType.MNIST;
         address user = address(0xBEEF);
 
-        // delta=0, stake=1e18, reward=10e18, nrActive=5 -> ContributionScore = 0.2e18
+        // delta=0, stake=1e18, reward=10e18, nrActive=5 -> ContributionScore = WAD/3 ≈ 0.333e18
         IOpenFLChallengeTaskRep.TaskRep memory rep = IOpenFLChallengeTaskRep
             .TaskRep({
                 user: user,
-                delta: 0,
+                taskRepDelta: 0,
                 globalReputationScore: 0,
                 positiveVotes: 0,
                 totalVotes: 0
@@ -429,13 +429,13 @@ contract TaskRepCalcTest is Test {
 
         // k = 1 (first task), seeded E = ContributionScore, F = 0
         assertEq(nrTasks, 1, "task counter incremented");
-        assertEq(storedE, 2e17, "E_1 = ContributionScore");
+        assertEq(storedE, WAD / 3, "E_1 = ContributionScore");
         assertEq(storedF, 0, "F_1 = 0");
 
-        // Confidence_1 = WAD/6, weighted = ContributionScore/6,
-        // K_1 = N_BLEND * ContributionScore/6 / WAD
-        uint256 Confidence = WAD / 6;
-        uint256 weighted = (Confidence * 2e17) / WAD;
+        // Confidence_1 = WAD/3, weighted = ContributionScore/3,
+        // K_1 = N_BLEND * ContributionScore/3 / WAD
+        uint256 Confidence = WAD / 3;
+        uint256 weighted = (Confidence * (WAD / 3)) / WAD;
         uint256 expectedK = (N_BLEND * weighted) / WAD;
         assertEq(storedK, expectedK);
     }
@@ -446,11 +446,11 @@ contract TaskRepCalcTest is Test {
         TaskType tt = TaskType.MNIST;
         address user = address(0xBEEF);
 
-        // Task 1: delta=2e18 -> ContributionScore = 0.6e18
+        // Task 1: delta=2e18, stake=1e18, reward=10e18, nrActive=5 -> shifted=3e18=range -> ContributionScore = WAD
         IOpenFLChallengeTaskRep.TaskRep memory rep1 = IOpenFLChallengeTaskRep
             .TaskRep({
                 user: user,
-                delta: int256(2e18),
+                taskRepDelta: int256(2e18),
                 globalReputationScore: 0,
                 positiveVotes: 0,
                 totalVotes: 0
@@ -461,25 +461,25 @@ contract TaskRepCalcTest is Test {
         uint256 nr1 = manager.getTaskCount(user, tt);
         (uint256 e1, uint256 f1) = manager.getTaskRepCalcState(user, tt);
         assertEq(nr1, 1);
-        assertEq(e1, 6e17);
+        assertEq(e1, WAD);
         assertEq(f1, 0);
 
-        // Task 2: same delta -> same ContributionScore = 0.6e18.
-        // priorRunningCMean=0.6, ContributionScore=0.6 -> newRunningCMean = 0.6 (no movement); Delta=0 -> newM2=0
+        // Task 2: same delta -> same ContributionScore = WAD.
+        // priorRunningCMean=WAD, ContributionScore=WAD -> newRunningCMean = WAD (no movement); Delta=0 -> newM2=0
         h.tApplyOne(rep1, tt, 10e18, 5);
 
         (uint256 k2, , ) = manager.getUserRep(user, tt);
         uint256 nr2 = manager.getTaskCount(user, tt);
         (uint256 e2, uint256 f2) = manager.getTaskRepCalcState(user, tt);
         assertEq(nr2, 2);
-        assertEq(e2, 6e17);
+        assertEq(e2, WAD);
         assertEq(f2, 0);
 
-        // k=2, s=0 -> Confidence = (2/7) * 1 * WAD = 2*WAD/7
-        // weighted = Confidence * 0.6e18 / WAD = (2/7) * 0.6e18 = 12e17/70 ≈ 1.71e17
+        // k=2, s=0 -> Confidence = (2/4) * 1 * WAD = WAD/2
+        // weighted = Confidence * WAD / WAD = WAD/2
         // K2 = 0.8*k1 + 0.2*weighted
-        uint256 Confidence = (2 * WAD) / 7;
-        uint256 weighted = (Confidence * 6e17) / WAD;
+        uint256 Confidence = WAD / 2;
+        uint256 weighted = (Confidence * WAD) / WAD;
         uint256 expectedK = ((WAD - N_BLEND) * k1 + N_BLEND * weighted) / WAD;
         assertEq(k2, expectedK);
     }
@@ -494,7 +494,7 @@ contract TaskRepCalcTest is Test {
         IOpenFLChallengeTaskRep.TaskRep memory good = IOpenFLChallengeTaskRep
             .TaskRep({
                 user: user,
-                delta: int256(4e18),
+                taskRepDelta: int256(4e18),
                 globalReputationScore: 0,
                 positiveVotes: 0,
                 totalVotes: 0
@@ -509,7 +509,7 @@ contract TaskRepCalcTest is Test {
         IOpenFLChallengeTaskRep.TaskRep memory kicked = IOpenFLChallengeTaskRep
             .TaskRep({
                 user: user,
-                delta: -int256(1e18),
+                taskRepDelta: -int256(1e18),
                 globalReputationScore: 0,
                 positiveVotes: 0,
                 totalVotes: 0
@@ -537,7 +537,7 @@ contract TaskRepCalcTest is Test {
         TaskType tt = TaskType.MNIST;
 
         IOpenFLChallengeTaskRep.TaskRep memory rep = IOpenFLChallengeTaskRep
-            .TaskRep({user: user, delta: 0, globalReputationScore: 0, positiveVotes: 0, totalVotes: 0});
+            .TaskRep({user: user, taskRepDelta: 0, globalReputationScore: 0, positiveVotes: 0, totalVotes: 0});
 
         assertEq(manager.getTaskCount(user, tt), 0);
         h.tApplyOne(rep, tt, 10e18, 5);
@@ -553,7 +553,7 @@ contract TaskRepCalcTest is Test {
 
         address user = address(0x5678);
         IOpenFLChallengeTaskRep.TaskRep memory rep = IOpenFLChallengeTaskRep
-            .TaskRep({user: user, delta: 0, globalReputationScore: 0, positiveVotes: 0, totalVotes: 0});
+            .TaskRep({user: user, taskRepDelta: 0, globalReputationScore: 0, positiveVotes: 0, totalVotes: 0});
 
         h.tApplyOne(rep, TaskType.MNIST,   10e18, 5);
         h.tApplyOne(rep, TaskType.MNIST,   10e18, 5);
@@ -570,7 +570,7 @@ contract TaskRepCalcTest is Test {
         address user = address(0x9ABC);
         TaskType tt = TaskType.CIFAR10;
         IOpenFLChallengeTaskRep.TaskRep memory rep = IOpenFLChallengeTaskRep
-            .TaskRep({user: user, delta: int256(2e18), globalReputationScore: 0, positiveVotes: 0, totalVotes: 0});
+            .TaskRep({user: user, taskRepDelta: int256(2e18), globalReputationScore: 0, positiveVotes: 0, totalVotes: 0});
 
         // Apply 10 tasks; TaskRep should increase monotonically towards ~0.6.
         uint256 prevK = 0;
@@ -608,7 +608,7 @@ contract TaskRepCalcTest is Test {
 
         address user = address(0xDEAD);
         IOpenFLChallengeTaskRep.TaskRep memory rep = IOpenFLChallengeTaskRep
-            .TaskRep({user: user, delta: 0, globalReputationScore: 0, positiveVotes: 0, totalVotes: 0});
+            .TaskRep({user: user, taskRepDelta: 0, globalReputationScore: 0, positiveVotes: 0, totalVotes: 0});
 
         gh.tApplyOne(rep, TaskType.MNIST,   10e18, 5);
         gh.tApplyOne(rep, TaskType.CIFAR10, 10e18, 5);

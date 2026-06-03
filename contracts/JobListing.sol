@@ -27,7 +27,7 @@ contract JobListing {
     // ---- TaskRepCalc fixed-point constants (WAD = 1e18) ----
     // Values map 1:1 to the ContribScoreCalc.xlsx workbook:
     //   ALPHA   = M3 = 0.2  (EWMA forgetting factor for mean + variance)
-    //   N_0     = M6 = 5    (maturity offset)
+    //   N_0     = M6 = 2    (maturity offset)
     //   LAMBDA  = M9 = 20   (variance penalty weight; dimensionless on s_k)
     //   N_BLEND = M12 = 0.2 (smoothing on the final ContribScore)
     // STAKE_WAD is hardcoded to 1 ETH for now — should later read the actual
@@ -35,7 +35,7 @@ contract JobListing {
     uint256 internal constant WAD = 1e18;
     uint256 internal constant ALPHA = 2e17;
     uint256 internal constant N_BLEND = 2e17;
-    uint256 internal constant N_0 = 5;
+    uint256 internal constant N_0 = 2;
     uint256 internal constant LAMBDA = 20;
     uint256 internal constant STAKE_WAD = 1e18;
     // EWMA learning rate on the Global Integrity Reputation (GIR).
@@ -46,7 +46,7 @@ contract JobListing {
     // nrActive). 1x flattens top performers (their ContributionScore caps at
     // the equal-share baseline). 2x gives outperformers headroom while keeping
     // the average participant near the middle of [0, WAD]. Tune as needed.
-    uint256 internal constant GAIN_CAP_MULTIPLIER = 2;
+    uint256 internal constant GAIN_CAP_MULTIPLIER = 1;
 
     modifier onlyNotYetRegisteredUsers() {
         require(applicants[msg.sender].addr == address(0), "SAR");

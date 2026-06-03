@@ -242,6 +242,29 @@ class User:
 
     @staticmethod
     def batch_register_for_job(users: list["User"], job: "ConnectionHelper") -> None:
+        import openfl.api.globals as _globals
+        for u in users:
+            fp_now = u.finger_print
+            fp_at_sel = _globals.fp_at_selection.get(u.address)
+            if fp_at_sel is not None and fp_at_sel != fp_now:
+                name = u.partition_spec.name if (u.partition_spec and u.partition_spec.name) else f"User {u.number}"
+                log("replay", f"[fp drift] {name}: selection-time={fp_at_sel[:8]}...  registration-time={fp_now[:8]}...")
+                import json as _json
+                def _fp_data():
+                    return {
+                        "futureAttitude": u.futureAttitude.name,
+                        "attitudeSwitch": u.attitudeSwitch,
+                        "min_collateral": u.min_collateral,
+                        "max_collateral": u.max_collateral,
+                        "data_percent": round(u.data_percent, 8),
+                        "only_labels": sorted(u.only_labels) if u.only_labels is not None else None,
+                        "flip_map": dict(sorted(u.flip_map.items())),
+                        "seed": u.seed,
+                        "noise_scale": None if u.noise_scale is None else round(float(u.noise_scale), 8),
+                        "start_round": None if u.start_round is None else int(u.start_round),
+                        "partition_spec": u.partition_spec.fingerprint_dict() if u.partition_spec is not None else None,
+                    }
+                log("replay", f"  fp_data now: {_json.dumps(_fp_data(), sort_keys=True, separators=(',', ':'))}")
         calls = [(u, u.collateral, bytes.fromhex(u.finger_print)) for u in users]
         results = job.batch_transact("register", calls, [], "User.register_for_job")
         for user, (receipt, _) in zip(users, results):

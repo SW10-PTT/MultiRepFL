@@ -50,9 +50,9 @@ _WAD = 10 ** 18  # all on-chain rep values are WAD-scaled
 # EWMA constants — mirror JobListing.sol exactly.
 _ALPHA = int(2e17)                    # forgetting factor for running mean + variance
 _N_BLEND = int(2e17)                  # smoothing on final ContribScore → TaskRep
-_N_0 = 5                              # maturity offset
+_N_0 = 2                              # maturity offset
 _LAMBDA = 20                          # variance penalty weight
-_GAIN_CAP_MULTIPLIER = 2
+_GAIN_CAP_MULTIPLIER = 1
 _STAKE_WAD = int(1e18)                # collateral (hardcoded to 1 ETH, matching Solidity)
 _INTEGRITY_LEARNING_RATE = int(2e17)  # GIR EWMA learning rate
 
@@ -103,9 +103,12 @@ def getTopN(users: List[User], n: int, task_type: int, q_weight: int = 0, tr_wei
     selected_set = {u.address for u in selected}
 
     # Register every user's finger_print → label so the replay diff can resolve names.
+    # Also snapshot finger_prints at selection time so batch_register_for_job can detect drift.
+    fl_globals.fp_at_selection.clear()
     for _, u in scores:
         label = u.partition_spec.name if (u.partition_spec and u.partition_spec.name) else f"User {u.number}"
         fl_globals.fp_user_labels[fps[u]] = label
+        fl_globals.fp_at_selection[u.address] = fps[u]
 
     log("multirep", f"Selection (top {n} of {len(users)}, task_type={task_type}, q_weight={q_weight / _WAD:.4f}, tr={tr_weight}, gir={gir_weight}):")
     log("multirep", f"  {'Name':<16} {'TR':>8} {'GIR':>8} {'Q':>8} {'Score':>10}  fp[:8]  sel")
@@ -786,16 +789,6 @@ def main():
         log("multirep", f"\n=== Task {i+1}/{len(tasks)}: {task.dataset} (mode={training_mode.value}) ===")
         selected_users = getTopN(all_users, task.number_of_participants, task_type, q_weight, tr_weight, gir_weight)
         scores = {u.address: compute_user_score(u, task_type, q_weight, tr_weight, gir_weight) for u in all_users}
-
-        # Persist Q updates on-chain so the next pre-selection read is current.
-        try:
-            manager.update_q_values_after_selection(
-                [u.address for u in all_users],
-                [u.address for u in selected_users],
-                task_type,
-            )
-        except Exception as e:
-            log("multirep", f"[warn] updateQValuesAfterSelection failed: {e}")
 
         # Build ExperimentConfiguration from ONLY the selected users' specs so
         # contributor counts and the experiment fingerprint are correct.
