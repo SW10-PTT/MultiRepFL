@@ -1551,7 +1551,7 @@ class FLChallenge(ConnectionHelper):
             globals.progress = int(
                 ((roundnr + 1) / rounds) * 100
             )
-            log("round_scoring",f"roundnr: {globals.progress}")
+            log("round_scoring",f"round progress: {globals.progress}")
 
 
         log("round_scoring", f"Number of Shapley Axioms violated: {len(runtime_warnings)}\n")
@@ -1568,9 +1568,6 @@ class FLChallenge(ConnectionHelper):
         self.pytorch_model.runRepo.flush()
 
         self._finalize_reputations()
-
-        self.exit_system()
-
 
         return trs
             

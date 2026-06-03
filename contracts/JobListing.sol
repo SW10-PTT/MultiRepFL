@@ -8,7 +8,7 @@ import "./OpenFLManager.sol";
 interface IOpenFLChallengeTaskRep {
     struct TaskRep {
         address user;
-        int256 delta;
+        int256 taskRepDelta;
         uint globalReputationScore;
         uint256 positiveVotes;
         uint256 totalVotes;
@@ -399,7 +399,7 @@ contract JobListing {
     //
     // Inputs available to the formula (per participant `rep`):
     //   - rep.user                    : participant address
-    //   - rep.delta                   : signed taskRepDelta produced by this task
+    //   - rep.taskRepDelta             : signed taskRepDelta produced by this task
     //                                   (treat as "rep earned for this task")
     //   - rep.globalReputationScore   : participant's current GRS (collateral, not integrity rep)
     //   - tt                          : TaskType (= dataset) bound to this job
@@ -455,7 +455,7 @@ contract JobListing {
         uint256 nrActive,
         bool applyGIR
     ) internal {
-        _applyContribAndStats(rep.user, tt, rep.delta, reward, nrActive);
+        _applyContribAndStats(rep.user, tt, rep.taskRepDelta, reward, nrActive);
         if (applyGIR) {
             _applyIntegrityCalc(
                 rep.user,

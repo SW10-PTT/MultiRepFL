@@ -48,21 +48,22 @@ class PyTorchTrainer(ITestAndTrainer):
         return result
 
     def get_task_rep_delta_and_GRS(self, round, tag, contract: Contract, get_participant_func):
-        data = contract.functions.getTaskRepDeltaAndGRS.call()
+        data = contract.functions.getTaskRepDeltaAndGRS().call()
         # On-chain TaskRep struct is (addr, delta, new_grs, positiveVotes, totalVotes).
-        # Save delta_grs (new - prior) so replay applies it additively — consistent
-        # with the live path where Solidity also starts the prior at WAD for new users.
+        # Store delta_balance = GRS - 1 ETH (the net gain/loss this task, stripping the
+        # collateral that GRS always starts at) so replay accumulates cleanly.
+        _STAKE_WAD = 10 ** 18
         formatted_data = []
         for u in data:
             participant = get_participant_func(u[0])
             if participant is None:
                 continue
             new_grs = u[2]
-            delta_grs = new_grs - participant.balance
+            delta_grs = new_grs - _STAKE_WAD  # net ETH delta for this task
             formatted_data.append((str(participant.guid), u[1], delta_grs, u[3], u[4]))
         if ReplayMode.Record in reuse_runs:
             self.save(round, tag, formatted_data)
-        return data
+        return formatted_data  # callers need the guid-keyed format, not raw on-chain tuples
 
     # NOT TO BE USED WITH MP
     def train_user_proc(

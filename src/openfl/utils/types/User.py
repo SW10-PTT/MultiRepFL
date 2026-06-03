@@ -192,13 +192,19 @@ class User:
         manager: "FLManager",
         ):
         from openfl.contracts.JobListing import JobListing
-        
+
         new_job_listing = JobListing(self, training_specs)
-        
-        if manager.register_joblisting_contract(new_job_listing):
-            return new_job_listing
-        return False
-    
+
+        if not manager.register_joblisting_contract(new_job_listing):
+            raise RuntimeError(
+                "OpenFLManager rejected the JobListing contract (validateJob returned false). "
+                "This is a code-hash mismatch: the deployed JobListing bytecode does not match "
+                "the hash stored on the manager. Re-run `python scripts/compile_contracts.py` "
+                "and restart from a fresh Ganache instance so the manager and templates are "
+                "redeployed with the current bytecode."
+            )
+        return new_job_listing
+
     def deploy_challenge_contract(
         self,
         training_specs: TrainingSpecsChallenge,
@@ -211,10 +217,15 @@ class User:
         from openfl.contracts.FLChallenge import FLChallenge
 
         new_challenge = FLChallenge(self, pyTorch_model, training_specs, joblisting, writer, logger, manager_contract=manager_contract)
-        
-        if joblisting.register_challenge_contract(joblisting.publisher, new_challenge.contract.address):
-            return new_challenge
-        return False
+
+        if not joblisting.register_challenge_contract(joblisting.publisher, new_challenge.contract.address):
+            raise RuntimeError(
+                "JobListing rejected the Challenge contract (ChallengeRegistered returned false). "
+                "This is a code-hash mismatch: the deployed Challenge bytecode does not match "
+                "the hash stored on the JobListing. Re-run `python scripts/compile_contracts.py` "
+                "and restart from a fresh Ganache instance."
+            )
+        return new_challenge
     
     def register_for_job(self, job: "ConnectionHelper"):
         import openfl.api.globals as globals

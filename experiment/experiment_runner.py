@@ -1,6 +1,7 @@
 import hashlib
 import os
 import platform
+from xml.dom import NotFoundErr
 import psutil
 import time
 from pathlib import Path
@@ -262,6 +263,24 @@ def run_experiment(dataset_name: str, experiment_config: ExperimentConfiguration
   except Exception as e:
       log("experiment_end", f"[warn] update_user_task_reps failed: {e}")
 
+  newChallenge.exit_system()
+
+  # Diagnostic: verify task rep written to manager after updateUserTaskReps.
+  try:
+      task_type = new_job_listing.get_task_type()
+      addrs = [u.address for u in participating_users]
+      reps = manager.contract.functions.getGrsAndTrsBatch(addrs, task_type).call()
+      nonzero_tr = [(r[0][:10], r[1]) for r in reps if r[1] > 0]
+      log("experiment_end", f"[diag] task_type={task_type} non-zero TR: {nonzero_tr or 'NONE'}")
+      if participating_users:
+          u = participating_users[0]
+          tr, gir, _ = manager.contract.functions.getUserRep(u.address, task_type).call()
+          k = manager.contract.functions.getTaskCount(u.address, task_type).call()
+          cm, m2 = manager.contract.functions.getTaskRepCalcState(u.address, task_type).call()
+          log("experiment_end", f"[diag] user[0] {u.address[:10]} TR={tr} GIR={gir} k={k} cMean={cm} m2={m2}")
+  except Exception as e:
+      log("experiment_end", f"[diag] diagnostic read failed: {e}")
+
   experiment_end = time.perf_counter()
   total_experiment_time = experiment_end - experiment_start
 
@@ -477,12 +496,12 @@ def visualizeModel(model):
   model.visualize_simulation("figures")
 
 def get_users_from_addresses(users, addresses):
-    found_users = []
-    for user in users:
-        for address in addresses:
-            if user.address == address:
-                found_users.append(user)
-    return found_users
+    users_by_address = {u.address: u for u in users}
+
+    try:
+        return [users_by_address[address] for address in addresses]
+    except KeyError as e:
+        raise NotFoundErr(f"Address {e.args[0]} not found")
 
 def print_transactions(experiment):
   model = experiment.model

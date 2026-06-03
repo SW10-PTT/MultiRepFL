@@ -32,7 +32,7 @@ interface IJobListing {
 interface IOpenFLChallenge {
     struct TaskRep {
         address user;
-        int256 delta;
+        int256 taskRepDelta;
         uint globalReputationScore;
         uint8 roundsParticipated;
     }
@@ -72,6 +72,66 @@ contract OpenFLManager {
         uint128 totalContribScore;
         uint256 qValue;
         uint256 balance;
+        uint256 taskCount;
+    }
+
+    function getUser(
+        address addr,
+        TaskType taskType
+    ) public view returns (TaskSpecificUser memory) {
+        TaskType key = _repKey(taskType);
+        User storage u = users[addr];
+        return TaskSpecificUser({
+            userAddress: addr,
+            taskRep: u.GlobalTaskRep[key],
+            globalIntegrityRep: u.GlobalIntegrityRep,
+            totalContribScore: u.TotalContribScore,
+            qValue: u.QValue[key],
+            balance: u.Balance,
+            taskCount: u.TaskCount[key]
+        });
+    }
+
+    function getUsersBatch(
+        address[] calldata addrs,
+        TaskType taskType
+    ) external view returns (TaskSpecificUser[] memory result) {
+        result = new TaskSpecificUser[](addrs.length);
+        for (uint256 i = 0; i < addrs.length; i++) {
+            result[i] = getUser(addrs[i], taskType);
+        }
+    }
+
+    // Number of real task types (TaskType enum values excluding template=0).
+    // Update in lock-step with the TaskType enum in Types.sol.
+    uint8 internal constant REAL_TASK_TYPE_COUNT = 8;
+
+    // Returns the names of all TaskType enum members in ordinal order
+    // (index 0 = template, index 1 = Images, …).  Python uses this to build
+    // its TaskType IntEnum dynamically so the two definitions stay in sync.
+    function getTaskTypeNames() external pure returns (string[] memory names) {
+        names = new string[](REAL_TASK_TYPE_COUNT + 1);
+        names[0] = "template";
+        names[1] = "Images";
+        names[2] = "Language";
+        names[3] = "Images_clothing";
+        names[4] = "Images_objects";
+        names[5] = "MNIST";
+        names[6] = "CIFAR10";
+        names[7] = "FashionMNIST";
+        names[8] = "IMDB";
+    }
+
+    // Returns one TaskSpecificUser per real TaskType (Images=1 … IMDB=8), in
+    // enum order, for the given user.  Use for logging/graphing where all task
+    // types are needed after every task, not just the one that just ran.
+    function getUserAllTaskTypes(
+        address addr
+    ) external view returns (TaskSpecificUser[] memory result) {
+        result = new TaskSpecificUser[](REAL_TASK_TYPE_COUNT);
+        for (uint8 i = 0; i < REAL_TASK_TYPE_COUNT; i++) {
+            result[i] = getUser(addr, TaskType(i + 1)); // skip template (0)
+        }
     }
 
     function getGrsAndTrsBatch(
@@ -79,18 +139,8 @@ contract OpenFLManager {
         TaskType taskType
     ) external view returns (TaskSpecificUser[] memory result) {
         result = new TaskSpecificUser[](userAddresses.length);
-
         for (uint256 i = 0; i < userAddresses.length; i++) {
-            User storage u = users[userAddresses[i]];
-
-            result[i] = TaskSpecificUser({
-                userAddress: userAddresses[i],
-                taskRep: u.GlobalTaskRep[taskType],
-                globalIntegrityRep: u.GlobalIntegrityRep,
-                totalContribScore: u.TotalContribScore,
-                qValue: u.QValue[taskType],
-                balance: u.Balance
-            });
+            result[i] = getUser(userAddresses[i], taskType);
         }
     }
 
@@ -226,7 +276,7 @@ contract OpenFLManager {
             User storage u = users[tr.user];
 
             // Apply task rep delta (clamp to zero)
-            int256 newTaskRep = int256(u.GlobalTaskRep[taskType]) + tr.delta;
+            int256 newTaskRep = int256(u.GlobalTaskRep[taskType]) + tr.taskRepDelta;
             u.GlobalTaskRep[taskType] = newTaskRep > 0
                 ? uint256(newTaskRep)
                 : 0;

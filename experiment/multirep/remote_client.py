@@ -79,9 +79,16 @@ def _config_to_json_element(experiment_config) -> Any:
 # Public API
 # ---------------------------------------------------------------------------
 
-def start_remote_experiment(experiment_config, name: str | None = None, wanted_runs: int = 1) -> str:
+def start_remote_experiment(
+    experiment_config,
+    fingerprint: str,
+    name: str | None = None,
+    wanted_runs: int = 1,
+) -> str:
     """POST /custom-experiments/start and return the run_id string."""
     config_payload = _config_to_json_element(experiment_config)
+    # Embed the expected fingerprint so auto_runner can validate before running.
+    config_payload["expectedFingerprint"] = fingerprint
 
     body = {
         "wantedRuns": wanted_runs,
@@ -200,7 +207,7 @@ def run_remote_and_setup_replay(
     globals.reuse_runs are configured so that experiment_runner.run_experiment
     will replay the remote result instead of training locally.
     """
-    run_id = start_remote_experiment(experiment_config, name=name, wanted_runs=wanted_runs)
+    run_id = start_remote_experiment(experiment_config, fingerprint=fingerprint, name=name, wanted_runs=wanted_runs)
     poll_run_status(run_id, timeout=timeout)
 
     download_url = fetch_run_download_url(run_id)
