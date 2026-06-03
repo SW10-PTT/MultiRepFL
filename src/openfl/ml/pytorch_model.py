@@ -176,6 +176,10 @@ class PytorchModel:
     def __init__(self, config: ExperimentConfiguration, DATASET, _goodParticipants, _totalParticipants, epochs, batchsize, default_collateral, max_collateral, freerider_noise_scale: float = 1.0, freerider_start_round: int = 3, malicious_start_round: int = 3, malicious_noise_scale: float = 1.0, force_merge_all: bool = False):
         self.replaying = None
         self.config: ExperimentConfiguration = config
+        # Deterministic init so the shared-init broadcast in add_participant reproduces.
+        torch.manual_seed(42)
+        if USE_CUDA:
+            torch.cuda.manual_seed_all(42)
         if config.dataset == "mnist":
             self.global_model = Net_MNIST().to(DEVICE)
         else:
@@ -252,6 +256,10 @@ class PytorchModel:
 
         if USE_CUDA and COMPILE:
             _model = torch.compile(_model, mode="reduce-overhead")
+
+        # Shared init: all participants start from the same global weights so
+        # coordinate-wise FedAvg in the_merge stays valid (neuron alignment).
+        _model.load_state_dict(self.global_model.state_dict())
 
         optimizer = optim.SGD(_model.parameters(), lr=0.001, momentum=0.9)
         criterion = nn.CrossEntropyLoss()
