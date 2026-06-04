@@ -50,17 +50,19 @@ def generate_all(source: Path, out_dir: Path | None = None) -> Path:
         save_figure(mrp.plot_tr_per_task_type(rep),             out_dir / "tr_per_task_type.png")
         save_figure(mrp.plot_tr_per_task_type_by_behavior(rep), out_dir / "tr_per_task_type_by_behavior.png")
 
+        # --- Q split by task type ---
+        save_figure(mrp.plot_q_per_task_type(rep),             out_dir / "q_per_task_type.png")
+        save_figure(mrp.plot_q_per_task_type_by_behavior(rep), out_dir / "q_per_task_type_by_behavior.png")
+
         # --- Per-user reputation evolution ---
         save_figure(mrp.plot_tr_over_tasks(rep),         out_dir / "tr_per_user.png")
         save_figure(mrp.plot_gir_over_tasks(rep),        out_dir / "gir_per_user.png")
-        save_figure(mrp.plot_q_over_tasks(rep),          out_dir / "q_per_user.png")
         save_figure(mrp.plot_balance_over_tasks(rep),    out_dir / "balance_per_user.png")
         save_figure(mrp.plot_confidence_over_tasks(rep), out_dir / "confidence_per_user.png")
 
         # --- Group-level means ---
         save_figure(mrp.plot_tr_by_behavior(rep),        out_dir / "tr_by_behavior.png")
         save_figure(mrp.plot_gir_by_behavior(rep),       out_dir / "gir_by_behavior.png")
-        save_figure(mrp.plot_q_by_behavior(rep),         out_dir / "q_by_behavior.png")
         save_figure(mrp.plot_balance_by_behavior(rep),   out_dir / "balance_by_behavior.png")
 
         # --- Selection analysis ---
@@ -71,7 +73,7 @@ def generate_all(source: Path, out_dir: Path | None = None) -> Path:
 
     # --- Per-task accuracy ---
     if not session.global_accuracy.empty:
-        save_figure(mrp.plot_accuracy_per_round_per_task(session.global_accuracy), out_dir / "accuracy_per_round.png")
+        save_figure(mrp.plot_accuracy_per_round_per_task(session.global_accuracy), out_dir / "task_accuracy_curves.png")
         save_figure(mrp.plot_final_accuracy_per_task(session.global_accuracy),     out_dir / "task_final_accuracy.png")
     else:
         # Fall back to extracting from embedded run_data (older session format)

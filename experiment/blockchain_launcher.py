@@ -81,14 +81,18 @@ def _install_cleanup_handlers() -> None:
     signal.signal(signal.SIGTERM, _sigterm_handler)
 
 
+_ACCOUNT_BALANCE_ETH = 100_000_000
+
 def _build_cmd(mode: str, port: int, tmpdir: str | None) -> list[str]:
     if mode == "anvil":
-        return ["anvil", "--accounts", str(_NUM_ACCOUNTS), "--port", str(port)]
+        return ["anvil", "--accounts", str(_NUM_ACCOUNTS), "--port", str(port),
+                "--balance", str(_ACCOUNT_BALANCE_ETH)]
     # ganache — try modern ganache (v7+) first, fall back to legacy ganache-cli
     if shutil.which("ganache"):
         return [
             "ganache",
             f"--wallet.totalAccounts={_NUM_ACCOUNTS}",
+            f"--wallet.defaultBalance={_ACCOUNT_BALANCE_ETH}",
             f"--server.port={port}",
             f"--database.dbPath={tmpdir}",
         ]
@@ -96,6 +100,7 @@ def _build_cmd(mode: str, port: int, tmpdir: str | None) -> list[str]:
         return [
             "ganache-cli",
             "--accounts", str(_NUM_ACCOUNTS),
+            "--defaultBalanceEther", str(_ACCOUNT_BALANCE_ETH),
             "--port", str(port),
             "--db", tmpdir,
         ]

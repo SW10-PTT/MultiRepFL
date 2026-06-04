@@ -140,6 +140,7 @@ def plot_balance_over_tasks(rep: pd.DataFrame) -> plt.Figure:
     100 ETH baseline).  Shift all rows by _BALANCE_INITIAL so the y-axis reads
     as absolute ETH balance, then prepend a synthetic row at 100 ETH for t=0.
     """
+    rep = _drop_inactive(rep)
     rep = rep.copy()
     rep["balance_post"] = rep["balance_post"] + _BALANCE_INITIAL
     rep = _with_round_zero(rep, {"balance_post": _BALANCE_INITIAL})
@@ -159,15 +160,17 @@ def plot_balance_over_tasks(rep: pd.DataFrame) -> plt.Figure:
 
 
 def plot_confidence_over_tasks(rep: pd.DataFrame) -> plt.Figure:
-    """Confidence score for users with participation history, over task index.
+    """Confidence score for every user over task index.
 
-    Only tasks where confidence data was recorded are shown (non-cached tasks
-    and cached tasks after the first non-cached task for each user).
-    Users with k=0 across all tasks are omitted (no history yet).
+    Tasks with no confidence data (non-selected users, cached tasks) are treated
+    as confidence=0 so the full timeline is visible.
     """
+    rep = _drop_inactive(rep)
+    rep = _with_round_zero(rep, {"confidence": 0.0})
+    rep = rep.copy()
+    rep["confidence"] = rep["confidence"].fillna(0.0)
     fig, ax = plt.subplots(figsize=(11, 4))
-    has_history = rep[rep["confidence"].notna() & rep["k"].notna() & (rep["k"] > 0)]
-    for (name, behavior), grp in has_history.groupby(["user_name", "behavior"]):
+    for (name, behavior), grp in rep.groupby(["user_name", "behavior"]):
         grp = grp.sort_values("task_index")
         color = BEHAVIOR_COLORS.get(behavior, "#888")
         ax.plot(grp["task_index"], grp["confidence"], color=color, linewidth=_LW, alpha=0.7)
@@ -187,21 +190,18 @@ def plot_confidence_over_tasks(rep: pd.DataFrame) -> plt.Figure:
 # ---------------------------------------------------------------------------
 
 def plot_tr_by_behavior(rep: pd.DataFrame) -> plt.Figure:
-    """Mean ± std TR per behavior group over task index."""
-    return _plot_metric_by_behavior(rep, "tr_post", "Task Reputation (TR)")
+    """Mean ± std TR per behavior group over task index. Absolute TR for the task's task-type."""
+    return _plot_metric_by_behavior(rep, "tr_post", "Task Reputation (TR)", y_min_fill=0.0)
 
 
 def plot_gir_by_behavior(rep: pd.DataFrame) -> plt.Figure:
     """Mean ± std GIR per behavior group over task index."""
-    return _plot_metric_by_behavior(rep, "gir_post", "Global Integrity Reputation (GIR)")
+    return _plot_metric_by_behavior(rep, "gir_post", "Global Integrity Reputation (GIR)", y_min_fill=0.0)
 
 
 def plot_q_by_behavior(rep: pd.DataFrame) -> plt.Figure:
-    """Mean ± std Q-value per behavior group over task index.
-
-    Q is first meaningful after selection 0; no synthetic zero row is prepended.
-    """
-    return _plot_metric_by_behavior(rep, "q_post", "Q-value", add_zero_row=False)
+    """Mean ± std Q-value per behavior group over task index."""
+    return _plot_metric_by_behavior(rep, "q_post", "Q-value")
 
 
 def plot_balance_by_behavior(rep: pd.DataFrame) -> plt.Figure:
@@ -215,7 +215,8 @@ def plot_balance_by_behavior(rep: pd.DataFrame) -> plt.Figure:
     return _plot_metric_by_behavior(rep, "balance_post", "Balance (ETH)", initial_val=_BALANCE_INITIAL)
 
 
-def _plot_metric_by_behavior(rep: pd.DataFrame, col: str, ylabel: str, initial_val: float = 0.0, add_zero_row: bool = True) -> plt.Figure:
+def _plot_metric_by_behavior(rep: pd.DataFrame, col: str, ylabel: str, initial_val: float = 0.0, add_zero_row: bool = True, y_min_fill: float | None = None) -> plt.Figure:
+    rep = _drop_inactive(rep)
     if add_zero_row:
         rep = _with_round_zero(rep, {col: initial_val})
     fig, ax = plt.subplots(figsize=(9, 4))
@@ -229,9 +230,12 @@ def _plot_metric_by_behavior(rep: pd.DataFrame, col: str, ylabel: str, initial_v
         color = BEHAVIOR_COLORS.get(behavior, "#888")
         label = BEHAVIOR_LABELS.get(behavior, behavior)
         ax.plot(grp["task_index"], grp["mean"], color=color, linewidth=_LW, label=label)
+        lower = grp["mean"] - grp["std"].fillna(0)
+        if y_min_fill is not None:
+            lower = lower.clip(lower=y_min_fill)
         ax.fill_between(
             grp["task_index"],
-            grp["mean"] - grp["std"].fillna(0),
+            lower,
             grp["mean"] + grp["std"].fillna(0),
             alpha=_DEFAULT_ALPHA_FILL, color=color,
         )
@@ -251,6 +255,7 @@ def _plot_metric_by_behavior(rep: pd.DataFrame, col: str, ylabel: str, initial_v
 
 def plot_selection_frequency(rep: pd.DataFrame) -> plt.Figure:
     """Bar chart: how many tasks each user was selected for."""
+    rep = _drop_inactive(rep)
     counts = (
         rep[rep["was_selected"]]
         .groupby(["user_name", "behavior"])
@@ -274,6 +279,7 @@ def plot_selection_frequency(rep: pd.DataFrame) -> plt.Figure:
 
 def plot_selection_heatmap(rep: pd.DataFrame) -> plt.Figure:
     """Heatmap: user × task_index, shaded by whether the user was selected."""
+    rep = _drop_inactive(rep)
     pivot = rep.pivot_table(index="user_name", columns="task_index", values="was_selected", aggfunc="max")
     # sort rows by behavior then name for visual grouping
     order = (
@@ -305,11 +311,8 @@ def plot_selection_heatmap(rep: pd.DataFrame) -> plt.Figure:
 # ---------------------------------------------------------------------------
 
 def plot_selection_score_over_tasks(rep: pd.DataFrame) -> plt.Figure:
-    """Selection score for every user over tasks, marking selected tasks.
-
-    Selection scores are recorded from the first task onwards (no synthetic
-    zero row needed — the data already starts at the initial state).
-    """
+    """Selection score for every user over tasks, marking selected tasks."""
+    rep = _drop_inactive(rep)
     fig, ax = plt.subplots(figsize=(11, 4))
     for (name, behavior), grp in rep.groupby(["user_name", "behavior"]):
         grp = grp.sort_values("task_index")
@@ -329,6 +332,7 @@ def plot_selection_score_over_tasks(rep: pd.DataFrame) -> plt.Figure:
 
 def plot_score_vs_tr(rep: pd.DataFrame) -> plt.Figure:
     """Scatter: selection_score vs tr_pre, coloured by behavior."""
+    rep = _drop_inactive(rep)
     fig, ax = plt.subplots(figsize=(7, 5))
     for behavior, grp in rep.groupby("behavior"):
         color = BEHAVIOR_COLORS.get(behavior, "#888")
@@ -360,6 +364,7 @@ def plot_tr_per_task_type(rep: pd.DataFrame) -> plt.Figure:
     Requires the ``tr_all_post`` column (dict keyed by task-type int).
     Falls back to a message if the column is absent (old session format).
     """
+    rep = _drop_inactive(rep)
     if "tr_all_post" not in rep.columns:
         fig, ax = plt.subplots()
         ax.text(0.5, 0.5, "tr_all_post not available — re-run to populate",
@@ -414,6 +419,7 @@ def plot_tr_per_task_type(rep: pd.DataFrame) -> plt.Figure:
 
 def plot_tr_per_task_type_by_behavior(rep: pd.DataFrame) -> plt.Figure:
     """Mean ± std TR per behavior group, one subplot per task type."""
+    rep = _drop_inactive(rep)
     if "tr_all_post" not in rep.columns:
         fig, ax = plt.subplots()
         ax.text(0.5, 0.5, "tr_all_post not available — re-run to populate",
@@ -458,6 +464,110 @@ def plot_tr_per_task_type_by_behavior(rep: pd.DataFrame) -> plt.Figure:
         ax.set_xlabel("Task")
         ax.set_ylabel("Task Reputation (TR)")
         ax.set_ylim(0, 1.05)
+        ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+        ax.grid(True, alpha=0.3)
+
+    axes[-1].legend(title="Behavior")
+    fig.tight_layout()
+    return fig
+
+
+def plot_q_per_task_type(rep: pd.DataFrame) -> plt.Figure:
+    """One subplot per known task type showing each user's Q-value over tasks."""
+    rep = _drop_inactive(rep)
+    if "q_all_post" not in rep.columns:
+        fig, ax = plt.subplots()
+        ax.text(0.5, 0.5, "q_all_post not available — re-run to populate",
+                ha="center", va="center", transform=ax.transAxes, color="#888")
+        return fig
+
+    all_tts = sorted({
+        tt
+        for d in rep["q_all_post"].dropna()
+        if isinstance(d, dict)
+        for tt in d
+        if tt in _TASK_TYPES_OF_INTEREST
+    })
+    if not all_tts:
+        fig, ax = plt.subplots()
+        ax.text(0.5, 0.5, "No Q data in q_all_post", ha="center", va="center", transform=ax.transAxes)
+        return fig
+
+    rep = _with_round_zero(rep, {"q_all_post": {tt: 0.0 for tt in all_tts}})
+
+    ncols = len(all_tts)
+    fig, axes = plt.subplots(1, ncols, figsize=(9 * ncols, 4), sharey=True)
+    if ncols == 1:
+        axes = [axes]
+
+    for ax, tt in zip(axes, all_tts):
+        for (name, behavior), grp in rep.groupby(["user_name", "behavior"]):
+            grp = grp.sort_values("task_index")
+            q_vals = grp["q_all_post"].apply(
+                lambda d: d.get(tt) if isinstance(d, dict) else None
+            )
+            mask = q_vals.notna()
+            if not mask.any():
+                continue
+            color = BEHAVIOR_COLORS.get(behavior, "#888")
+            ax.plot(grp["task_index"][mask], q_vals[mask],
+                    color=color, linewidth=_LW, alpha=0.7)
+
+        ax.set_title(TASK_TYPE_LABELS.get(tt, f"TaskType {tt}"))
+        ax.set_xlabel("Task")
+        ax.set_ylabel("Q-value")
+        ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+        ax.grid(True, alpha=0.3)
+
+    _add_behavior_legend(axes[-1])
+    fig.tight_layout()
+    return fig
+
+
+def plot_q_per_task_type_by_behavior(rep: pd.DataFrame) -> plt.Figure:
+    """Mean ± std Q-value per behavior group, one subplot per task type."""
+    rep = _drop_inactive(rep)
+    if "q_all_post" not in rep.columns:
+        fig, ax = plt.subplots()
+        ax.text(0.5, 0.5, "q_all_post not available — re-run to populate",
+                ha="center", va="center", transform=ax.transAxes, color="#888")
+        return fig
+
+    all_tts = sorted({
+        tt
+        for d in rep["q_all_post"].dropna()
+        if isinstance(d, dict)
+        for tt in d
+        if tt in _TASK_TYPES_OF_INTEREST
+    })
+    if not all_tts:
+        fig, ax = plt.subplots()
+        ax.text(0.5, 0.5, "No data", ha="center", va="center", transform=ax.transAxes)
+        return fig
+
+    rep = _with_round_zero(rep, {"q_all_post": {tt: 0.0 for tt in all_tts}})
+
+    ncols = len(all_tts)
+    fig, axes = plt.subplots(1, ncols, figsize=(9 * ncols, 4), sharey=True)
+    if ncols == 1:
+        axes = [axes]
+
+    for ax, tt in zip(axes, all_tts):
+        col = rep["q_all_post"].apply(lambda d: d.get(tt) if isinstance(d, dict) else None)
+        sub = rep.assign(_q=col).dropna(subset=["_q"])
+        agg = sub.groupby(["behavior", "task_index"])["_q"].agg(["mean", "std"]).reset_index()
+        for behavior, grp in agg.groupby("behavior"):
+            grp = grp.sort_values("task_index")
+            color = BEHAVIOR_COLORS.get(behavior, "#888")
+            label_b = BEHAVIOR_LABELS.get(behavior, behavior)
+            ax.plot(grp["task_index"], grp["mean"], color=color, linewidth=_LW, label=label_b)
+            ax.fill_between(grp["task_index"],
+                            grp["mean"] - grp["std"].fillna(0),
+                            grp["mean"] + grp["std"].fillna(0),
+                            alpha=_DEFAULT_ALPHA_FILL, color=color)
+        ax.set_title(TASK_TYPE_LABELS.get(tt, f"TaskType {tt}"))
+        ax.set_xlabel("Task")
+        ax.set_ylabel("Q-value")
         ax.xaxis.set_major_locator(MaxNLocator(integer=True))
         ax.grid(True, alpha=0.3)
 

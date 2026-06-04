@@ -196,9 +196,10 @@ def extract_and_register_runrepo(archive_path: Path, dest_dir: Path) -> Path:
     with tarfile.open(archive_path, "r:gz") as tar:
         tar.extractall(dest_dir)
 
-    # Point repo_dir at the inner run folder (the folder inside the tarball)
-    children = list(dest_dir.iterdir())
-    run_dir = children[0] if len(children) == 1 and children[0].is_dir() else dest_dir
+    # Point repo_dir at the inner run folder (the folder inside the tarball).
+    # Ignore any files already in dest_dir (e.g. result.tar.gz) — only look at subdirs.
+    subdirs = [c for c in dest_dir.iterdir() if c.is_dir()]
+    run_dir = subdirs[0] if len(subdirs) == 1 else dest_dir
 
     log("remote_client", f"Run trace extracted to {run_dir}")
 
