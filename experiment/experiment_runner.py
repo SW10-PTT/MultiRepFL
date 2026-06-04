@@ -123,11 +123,31 @@ def _log_chain_applicant_scores(users: List[User], job_listing, experiment_confi
       pass
 
 
+def _seed_manager_rep_state(manager, rep_state: dict, task_type: int) -> None:
+  """Apply prior-session rep state to a freshly deployed manager.
+
+  rep_state maps address → {tr, gir, k, c_mean, m2} (all WAD ints).
+  Must be called after manager.init() but before job listing deploy so that
+  applicant scores are read with the correct TR/GIR values.
+  """
+  _WAD = 1e18
+  for addr, s in rep_state.items():
+      manager.set_user_task_rep(addr, task_type, s["tr"])
+      manager.set_task_rep_calc_state(addr, task_type, s["c_mean"], s["m2"])
+      manager.set_task_count(addr, task_type, s["k"])
+      manager.set_user_integrity_rep(addr, s["gir"])
+      if s.get("q", 0):
+          manager.set_q_value(addr, task_type, s["q"])
+      log("setup", f"[rep_state] seeded {addr[:10]}... tr={s['tr']/_WAD:.4f} gir={s['gir']/_WAD:.4f} q={s.get('q',0)/_WAD:.4f} k={s['k']} task_type={task_type}")
+  log("setup", f"[rep_state] seeded {len(rep_state)} users into fresh manager")
+
+
 def select_participants_for_task(
     dataset_name: str,
     exp_config: ExperimentConfiguration,
     prebuilt_users: List[User] = None,
     prebuilt_manager=None,
+    initial_rep_state: dict = None,
 ) -> _SelectionState:
   """Deploy job listing, register all users, run contract selection.
 
@@ -186,6 +206,11 @@ def select_participants_for_task(
   else:
       manager = prebuilt_manager
   manager.pytorch_model = pytorch_model
+
+  if initial_rep_state and prebuilt_manager is None:
+      from openfl.utils.types.TrainingSpecsJobListing import TaskType as _TaskType
+      _task_type = int(_TaskType.from_dataset_name(dataset_name))
+      _seed_manager_rep_state(manager, initial_rep_state, _task_type)
 
   training_specs = exp_config.get_training_specs(manager.contract.address, pytorch_model.get_global_model_hash())
   new_job_listing: JobListing = publisher.deploy_joblisting_contract(training_specs, manager)
@@ -415,9 +440,13 @@ def run_experiment(
     path=None,
     prebuilt_users: List[User] = None,
     prebuilt_manager=None,
+    initial_rep_state: dict = None,
 ):
   """Thin wrapper: select participants via the contract, then train/replay."""
-  state = select_participants_for_task(dataset_name, experiment_config, prebuilt_users, prebuilt_manager)
+  state = select_participants_for_task(
+      dataset_name, experiment_config, prebuilt_users, prebuilt_manager,
+      initial_rep_state=initial_rep_state,
+  )
   fingerprint = experiment_config.get_finger_print(state.selected_users)
   return run_experiment_from_selection(state, experiment_config, fingerprint, writer, logger, path)
 

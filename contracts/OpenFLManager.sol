@@ -420,6 +420,23 @@ contract OpenFLManager {
         users[user].TaskCount[key] += 1;
     }
 
+    function setTaskCount(address user, TaskType taskType, uint256 count) external {
+        require(
+            validJobs[msg.sender] || msg.sender == publisher,
+            "OFLM: caller not valid job or publisher"
+        );
+        TaskType key = _repKey(taskType);
+        users[user].TaskCount[key] = count;
+    }
+
+    function setQValue(address user, TaskType taskType, uint256 value) external {
+        require(
+            validJobs[msg.sender] || msg.sender == publisher,
+            "OFLM: caller not valid job or publisher"
+        );
+        users[user].QValue[_repKey(taskType)] = value;
+    }
+
     event UserIntegrityRepUpdated(
         address indexed user,
         uint256 oldValue,

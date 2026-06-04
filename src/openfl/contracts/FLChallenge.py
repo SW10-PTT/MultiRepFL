@@ -663,8 +663,8 @@ class FLChallenge(ConnectionHelper):
         try:
             records = self.get_task_rep_records()
             task_type = self.contract.functions.taskType().call()
-            tx = self.build_tx(self._publisher.address, self.manager_contract.address)
-            self.manager_contract.functions.applyPrecomputedTaskReps(
+            tx = self.build_tx(self._publisher.address, self.manager_contract.contract.address)
+            self.manager_contract.contract.functions.applyPrecomputedTaskReps(
                 records, task_type
             ).transact(tx)
             log("setup_contracts", f"TR applied to manager: {len(records)} records task_type={task_type}")

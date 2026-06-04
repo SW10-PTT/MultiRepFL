@@ -1,0 +1,150 @@
+{
+  "_doc": [
+    "12-user partition designed to exercise every graph feature in a short run.",
+    "",
+    "User groups:",
+    "  Balanced (2): Honest on both tasks, even label coverage — solid baseline reps.",
+    "  MNIST Experts (2): Honest + broad labels on MNIST, only 2 CIFAR labels — TR[MNIST] grows, TR[CIFAR] stagnates.",
+    "  CIFAR Experts (2): Mirror of above — TR[CIFAR] grows, TR[MNIST] stagnates.",
+    "  Cross-task (2): Honest on one dataset, Malicious on the other — shows asymmetric GIR/TR.",
+    "  Malicious (1): Malicious on both — punished, balance drops, GIR collapses.",
+    "  Free-rider (1): Free-rides on both — same treatment as Malicious.",
+    "  Passive (2): Honest but low coverage — rarely selected, Q builds up over tasks.",
+    "",
+    "Select 5 of 12 per task so unselected users accumulate Q patience."
+  ],
+  "presets": [
+    {
+      "id": "a1000000-0000-0000-0000-000000000001",
+      "name": "Balanced A",
+      "datasets": {
+        "MNIST": {
+          "behavior": "Honest",
+          "data_percent": 8.0
+        },
+        "CIFAR-10": {
+          "behavior": "Honest",
+          "data_percent": 8.0
+        }
+      }
+    },
+    {
+      "id": "a1000000-0000-0000-0000-000000000002",
+      "name": "Balanced B",
+      "datasets": {
+        "MNIST": {
+          "behavior": "Honest",
+          "data_percent": 8.0
+        },
+        "CIFAR-10": {
+          "behavior": "Honest",
+          "data_percent": 8.0
+        }
+      }
+    },
+    {
+      "id": "a1000000-0000-0000-0000-000000000003",
+      "name": "MNIST Expert 1",
+      "datasets": {
+        "MNIST": {
+          "behavior": "Honest",
+          "data_percent": 10.0,
+          "only_labels": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5
+          ]
+        },
+        "CIFAR-10": {
+          "behavior": "Honest",
+          "data_percent": 3.0,
+          "only_labels": [
+            8,
+            9
+          ]
+        }
+      }
+    },
+    {
+      "id": "a1000000-0000-0000-0000-000000000004",
+      "name": "MNIST Expert 2",
+      "datasets": {
+        "MNIST": {
+          "behavior": "Honest",
+          "data_percent": 10.0,
+          "only_labels": [
+            4,
+            5,
+            6,
+            7,
+            8,
+            9
+          ]
+        },
+        "CIFAR-10": {
+          "behavior": "Honest",
+          "data_percent": 3.0,
+          "only_labels": [
+            0,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": "a1000000-0000-0000-0000-000000000005",
+      "name": "CIFAR Expert 1",
+      "datasets": {
+        "MNIST": {
+          "behavior": "Honest",
+          "data_percent": 3.0,
+          "only_labels": [
+            0,
+            1
+          ]
+        },
+        "CIFAR-10": {
+          "behavior": "Honest",
+          "data_percent": 10.0,
+          "only_labels": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5
+          ]
+        }
+      }
+    },
+    {
+      "id": "a1000000-0000-0000-0000-000000000006",
+      "name": "CIFAR Expert 2",
+      "datasets": {
+        "MNIST": {
+          "behavior": "Honest",
+          "data_percent": 3.0,
+          "only_labels": [
+            8,
+            9
+          ]
+        },
+        "CIFAR-10": {
+          "behavior": "Honest",
+          "data_percent": 10.0,
+          "only_labels": [
+            4,
+            5,
+            6,
+            7,
+            8,
+            9
+          ]
+        }
+      }
+    }
+  ]
+}

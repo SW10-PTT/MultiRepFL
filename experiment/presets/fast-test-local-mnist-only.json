@@ -13,8 +13,8 @@
     "  Accuracy curves visible per task (run_data embedded in session pickle)."
   ],
   "name": "fast-test-local",
-  "partition_file": "experiment/partitions/fast-test-5-users.json",
-  "q_weight": 0.5,
+  "partition_file": "experiment/partitions/fast-test-6-users.json",
+  "q_weight": 0.2,
   "tr_weight": 7,
   "gir_weight": 3,
   "training_mode": "remote",
@@ -38,7 +38,7 @@
       "freerider_noise_scale": 0.1
     },
     {
-      "dataset": "CIFAR-10",
+      "dataset": "MNIST",
       "minimum_rounds": 3,
       "epochs": 1,
       "number_of_participants": 5,
@@ -62,7 +62,7 @@
       "freerider_noise_scale": 0.1
     },
     {
-      "dataset": "CIFAR-10",
+      "dataset": "MNIST",
       "minimum_rounds": 3,
       "epochs": 1,
       "number_of_participants": 5,
@@ -86,7 +86,7 @@
       "freerider_noise_scale": 0.1
     },
     {
-      "dataset": "CIFAR-10",
+      "dataset": "MNIST",
       "minimum_rounds": 3,
       "epochs": 1,
       "number_of_participants": 5,
@@ -110,7 +110,7 @@
       "freerider_noise_scale": 0.1
     },
     {
-      "dataset": "CIFAR-10",
+      "dataset": "MNIST",
       "minimum_rounds": 3,
       "epochs": 1,
       "number_of_participants": 5,
@@ -134,7 +134,7 @@
       "freerider_noise_scale": 0.1
     },
     {
-      "dataset": "CIFAR-10",
+      "dataset": "MNIST",
       "minimum_rounds": 3,
       "epochs": 1,
       "number_of_participants": 5,

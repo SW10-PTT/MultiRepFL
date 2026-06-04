@@ -259,6 +259,30 @@ class FLManager(ConnectionHelper):
             task_type,
         )
 
+    def set_q_value(self, user_address: str, task_type: int, value: int) -> None:
+        self.transact(
+            "setQValue",
+            self.publisher,
+            0,
+            [],
+            "manager.setQValue",
+            Web3.to_checksum_address(user_address),
+            task_type,
+            value,
+        )
+
+    def set_task_count(self, user_address: str, task_type: int, count: int) -> None:
+        self.transact(
+            "setTaskCount",
+            self.publisher,
+            0,
+            [],
+            "manager.setTaskCount",
+            Web3.to_checksum_address(user_address),
+            task_type,
+            count,
+        )
+
     def set_user_balance(self, user_address: str, new_value: int) -> None:
         self.transact(
             "setUserBalance",

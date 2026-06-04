@@ -61,7 +61,7 @@ _INTEGRITY_LEARNING_RATE = int(2e17)  # GIR EWMA learning rate
 # Preset file — fill in before running
 # ---------------------------------------------------------------------------
 
-preset_file = "experiment/presets/fast-test-local.json"
+preset_file = "experiment/presets/fast-test-local-mnist-only.json"
 # preset_file = "experiment/presets/EXP-multirep-mixed-distribution-5-task-dataset-switch copy.json"
 
 # ---------------------------------------------------------------------------
@@ -524,6 +524,27 @@ def _upload_run(fingerprint: str, filename: Path, config: str) -> None:
 # ---------------------------------------------------------------------------
 fallback_count = 0
 
+def _collect_rep_state(users: List[User], manager, task_type: int) -> dict:
+    """Read current TR/GIR/k/cMean/M2 from the manager for each user.
+
+    Returns {guid: {tr, gir, k, c_mean, m2}} keyed by GUID so the remote
+    worker can match users by GUID (addresses differ across machines).
+    Users without a GUID are skipped.
+    """
+    state = {}
+    for u in users:
+        if not u.guid:
+            continue
+        try:
+            tr, gir, q = manager.contract.functions.getUserRep(u.address, task_type).call()
+            c_mean, m2 = manager.get_task_rep_calc_state(u.address, task_type)
+            k = manager.contract.functions.getTaskCount(u.address, task_type).call()
+            state[u.guid] = {"tr": tr, "gir": gir, "q": q, "k": k, "c_mean": c_mean, "m2": m2}
+        except Exception as e:
+            log("multirep", f"[warn] _collect_rep_state failed for {u.guid}: {e}")
+    return state
+
+
 def _rep_internals_after_task(users: List[User], manager, task_type: int) -> tuple[dict, dict, dict, dict]:
     """Return (confidence, k, running_c_mean, m2) dicts keyed by user address.
 
@@ -551,12 +572,12 @@ def _rep_internals_after_task(users: List[User], manager, task_type: int) -> tup
 
 
 def _run_preset(preset: MultirepRunConfig, exp_config, selection_state, fingerprint, experiment_name,
-                writer=None, logger=None, path=None, session_state=None):
+                task_type=0, writer=None, logger=None, path=None, session_state=None):
     from experiment.multirep.training_mode import TrainingMode
 
     if preset.training_mode == TrainingMode.REMOTE:
         return _run_remote(preset, exp_config, selection_state, fingerprint, experiment_name,
-                           writer=writer, logger=logger, path=path, session_state=session_state)
+                           task_type=task_type, writer=writer, logger=logger, path=path, session_state=session_state)
 
     # LOCAL
     fl_globals.reuse_runs = ReplayMode.Record
@@ -567,7 +588,7 @@ def _run_preset(preset: MultirepRunConfig, exp_config, selection_state, fingerpr
 
 
 def _run_remote(preset: MultirepRunConfig, exp_config: ExperimentConfiguration, selection_state, fingerprint: str, experiment_name,
-                writer=None, logger=None, path=None, session_state=None):
+                task_type=0, writer=None, logger=None, path=None, session_state=None):
     """Download a remote run tarball and replay locally, or fall back to LOCAL."""
     from experiment.multirep.remote_client import (
         run_remote_and_setup_replay, fetch_run_download_url,
@@ -594,11 +615,14 @@ def _run_remote(preset: MultirepRunConfig, exp_config: ExperimentConfiguration, 
             archive = download_tarball(download_url, dest)
             extract_and_register_runrepo(archive, dest)
         else:
+            rep_state = _collect_rep_state(selection_state.selected_users, selection_state.manager, task_type)
+            log("multirep_remote", f"[rep_state] shipping state for {len(rep_state)} users (task_type={task_type}, run fingerprint={fingerprint[:8]}...): { {g: {k: v for k,v in s.items()} for g,s in rep_state.items()} }")
             _, new_experiment_id = run_remote_and_setup_replay(
                 exp_config,
                 fingerprint=fingerprint,
                 name=experiment_name or f"multirep-{preset.dataset}",
                 experiment_id=session_state.get("experiment_id") if session_state else None,
+                initial_rep_state=rep_state,
             )
             if session_state is not None:
                 session_state["experiment_id"] = new_experiment_id
@@ -837,6 +861,7 @@ def main(auto_graphs: bool = False):
         # ------------------------------------------------------------------ #
         run_result = _run_preset(
             task, exp_config, selection_state, fingerprint, experiment_name,
+            task_type=task_type,
             writer=writer, logger=task_logger, path=task_csv_path,
             session_state=session_state,
         )

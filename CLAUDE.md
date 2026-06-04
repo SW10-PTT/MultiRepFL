@@ -67,6 +67,27 @@ forge test
 
 ## Architecture
 
+### multirep / autorunner Distributed Flow
+
+`multirep.py` is the **single source of truth**. It owns the canonical blockchain and drives the multi-task session loop.
+
+`auto_runner.py` workers execute individual tasks on remote machines, each with their own local blockchain instance. They are stateless between tasks — their blockchain is ephemeral.
+
+**Task dispatch (multirep → autorunner):**
+1. `multirep.py` selects participants for a task and reads their current rep state from its blockchain via `_collect_rep_state` → `{guid: {tr, gir, k, c_mean, m2}}`.
+2. That rep state is embedded in the task config JSON sent to the autorunner API (`/runs/local` or equivalent) as `initialRepState`.
+3. Autorunner seeds its local blockchain with that state via `_seed_manager_rep_state` before running the experiment.
+
+**Result write-back (autorunner → multirep):**
+4. Autorunner runs the experiment and uploads the result tarball.
+5. `multirep.py` downloads the result (replay path) and calls `_apply_trs_reps`, which recomputes and writes TR, GIR, calc state (mean + M2), task count, and balance to **multirep's blockchain** (the source of truth).
+
+**Critical invariant:** Balance is NOT included in `initialRepState` — it is not seeded to autorunner. Balance is only tracked on multirep's canonical chain. Any change to what state is carried between tasks must be reflected in both `_collect_rep_state` (read) and `_seed_manager_rep_state` (write), and written back via `_apply_trs_reps` after replay.
+
+Users are matched across machines by **guid** (not address — addresses differ per blockchain instance).
+
+---
+
 ### Layers
 
 **Experiment Layer** (`experiment/`)

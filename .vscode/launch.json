@@ -72,7 +72,10 @@
       },
       "osx": {
         "python": "${workspaceFolder}/.venv/bin/python"
-      }
+      },
+      "args": [
+        "--graphs"
+      ]
     },
     {
       "name": "Compile - Debug: Experiments",

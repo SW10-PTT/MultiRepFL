@@ -85,6 +85,7 @@ def start_remote_experiment(
     name: str | None = None,
     wanted_runs: int = 1,
     experiment_id: str | None = None,
+    initial_rep_state: dict | None = None,
 ) -> tuple[str, str]:
     """POST /custom-experiments/start and return (run_id, experiment_id).
 
@@ -94,6 +95,8 @@ def start_remote_experiment(
     config_payload = _config_to_json_element(experiment_config)
     # Embed the expected fingerprint so auto_runner can validate before running.
     config_payload["expectedFingerprint"] = fingerprint
+    if initial_rep_state:
+        config_payload["initialRepState"] = initial_rep_state
 
     body = {
         "wantedRuns": wanted_runs,
@@ -211,6 +214,7 @@ def run_remote_and_setup_replay(
     wanted_runs: int = 1,
     timeout: int = _POLL_TIMEOUT,
     experiment_id: str | None = None,
+    initial_rep_state: dict | None = None,
 ) -> tuple[Path, str]:
     """Full remote pipeline: submit → poll → download → extract → register.
 
@@ -223,6 +227,7 @@ def run_remote_and_setup_replay(
     run_id, experiment_id = start_remote_experiment(
         experiment_config, fingerprint=fingerprint, name=name,
         wanted_runs=wanted_runs, experiment_id=experiment_id,
+        initial_rep_state=initial_rep_state,
     )
     poll_run_status(run_id, timeout=timeout)
 

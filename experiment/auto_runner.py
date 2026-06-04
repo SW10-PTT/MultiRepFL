@@ -1,12 +1,16 @@
 from pathlib import Path
+import sys
+
+_repo_root = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(_repo_root))
+sys.path.insert(0, str(_repo_root / "src"))
+
 import pprint
 import socket
-import sys
 import threading
 
 from openfl.utils.require_env import require_env_var
 from openfl.utils.types.User import User
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import tarfile
 import tempfile
@@ -25,7 +29,7 @@ from openfl.utils.async_writer import AsyncWriter
 from openfl.api import globals
 
 from openfl.utils import printer, config
-from openfl.utils.printer import log
+from openfl.utils.printer import log, set_log_file
 
 API = require_env_var("API_URL")
 
@@ -211,9 +215,12 @@ def worker_loop():
             if isinstance(config, str):
                 config = json.loads(config)
 
-            config = coerce_types(config)
-            #pprint.pp(config)
+            # Pop custom multirep fields before coerce_types so the dict is clean.
+            assert isinstance(config, dict)
             expected_fingerprint = config.pop("expectedFingerprint", None)
+            initial_rep_state_by_guid: dict = config.pop("initialRepState", None) or {}
+            config = coerce_types(config)
+            assert isinstance(config, dict)
             config = ExperimentConfiguration(**config)
 
             start_heartbeat_loop()
@@ -232,6 +239,15 @@ def worker_loop():
             addr_to_id: dict[str, str] = {u.address.lower(): u.guid for u in users if u.guid}
             id_to_addr: dict[str, str] = {u.guid: u.address for u in users if u.guid}
 
+            # Convert guid-keyed rep state to local addresses.
+            initial_rep_state = {
+                id_to_addr[guid]: {k: int(v) for k, v in state.items() if k != "task_type"}
+                for guid, state in initial_rep_state_by_guid.items()
+                if guid in id_to_addr
+            }
+            missing = [g for g in initial_rep_state_by_guid if g not in id_to_addr]
+            log("autorunner", f"[rep_state] run={run_id} received state for {len(initial_rep_state_by_guid)} users, mapped {len(initial_rep_state)}, unmatched_guids={missing}")
+
             if expected_fingerprint is not None:
                 actual_fingerprint = config.get_finger_print(users)
                 if actual_fingerprint != expected_fingerprint:
@@ -245,6 +261,7 @@ def worker_loop():
             (experiment, filename) = experiment_runner.run_experiment(
                 config.dataset, config, writer, logger, path,
                 prebuilt_users=users,
+                initial_rep_state=initial_rep_state or None,
             )
 
             writer.finish()
@@ -318,6 +335,10 @@ def stop_heartbeat_loop():
     heartbeat_thread = None
 
 def main():
+    log_dir = Path(__file__).resolve().parent / "logs"
+    log_dir.mkdir(exist_ok=True)
+    session_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    set_log_file(str(log_dir / f"autorunner_{session_ts}.log"))
     globals.reuse_runs = globals.ReplayMode.Record
     worker_loop()
 
