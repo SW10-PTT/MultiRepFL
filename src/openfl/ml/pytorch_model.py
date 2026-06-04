@@ -30,6 +30,7 @@ from openfl.api.globals import ReplayMode
 from openfl.ml.data_partition import DataPartition
 
 # Imported only for type hints; skipped at runtime to avoid import errors when not on sys.path.
+from experiment.print_config import AGGRESSIVE_GC
 if TYPE_CHECKING:
     from experiment.experiment_configuration import ExperimentConfiguration
 from openfl.ml.Participant import Participant
@@ -61,11 +62,23 @@ _IS_NVIDIA_GPU = USE_CUDA and not _IS_AMD_GPU
 # Use 0 workers on Windows; forked workers on Linux are much cheaper.
 _IS_WINDOWS = platform.system() == "Windows"
 _IS_AMD_WINDOWS = _IS_AMD_GPU and _IS_WINDOWS
+# Linux torch default ('file_descriptor') keeps a real FD per tensor passed
+# from a worker until the receiver releases it; under a long sweep with many
+# DataLoaders these accumulate and eventually exhaust the per-process FD
+# limit. 'file_system' shares tensors via /dev/shm files instead and avoids
+# the leak. No-op on Windows where workers use spawn.
+if AGGRESSIVE_GC and not _IS_WINDOWS:
+    mp.set_sharing_strategy("file_system")
 # pin_memory and non_blocking benefit NVIDIA but add overhead with no gain on AMD Windows
 PIN_MEMORY = USE_CUDA and not _IS_AMD_WINDOWS
 NON_BLOCKING = USE_CUDA and not _IS_AMD_WINDOWS
 NUM_WORKERS = 0 if _IS_WINDOWS else (min(4, os.cpu_count() // 2) if torch.cuda.is_available() else 0)
-PERSISTENT_WORKERS = USE_CUDA and NUM_WORKERS > 0
+# Persistent workers keep DataLoader subprocesses alive across iterations for
+# speed, but bunch all their teardown at the end of the experiment — a long
+# stall between runs in the auto sweep, and they hold FDs the whole time.
+# Short-lived workers spread that cost across the run with negligible overhead
+# on small datasets (MNIST/CIFAR).
+PERSISTENT_WORKERS = False if AGGRESSIVE_GC else (USE_CUDA and NUM_WORKERS > 0)
 # AMP is well-supported on NVIDIA and AMD Linux (ROCm); skip on AMD Windows where support is unreliable
 AMP = USE_CUDA and not _IS_AMD_WINDOWS
 COMPILE = False
@@ -89,6 +102,45 @@ def cuda_safe_dataloader(ds, batch_size, shuffle=False):
         persistent_workers=PERSISTENT_WORKERS,
     )
 
+
+# Torchvision datasets are read-only once built (.data/.targets never mutate;
+# transforms apply lazily per __getitem__), so one instance is safe to share
+# across every run in this process. Building MNIST/CIFAR from disk is the bulk
+# of per-run data overhead — cache by dataset name so both load_data() and
+# prepare_data_for_users() reuse one instance. Shared by multirep (many tasks)
+# and auto_runner (many runs) in the same process.
+_DATASET_CACHE: dict[str, tuple] = {}
+
+
+def _build_dataset_transforms(dataset_name):
+    if dataset_name == "mnist":
+        return transforms.ToTensor(), transforms.ToTensor()
+    if dataset_name == "cifar-10":
+        train_t = transforms.Compose([
+            transforms.RandomCrop(32, padding=4),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+        ])
+        test_t = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+        ])
+        return train_t, test_t
+    raise ValueError(f"Unknown dataset {dataset_name!r}. Expected 'mnist' or 'cifar-10'.")
+
+
+def get_cached_datasets(dataset_name):
+    """Return a process-cached (trainset, testset) pair, built from disk once."""
+    cached = _DATASET_CACHE.get(dataset_name)
+    if cached is not None:
+        return cached
+    train_t, test_t = _build_dataset_transforms(dataset_name)
+    cls = MNIST if dataset_name == "mnist" else CIFAR10
+    trainset = cls("./data", train=True, download=True, transform=train_t)
+    testset = cls("./data", train=False, download=True, transform=test_t)
+    _DATASET_CACHE[dataset_name] = (trainset, testset)
+    return trainset, testset
 
 
 class Net_CIFAR(nn.Module):
@@ -137,6 +189,10 @@ class PytorchModel:
     def __init__(self, config: ExperimentConfiguration, DATASET, _goodParticipants, _totalParticipants, epochs, batchsize, default_collateral, max_collateral, freerider_noise_scale: float = 1.0, freerider_start_round: int = 3, malicious_start_round: int = 3, malicious_noise_scale: float = 1.0, force_merge_all: bool = False):
         self.replaying = None
         self.config: ExperimentConfiguration = config
+        # Deterministic init so the shared-init broadcast in add_participant reproduces.
+        torch.manual_seed(42)
+        if USE_CUDA:
+            torch.cuda.manual_seed_all(42)
         if config.dataset == "mnist":
             self.global_model = Net_MNIST().to(DEVICE)
         else:
@@ -161,7 +217,18 @@ class PytorchModel:
         self.test_tensors = None  # GPU-preloaded (images, labels) for the global test set
         # self.EPOCHS = epochs
         # self.BATCHSIZE = batchsize
-        self.train, self.val, self.test = self.load_data(self.NUMBER_OF_CONTRIBUTERS, _print=True)
+        # In per_user mode run_experiment calls prepare_data_for_users(), which
+        # builds and overwrites self.DATA/test — so load_data() here is wasted.
+        # Skip it, except in HardPlayBack replay where prepare_data_for_users is
+        # not called and load_data supplies the test set for global evaluation.
+        _skip_init_load = (
+            config.partition_strategy == "per_user"
+            and not (globals.reuse_runs & globals.ReplayMode.HardPlayBack)
+        )
+        if _skip_init_load:
+            self.train, self.val, self.test = None, None, None
+        else:
+            self.train, self.val, self.test = self.load_data(self.NUMBER_OF_CONTRIBUTERS, _print=True)
         # self.default_collateral = default_collateral
         # self.max_collateral = max_collateral
         # self.force_merge_all = force_merge_all
@@ -203,7 +270,12 @@ class PytorchModel:
         if USE_CUDA and COMPILE:
             _model = torch.compile(_model, mode="reduce-overhead")
 
-        optimizer = optim.SGD(_model.parameters(), lr=0.001, momentum=0.9)
+        # Shared init: all participants start from the same global weights so
+        # coordinate-wise FedAvg in the_merge stays valid (neuron alignment).
+        _model.load_state_dict(self.global_model.state_dict())
+
+        lr = 0.001 if self.config.dataset == "mnist" else 0.05
+        optimizer = optim.SGD(_model.parameters(), lr=lr, momentum=0.9)
         criterion = nn.CrossEntropyLoss()
 
         l = len(self.participants)
@@ -211,28 +283,14 @@ class PytorchModel:
         p.val_tensors = preload_to_gpu(val_loader, DEVICE) if USE_CUDA else None
         self.participants.append(p)
 
-        log("setup_contracts","Participant added: [{:<9}] {}".format(rb(user.futureAttitude.name.upper()[0]+user.futureAttitude.name[1:]), rb(user.display_label())))
+        attitude = (user.futureAttitude.name[0].upper() + user.futureAttitude.name[1:]).ljust(9)
+        log("setup_contracts", f"Participant added: [{rb(attitude)}] {rb(user.display_label())}")
 
     # seed/allow_overlap/replication_factor forward to DataPartition for reproducible, optionally overlapping splits.
     def prepare_data_for_users(self, users, dataset_name, seed=42, allow_overlap=False, replication_factor=1.0):
         users = list(users)
 
-        if dataset_name == "mnist":
-            trainset = MNIST("./data", train=True, download=True, transform=transforms.ToTensor())
-            testset = MNIST("./data", train=False, download=True, transform=transforms.ToTensor())
-        if dataset_name == "cifar-10":
-            transform = transforms.Compose([
-                transforms.RandomCrop(32, padding=4),
-                transforms.RandomHorizontalFlip(),
-                transforms.ToTensor(),
-                transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
-            ])
-            transform_test = transforms.Compose([
-                transforms.ToTensor(),
-                transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
-            ])
-            trainset = CIFAR10("./data", train=True, download=True, transform=transform)
-            testset = CIFAR10("./data", train=False, download=True, transform=transform_test)
+        trainset, testset = get_cached_datasets(dataset_name)
 
         per_user_specs = (
             self.config.get_partition_specs(dataset_name)
@@ -473,23 +531,7 @@ class PytorchModel:
         if self.DATA:
             return self.DATA
 
-        if self.config.dataset == "cifar-10":
-            transform = transforms.Compose([
-                transforms.RandomCrop(32, padding=4),
-                transforms.RandomHorizontalFlip(),
-                transforms.ToTensor(),
-                transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
-            ])
-            transform_test = transforms.Compose([
-                transforms.ToTensor(),
-                transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
-            ])
-            trainset = CIFAR10("./data", train=True, download=True, transform=transform)
-            testset = CIFAR10("./data", train=False, download=True, transform=transform_test)
-        else:
-            trainset = MNIST("./data", train=True, download=True, transform=transforms.ToTensor())
-            testset = MNIST("./data", train=False, download=True, transform=transforms.ToTensor())
-
+        trainset, testset = get_cached_datasets(self.config.dataset)
 
         if _print:
             log("setup_data", "Data Loaded:")
@@ -630,9 +672,9 @@ class PytorchModel:
         if num_processes == 1:
             return self.run_sequential()
 
-        with ctx.Pool(processes=num_processes) as pool:
-            start_pool = time.perf_counter()
-
+        pool = ctx.Pool(processes=num_processes)
+        start_pool = time.perf_counter()
+        try:
             async_results = []
             for idx, user in enumerate(self.participants):
                 device_id = idx % max(1, num_gpus)
@@ -659,6 +701,9 @@ class PytorchModel:
                     self.finalize_paricipant_evaluation(user)
 
             results = [r.get() for r in async_results] # Gather results from Multi-Processing
+        finally:
+            pool.close()
+            pool.join()
         log("round_training", green(f"Parallel execution time: {time.perf_counter() - start_pool:.2f} seconds"))
         return results
 
@@ -981,7 +1026,11 @@ class PytorchModel:
         p = next((x for x in participants if x.id == address_or_id), None)
         if p:
             return p
-        return next((x for x in participants if x.address == address_or_id), None)
+        p = next((x for x in participants if x.address == address_or_id), None)
+        if p:
+            return p
+        as_str = str(address_or_id)
+        return next((x for x in participants if x.guid is not None and x.guid == as_str), None)
 
     @property
     def _test_data(self):
@@ -1003,6 +1052,74 @@ class PytorchModel:
 
         self.round = 1
         self.runRepo.save(-1, f"save-setup_replay-path", path)
+
+    def cleanup(self):
+        """Shut down DataLoader worker processes (pt_data_worker / forked python).
+
+        Call this after each experiment run. With persistent_workers=True the
+        workers live as long as the DataLoader object does; without an explicit
+        shutdown they accumulate across loop iterations until GC finally fires.
+        """
+        import gc
+
+        all_loaders: list = (
+            list(self.train_by_user_id.values())
+            + list(self.val_by_user_id.values())
+        )
+        if isinstance(self.DATA, tuple):
+            for group in self.DATA:
+                if isinstance(group, list):
+                    all_loaders.extend(group)
+                elif group is not None:
+                    all_loaders.append(group)
+        for p in self.participants:
+            if p.train is not None:
+                all_loaders.append(p.train)
+            if p.val is not None:
+                all_loaders.append(p.val)
+
+        seen: set = set()
+        for loader in all_loaders:
+            if loader is None or id(loader) in seen:
+                continue
+            seen.add(id(loader))
+            it = getattr(loader, '_iterator', None)
+            if it is not None:
+                if hasattr(it, '_shutdown_workers'):
+                    try:
+                        it._shutdown_workers()
+                    except Exception:
+                        logerror("Failed to shut down workers")
+                        pass
+                try:
+                    loader._iterator = None
+                    del loader
+                except Exception:
+                    logerror("Failed to shutdown loader")
+                    pass
+
+        self.train_by_user_id.clear()
+        del self.train_by_user_id
+        self.val_by_user_id.clear()
+        del self.val_by_user_id
+        
+        for p in self.participants:
+            p.train = None
+            del p.train
+            p.val = None
+            del p.val
+        self.DATA = None
+        del self.DATA
+        self.train = None
+        del self.train
+        self.val = None
+        del self.val
+        self.test = None
+        del self.test
+        self.test_tensors = None
+        del self.test_tensors
+
+        gc.collect()
 
 def get_hash(_state_dict):
     if not isinstance(_state_dict, dict):
@@ -1038,10 +1155,10 @@ def preload_to_gpu(dataloader, device):
 
 
 # PYTORCH FUNCTIONS
-def train(net, trainloader: torch.utils.data.DataLoader, epochs: int, device: torch.device) -> None:
+def train(net, trainloader: torch.utils.data.DataLoader, epochs: int, device: torch.device, lr: float = 0.001) -> None:
 
     criterion = nn.CrossEntropyLoss()
-    optimizer = torch.optim.SGD(net.parameters(), lr=0.001, momentum=0.9)
+    optimizer = torch.optim.SGD(net.parameters(), lr=lr, momentum=0.9)
 
     scaler = torch.amp.GradScaler(enabled=AMP)
 
@@ -1056,8 +1173,7 @@ def train(net, trainloader: torch.utils.data.DataLoader, epochs: int, device: to
 
             with torch.autocast(device_type=device.type, enabled=AMP):
                 outputs = net(images)
-
-            loss = criterion(outputs, labels)
+                loss = criterion(outputs, labels)
 
             scaler.scale(loss).backward()
             scaler.step(optimizer)
@@ -1158,7 +1274,8 @@ def train_user_proc(user_addr, user_label, model_state, train_ds, val_ds, epochs
     val_loader = DataLoader(val_ds, batch_size=batchsize, shuffle=False,
                             pin_memory=pin_memory)  # TODO: Investigate if this breaks something
 
-    train(model, train_loader, epochs, device)  # Line 285 in original code
+    lr = 0.001 if dataset == "mnist" else 0.01
+    train(model, train_loader, epochs, device, lr=lr)  # Line 285 in original code
     val_loss, val_acc = test(model, val_loader, device)  # Line 286 in original code
 
     # del: Mark for GC

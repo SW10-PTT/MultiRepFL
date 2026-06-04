@@ -11,6 +11,8 @@ import json
 import math
 from openfl.ml.partition_spec import (
     ANY_DATASET,
+    UserPartitionSpec,
+    _build_spec,
     load_dataset_partition_specs,
     normalize_dataset_name,
 )
@@ -59,7 +61,11 @@ class ExperimentConfiguration:
                  replication_factor=3.0,
                  partition_strategy="per_user", # Options: global, per_user
                  per_user_partitions="experiment/partitions/example.json", # Path to JSON file with per-user partition specs; see example.json for format. Or None. Example: "experiment/partitions/example.json"
-                 vote_baseline="local_trained"): # Reference accuracy for +/-/neutral vote thresholds. Options: local_trained (giver's own post-training acc on giver val), prev_global (previous-round global model acc on giver val)
+                 vote_baseline="local_trained", # Reference accuracy for +/-/neutral vote thresholds. Options: local_trained (giver's own post-training acc on giver val), prev_global (previous-round global model acc on giver val)
+                 global_rep_only=False, # If True, OpenFLManager is deployed in GlobalOnly mode: a single TaskRep slot per user (shared across all TaskTypes) and GIR updates are disabled. Voting still happens but does not feed GIR.
+                 q_weight=0.0,   # Additive Q bonus weight: score = normalWeight + q_weight * q. WAD-converted when passed to Solidity.
+                 tr_weight=6,    # taskRep multiplier in selection score (preset-level constant).
+                 gir_weight=4):  # GIR multiplier in selection score (preset-level constant).
 
         self.name = name
         self.dataset = dataset
@@ -96,6 +102,9 @@ class ExperimentConfiguration:
         self.malicious_start_round = malicious_start_round
         self.malicious_noise_scale = malicious_noise_scale
         self.force_merge_all = force_merge_all
+        self.q_weight = float(q_weight)
+        self.tr_weight = int(tr_weight)
+        self.gir_weight = int(gir_weight)
         self.enabled_prints = (
             set(enabled_prints) if enabled_prints is not None
             else set(DEFAULT_ENABLED_PRINTS_CONFIG)
@@ -128,6 +137,7 @@ class ExperimentConfiguration:
                 f"vote_baseline must be one of {VALID_VOTE_BASELINES}, got {vote_baseline!r}"
             )
         self.vote_baseline = vote_baseline
+        self.global_rep_only = bool(global_rep_only)
         self.per_user_partitions = self._resolve_per_user_partitions(per_user_partitions)
 
         if self.partition_strategy == "per_user":
@@ -135,16 +145,18 @@ class ExperimentConfiguration:
                 raise ValueError(
                     "partition_strategy='per_user' requires per_user_partitions to be provided"
                 )
-            if data_percentages is not None:
+            if data_percentages is not None and len(data_percentages) > 0:
                 raise ValueError(
                     "data_percentages is not allowed when partition_strategy='per_user'; "
                     "set data_percent inside the per-user spec instead"
                 )
-            if label_rules is not None:
+            if label_rules is not None and len(label_rules) > 0:
                 raise ValueError(
                     "label_rules is not allowed when partition_strategy='per_user'; "
                     "set only_labels/flip_map inside the per-user spec instead"
                 )
+            data_percentages = None
+            label_rules = None
             self._validate_per_user_index_set()
             self._refresh_counts_from_specs()
             self.data_percentages = []
@@ -160,7 +172,22 @@ class ExperimentConfiguration:
 
 
     def get_training_specs(self, manager_address, model_hash) -> TrainingSpecsJobListing:
-        return TrainingSpecsJobListing(model_hash, self.min_buy_in, self.max_buy_in, manager_address, self.reward, self.minimum_rounds, self.punish_factor, self.punish_factor_contrib, self.first_round_fee, 1) # Todo: Tasktype
+        from openfl.utils.types.TrainingSpecsJobListing import TaskType
+        return TrainingSpecsJobListing(
+            model_hash,
+            self.min_buy_in,
+            self.max_buy_in,
+            manager_address,
+            self.reward,
+            self.minimum_rounds,
+            self.punish_factor,
+            self.punish_factor_contrib,
+            self.first_round_fee,
+            int(TaskType.from_dataset_name(self.dataset)),
+            q_weight=int(self.q_weight * 1e18),
+            tr_weight=self.tr_weight,
+            gir_weight=self.gir_weight,
+        )
 
     @property
     def number_of_contributors(self):
@@ -194,7 +221,21 @@ class ExperimentConfiguration:
             return {}
         if isinstance(per_user_partitions, str) and per_user_partitions.split(".")[-1] == "json":
             return load_dataset_partition_specs(per_user_partitions)
-        
+        # Accept an already-parsed {dataset_key: {user_index: UserPartitionSpec}} dict
+        # so callers (e.g. multirep) can pass filtered specs without re-serialising.
+        if isinstance(per_user_partitions, dict) and per_user_partitions:
+            first_val = next(iter(per_user_partitions.values()))
+            if isinstance(first_val, dict) and first_val:
+                inner_first = next(iter(first_val.values()))
+                if isinstance(inner_first, UserPartitionSpec):
+                    return per_user_partitions
+                if isinstance(inner_first, dict):
+                    # {dataset_key: {user_index: spec_dict}} from remote serialisation
+                    tmp = {
+                        dataset_key: {uk: _build_spec(dict(spec)) for uk, spec in specs.items()}
+                        for dataset_key, specs in per_user_partitions.items()
+                    }
+                    return tmp
         return load_dataset_partition_specs({
             "presets": per_user_partitions
         })
@@ -348,6 +389,9 @@ class ExperimentConfiguration:
             "user_seeds": dict(sorted(self.user_seeds.items())),
             "partition_strategy": self.partition_strategy,
             "vote_baseline": self.vote_baseline,
+            "global_rep_only": self.global_rep_only,
+            "tr_weight": self.tr_weight,
+            "gir_weight": self.gir_weight,
             "per_user_partitions": {
                 dataset_key: [
                     spec.fingerprint_dict()
@@ -358,7 +402,10 @@ class ExperimentConfiguration:
         }
 
         blob = json.dumps(data, sort_keys=True, separators=(",", ":"))
-        return hashlib.sha256(blob.encode()).hexdigest()
+        hash = hashlib.sha256(blob.encode()).hexdigest()
+        from openfl.api import globals as _fl_globals
+        _fl_globals.fp_data_cache[hash] = data
+        return hash
 
 
     @staticmethod
@@ -391,6 +438,7 @@ class ExperimentConfiguration:
             if not callable(v) and not (k.startswith("_") or k.startswith("__")) and k not in excluded
         }
     
+    @staticmethod
     def build_config(run_config: dict | str) -> ExperimentConfiguration:
         if isinstance(run_config, str):
             run_config = json.loads(run_config)

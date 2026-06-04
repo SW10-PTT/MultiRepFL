@@ -28,6 +28,7 @@ from openfl.api import globals
 from openfl.utils.async_writer import AsyncWriter, NullWriter
 from openfl.utils.shapley import check_shapley_compliance
 from openfl.utils.types.User import User
+from analysis import NullExperimentLogger
 
 # Smart-contract–backed federated learning simulation.
 # Handles:
@@ -45,10 +46,12 @@ import numpy as np
 
 
 
-class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManager to ConnectionHelper
-    def __init__(self, publisher: User, pyTorchModel, training_specs: TrainingSpecsChallenge, jobListing, writer: AsyncWriter=None, logger: Logger=None):
+class FLChallenge(ConnectionHelper):
+    def __init__(self, publisher: User, pyTorchModel, training_specs: TrainingSpecsChallenge, jobListing, writer: AsyncWriter=None, logger: Logger=None, manager_contract=None):
 
         self.pytorch_model: PytorchModel = pyTorchModel
+        self.manager_contract = manager_contract
+        self._publisher = publisher
         self.MIN_BUY_IN = training_specs.min_collateral
         self.MAX_BUY_IN = training_specs.max_collateral
         self.REWARD = training_specs.reward
@@ -75,7 +78,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
         self._punishments = []
         self.config = config.get_contracts_config()
         self.writer = writer or NullWriter()
-        self._logger = logger
+        self._logger = logger or NullExperimentLogger()
         self.writeTxProgress = 0
 
 
@@ -289,7 +292,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                     continue
                 if user.attitude == "inactive":
                     continue
-                txHash = self.giveFeedback(user, self.pytorch_model.participants[ix], int(vote))
+                txHash = self.give_feedback(user, self.pytorch_model.participants[ix], int(vote))
                 txs.append(txHash)
            
         l = len(txs)
@@ -429,7 +432,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                 txs.append(tx_hash)
 
             elif self.contribution_score_strategy in ("loss_only", "loss_tolerance_aware", "loss_tolerance_snap"):
-                prev_loss = int(min(matrices.prev_losses[user_id], UINT16_MAX))
+                prev_loss = int(min(matrices.prev_losses[user_id], 10000))  # contract requires [0, 10000]
 
                 if globals.fork:
                     tx = super().build_tx(user.address, self.contractAddress)
@@ -625,6 +628,60 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
     
     
     
+    def compute_and_record_task_reps(self, caller):
+        """Calculate and store per-participant TaskRep updates on-chain.
+
+        Guarded: requires at least one round settled (round > 0) and idempotent.
+        Called once per challenge run; applies updates to the manager in one call.
+        """
+        (receipt, events) = self.transact(
+            "computeAndRecordTaskReps",
+            caller,
+            0,
+            [],
+            "challenge.computeAndRecordTaskReps",
+        )
+        return receipt, events
+
+    def get_task_rep_records(self):
+        """Read the stored TaskRepRecord[] from the challenge (after computeAndRecordTaskReps)."""
+        return self.contract.functions.getTaskRepRecords().call()
+
+    def _finalize_reputations(self):
+        """Compute, store, and apply TR updates for this challenge.
+
+        Two-step: challenge computes+stores records; publisher key applies them
+        to the manager directly (avoids bytecode-hash auth on the challenge side).
+        """
+        if self.manager_contract is None:
+            return
+        try:
+            self.compute_and_record_task_reps(self._publisher)
+        except Exception as e:
+            log("setup_contracts", f"[warn] computeAndRecordTaskReps failed: {e}")
+            return
+        try:
+            records = self.get_task_rep_records()
+            task_type = self.contract.functions.taskType().call()
+            # manager_contract is the FLManager wrapper, not a raw web3 contract.
+            # Route the write through its transact() so it targets the manager's
+            # web3 contract (self.contract) and handles both fork (unlocked
+            # accounts) and non-fork (signed) modes. Sent from the publisher, which
+            # is the manager's deployer, so it passes the on-chain auth check
+            # (msg.sender == publisher).
+            self.manager_contract.transact(
+                "applyPrecomputedTaskReps",
+                self._publisher,
+                0,
+                [],
+                "manager.applyPrecomputedTaskReps",
+                records,
+                task_type,
+            )
+            log("setup_contracts", f"TR applied to manager: {len(records)} records task_type={task_type}")
+        except Exception as e:
+            log("setup_contracts", f"[warn] applyPrecomputedTaskReps failed: {e}")
+
     def exit_system(self):
 
         log("experiment_end", b(f"Terminating Model..."))
@@ -1449,7 +1506,6 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                 "globalLoss": self.pytorch_model.loss[-1] or 0,
                 "conctractBalanceRewards": self._reward_balance[-1],
                 "round_rewards": [],
-                "round_rewards": [],
                 "accAvgPerUser": [],
                 "lossAvgPerUser": [],
                 "feedbackMatrix": None,
@@ -1525,7 +1581,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
                 "globalAcc": self.pytorch_model.accuracy[-1] or 0, # Checks out
                 "globalLoss": self.pytorch_model.loss[-1] or 0, # Checks out
                 "conctractBalanceRewards": self._reward_balance[-1],
-                "round_rewards": round_punishment,
+                "round_punishments": round_punishment,
                 "round_rewards": self.get_round_rewards(receipt),
                 "accAvgPerUser": self.evaluation.prev_accuracies, # Check - Should come from am
                 "lossAvgPerUser": self.evaluation.prev_losses, # Check - Should come from lm
@@ -1538,7 +1594,7 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
             globals.progress = int(
                 ((roundnr + 1) / rounds) * 100
             )
-            log("round_scoring",f"roundnr: {globals.progress}")
+            log("round_scoring",f"round progress: {globals.progress}")
 
 
         log("round_scoring", f"Number of Shapley Axioms violated: {len(runtime_warnings)}\n")
@@ -1547,14 +1603,14 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
             for warn in runtime_warnings:
                 log("round_scoring", colored(warn, 'yellow'))
             log("round_scoring", red("!" * 78))
-
-        self.writer.write_comment(f"$gasCosts${self.gas_feedback},{self.gas_register},{self.gas_slot},{self.gas_weights},{self.gas_close},{self.gas_deploy},{self.gas_exit},{self.gas_contrib}")
+        if self.writer is not None:
+            self.writer.write_comment(f"$gasCosts${self.gas_feedback},{self.gas_register},{self.gas_slot},{self.gas_weights},{self.gas_close},{self.gas_deploy},{self.gas_exit}")
         trs = self.pytorch_model.runRepo.get_task_rep_delta_and_GRS(-1, "get_task_rep_delta_and_GRS-simulate", self.contract, self.pytorch_model.get_participant)
         self.writer.write_comment(f"$trs${trs}")
         self._logger.log_trs(trs)
         self.pytorch_model.runRepo.flush()
-        self.exit_system()
 
+        self._finalize_reputations()
 
         return trs
             
@@ -1710,20 +1766,17 @@ class FLChallenge(ConnectionHelper): #OBS: Changed from inheriting from FlManage
 
     def make_participants_from_users(self, users: List[User]):
         users_by_address = {u.address: u for u in users}
-        selected_users = []
 
         if self.pytorch_model.replaying:
             users = [users_by_address.get(par_addr) for par_addr in users_by_address]
             combinedUsers = self.pytorch_model.runRepo.get_participants(users)
             for user in combinedUsers:
-                selected_users.append(user)
                 self.pytorch_model.add_participant(user)
         else:
             for par_addr in self.participant_addresses:
                 user = users_by_address.get(par_addr)
                 if user is not None:
                     self.pytorch_model.add_participant(user)
-                    selected_users.append(user)
 
         self.pytorch_model.runRepo.set_participants(self.pytorch_model.participants)
 

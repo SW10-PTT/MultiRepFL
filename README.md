@@ -190,3 +190,45 @@ Both strategies are seeded by `seed` (master) and per-user `user_seeds`. The
 active strategy + spec content is folded into `ExperimentConfiguration.get_finger_print`
 and `User.finger_print`, so changing the partition triggers a fresh replay and
 prevents cache hits against runs with different splits.
+
+# 8. Setup and Startup Scripts
+
+The repo includes scripts that handle setup and startup automatically.
+
+## Setup
+
+**Linux / WSL:**
+```bash
+./setup.sh [cpu|nvidia|nvidia-legacy|amd-linux|amd-windows]
+```
+
+**Windows (PowerShell):**
+```powershell
+.\windows-setup.ps1 [cpu|nvidia|nvidia-legacy|amd-windows]
+```
+
+| Mode | Description |
+|------|-------------|
+| `cpu` | No GPU |
+| `nvidia` | NVIDIA GPU, driver 575+ (CUDA 13.0) |
+| `nvidia-legacy` | NVIDIA GPU, driver 550-574 (CUDA 12.8) |
+| `amd-linux` | AMD GPU on Linux |
+| `amd-windows` | AMD GPU on Windows, requires AMD driver 26.2.2 |
+
+The script creates a `.venv`, installs all dependencies, and compiles the smart contracts.
+
+## Startup
+
+**Linux / WSL:**
+```bash
+./startup.sh [ganache|anvil|none]
+```
+
+**Windows (PowerShell):**
+```powershell
+.\windows-startup.ps1 [ganache|anvil|none]
+```
+
+The startup script activates the virtual environment and launches the `auto_runner` worker. For `ganache`/`anvil`, `auto_runner` starts and manages its own blockchain node (scanning for a free port, setting `RPC_URL`, and shutting the node down on exit). Use `none` to skip launching a node and instead connect to an externally-provided `RPC_URL` from the active env file.
+
+`API_URL` (and, for `none` mode, `RPC_URL`) must be set in the active env file (`.env/.env.<ENV>`, default `.env/.env.ganache`).

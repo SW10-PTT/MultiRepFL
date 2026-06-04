@@ -1,0 +1,510 @@
+{
+  "name": "example",
+  "partition_file": "experiment/partitions/EXP-avg-distribution-30-users.json",
+  "q_weight": 0.2,
+  "tr_weight": 7,
+  "gir_weight": 3,
+  "training_mode": "remote",
+  "tasks": [
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    },
+    {
+      "dataset": "CIFAR-10",
+      "minimum_rounds": 3,
+      "number_of_participants": 3
+    }
+  ]
+}

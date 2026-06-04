@@ -9,12 +9,10 @@ class _DummyJobListing:
 
 
 def test_init_sets_core_fields():
-    pytorch_model = "model"
     publisher = SimpleNamespace(address="0xPublisher")
 
-    mgr = FLManager(pytorch_model=pytorch_model, publisher=publisher)
+    mgr = FLManager(publisher=publisher)
 
-    assert mgr.pytorch_model == "model"
     assert mgr.publisher is publisher
     assert mgr.manual_setup is False
     assert mgr.latestBlock is None
@@ -28,7 +26,7 @@ def test_init_sets_core_fields():
 
 
 def test_init_honours_manual_ganache_flag():
-    mgr = FLManager(pytorch_model="m", publisher=SimpleNamespace(), manual_ganache_setup=True)
+    mgr = FLManager(publisher=SimpleNamespace(), manual_ganache_setup=True)
     assert mgr.manual_setup is True
 
 
@@ -51,7 +49,7 @@ def test_get_model_of_queries_contract():
 
     fake_contract = SimpleNamespace(functions=FakeFunctions(), address="0xManager")
 
-    mgr = FLManager(pytorch_model="m", publisher=SimpleNamespace())
+    mgr = FLManager(publisher=SimpleNamespace())
     mgr.contract = fake_contract
 
     participant = SimpleNamespace(address="0xParticipant")

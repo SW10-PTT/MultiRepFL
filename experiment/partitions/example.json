@@ -61,11 +61,10 @@
     "same id set produces the same account assignment across runs.",
     ""
   ],
-
   "presets": [
     {
       "id": "49f1f8d6-306c-4e50-b159-e869243abf4d",
-      "name": "User 0",
+      "name": "Paetur",
       "datasets": {
         "MNIST": {
           "data_percent": 20.0,
@@ -79,7 +78,7 @@
     },
     {
       "id": "041c30ac-9753-4fad-a2da-08fded8df5aa",
-      "name": "User 1",
+      "name": "Ilum",
       "datasets": {
         "MNIST": {
           "data_percent": 14.0,
@@ -93,7 +92,7 @@
     },
     {
       "id": "e8708fb4-4bdd-4633-97f0-594989530d2d",
-      "name": "User 2",
+      "name": "Schnyk",
       "datasets": {
         "MNIST": {
           "data_percent": 12.0,
@@ -117,7 +116,7 @@
     },
     {
       "id": "e3caded8-a028-47bb-b807-f12952b829bd",
-      "name": "Kasper",
+      "name": "Casp",
       "datasets": {
         "MNIST": {
           "behavior": "Honest",
@@ -145,16 +144,22 @@
     },
     {
       "id": "5a25b310-85e4-4029-8a52-6f43a786d3ea",
-      "name": "User 4",
+      "name": "Runi",
       "datasets": {
         "MNIST": {
           "data_percent": 6.0,
-          "only_labels": [0, 1],
+          "only_labels": [
+            0,
+            1
+          ],
           "behavior": "Honest"
         },
         "CIFAR-10": {
           "data_percent": 6.0,
-          "only_labels": [0, 1],
+          "only_labels": [
+            0,
+            1
+          ],
           "behavior": "Free-rider",
           "noise_scale": 0.1,
           "start_round": 3
@@ -163,7 +168,7 @@
     },
     {
       "id": "aefe1094-bd11-4b79-a81b-bc5d14ecd135",
-      "name": "User 5",
+      "name": "Luca",
       "datasets": {
         "MNIST": {
           "data_percent": 10.0,
@@ -171,40 +176,6 @@
         },
         "CIFAR-10": {
           "data_percent": 7.0,
-          "behavior": "Honest"
-        }
-      }
-    },
-    {
-      "id": "8a80a056-9f35-4a94-b7e2-5724d1042ab7",
-      "name": "User 6",
-      "datasets": {
-        "MNIST": {
-          "data_percent": 9.0,
-          "behavior": "Free-rider",
-          "noise_scale": 0.1,
-          "start_round": 3,
-          "only_labels": [4, 9]
-        },
-        "CIFAR-10": {
-          "data_percent": 5.0,
-          "behavior": "Free-rider",
-          "noise_scale": 0.1,
-          "start_round": 3,
-          "only_labels": [4, 9]
-        }
-      }
-    },
-    {
-      "id": "12209e45-482b-4962-a1bb-a03efb73f80e",
-      "name": "User 7",
-      "datasets": {
-        "MNIST": {
-          "data_percent": 5.0,
-          "behavior": "Honest"
-        },
-        "CIFAR-10": {
-          "data_percent": 9.00,
           "behavior": "Honest"
         }
       }

@@ -37,7 +37,10 @@ class JobListing(ConnectionHelper):
                 training_specs.punishfactorContrib,
                 training_specs.freeriderPenalty,
                 training_specs.manager_address,
-                training_specs.taskType
+                training_specs.taskType,
+                training_specs.q_weight,
+                training_specs.tr_weight,
+                training_specs.gir_weight,
             ],
             publisher,
             value=value
@@ -52,3 +55,7 @@ class JobListing(ConnectionHelper):
         is_valid = events["ChallengeRegistered"][0]["success"]
 
         return is_valid
+
+    # Read-only fetch of the TaskType (= dataset) bound to this JobListing.
+    def get_task_type(self) -> int:
+        return self.contract.functions.getTaskType().call()

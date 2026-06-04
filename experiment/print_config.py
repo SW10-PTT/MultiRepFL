@@ -27,6 +27,11 @@ PRINTS_ALL = {
     "writer",
     "gas_report",
     "latex_output",
+    "multirep",
+    "autorunner",
+    "remote_client",
+    "replay",
+    "task_rep_contrib",
 }
 
 # PRINTS_MINIMAL = PRINTS_EVEN_LESSER
@@ -34,3 +39,7 @@ PRINTS_ALL = {
 # PRINTS_DEBUG = PRINTS_ALL
 
 DEFAULT_ENABLED_PRINTS_CONFIG = PRINTS_ALL
+
+# Set True to aggressively reclaim memory between runs (prevents FD/RAM leaks on long sweeps).
+# Set False for maximum throughput (may cause instability on very long auto-runner sweeps).
+AGGRESSIVE_GC = False
