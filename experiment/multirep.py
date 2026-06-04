@@ -61,7 +61,7 @@ _INTEGRITY_LEARNING_RATE = int(2e17)  # GIR EWMA learning rate
 # Preset file — fill in before running
 # ---------------------------------------------------------------------------
 
-preset_file = "experiment/presets/fast-test-local-mnist-only.json"
+preset_file = "experiment/presets/fast-test-local.json"
 # preset_file = "experiment/presets/EXP-multirep-mixed-distribution-5-task-dataset-switch copy.json"
 
 # ---------------------------------------------------------------------------

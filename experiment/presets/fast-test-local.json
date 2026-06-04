@@ -13,7 +13,7 @@
     "  Accuracy curves visible per task (run_data embedded in session pickle)."
   ],
   "name": "fast-test-local",
-  "partition_file": "experiment/partitions/fast-test-5-users.json",
+  "partition_file": "experiment/partitions/fast-test-6-users.json",
   "q_weight": 0.5,
   "tr_weight": 7,
   "gir_weight": 3,

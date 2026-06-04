@@ -106,7 +106,7 @@ def start_remote_experiment(
     if experiment_id is not None:
         body["experimentId"] = experiment_id
 
-    endpoint = "/custom-experiments/start"
+    endpoint = "custom-experiments/start"
     url = f"{_api_url()}/{endpoint}"
     log("remote_client", f"Submitting remote experiment to {endpoint} …")
 
