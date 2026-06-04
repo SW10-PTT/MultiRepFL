@@ -2,16 +2,27 @@
 pragma solidity ^0.8.9;
 
 import "forge-std/Test.sol";
-import "../../contracts/JobListing.sol";
+import "../../contracts/OpenFLChallenge.sol";
 import "../../contracts/OpenFLManager.sol";
 import "../../contracts/Types.sol";
 
-// Test harness — exposes JobListing's internal helpers + integration body for
-// direct unit testing.
-contract JobListingHarness is JobListing {
-    constructor(address mgr)
-        JobListing(1e18, 1.8e18, 1e18, 3, 3, 3, 50, mgr, TaskType.MNIST, 0, 6, 4)
-    {}
+// Test harness — exposes OpenFLChallenge's internal TR helpers for direct unit testing.
+contract OpenFLChallengeHarness is OpenFLChallenge {
+    constructor(address mgr) payable OpenFLChallenge(
+        ChallengeSpecifications({
+            modelHash: bytes32(0),
+            min_collateral: 1e18,
+            max_collateral: 1.8e18,
+            managerAddress: mgr,
+            reward: 10e18,
+            min_rounds: 1,
+            punishfactor: 3,
+            punishfactorContrib: 3,
+            freeriderPenalty: 0,
+            taskType: TaskType.template,
+            jobListingAddress: address(0)
+        })
+    ) {}
 
     function tTransformDelta(
         int256 delta,
@@ -19,7 +30,7 @@ contract JobListingHarness is JobListing {
         uint256 reward,
         uint256 nrActive
     ) external pure returns (uint256) {
-        return _transformDelta(delta, stake, reward, nrActive);
+        return _trTransformDelta(delta, stake, reward, nrActive);
     }
 
     function tUpdateRunningStats(
@@ -28,7 +39,7 @@ contract JobListingHarness is JobListing {
         uint256 priorM2,
         uint256 k
     ) external pure returns (uint256, uint256) {
-        return _updateRunningStats(ContributionScore, priorRunningCMean, priorM2, k);
+        return _trUpdateRunningStats(ContributionScore, priorRunningCMean, priorM2, k);
     }
 
     function tComputeConfidence(uint256 k, uint256 s_k)
@@ -36,7 +47,7 @@ contract JobListingHarness is JobListing {
         pure
         returns (uint256)
     {
-        return _computeConfidence(k, s_k);
+        return _trComputeConfidence(k, s_k);
     }
 
     function tUpdateContribScore(
@@ -44,7 +55,7 @@ contract JobListingHarness is JobListing {
         uint256 Confidence,
         uint256 ContributionScore
     ) external pure returns (uint256) {
-        return _updateContribScore(PriorTaskRep, Confidence, ContributionScore);
+        return _trUpdateContribScore(PriorTaskRep, Confidence, ContributionScore);
     }
 
     function tUpdateIntegrityRep(
@@ -52,37 +63,49 @@ contract JobListingHarness is JobListing {
         uint256 positiveVotes,
         uint256 totalVotes
     ) external pure returns (uint256) {
-        return _updateIntegrityRep(priorIntegrityRep, positiveVotes, totalVotes);
+        return _trUpdateIntegrityRep(priorIntegrityRep, positiveVotes, totalVotes);
     }
 
+    // Integration helper: directly applies one participant's TR update without
+    // the computeAndRecordTaskReps() idempotency guard.
+    // Temporarily sets per-challenge state so the inherited helpers can run,
+    // then restores it and applies the result to the manager.
     function tApplyOne(
-        IOpenFLChallengeTaskRep.TaskRep memory rep,
+        address user,
+        int256 delta,
+        uint256 posVotes,
+        uint256 totVotes,
         TaskType tt,
         uint256 reward,
         uint256 nrActive
     ) external {
-        bool applyGIR = manager.reputationMode() == ReputationMode.PerTask;
-        _applyTaskRepCalc(rep, tt, reward, nrActive, applyGIR);
-    }
-}
+        users[user].taskRepDelta = delta;
+        positiveVotesReceived[user] = posVotes;
+        totalVotesReceived[user] = totVotes;
+        uint256 savedReward = totalReward;
+        TaskType savedTT = taskType;
+        totalReward = reward;
+        taskType = tt;
 
-// Override variant — proves _computeConfidence is pluggable via virtual.
-contract JobListingFlatConfidence is JobListingHarness {
-    constructor(address mgr) JobListingHarness(mgr) {}
+        IOpenFLManager mgr = IOpenFLManager(managerAddress);
+        bool applyGIR = mgr.reputationMode() == ReputationMode.PerTask;
+        TaskRepRecord memory rec = _computeOneRecord(mgr, user, applyGIR, nrActive);
 
-    function _computeConfidence(uint256, uint256)
-        internal
-        pure
-        override
-        returns (uint256)
-    {
-        return 5e17;
+        totalReward = savedReward;
+        taskType = savedTT;
+        delete users[user].taskRepDelta;
+        delete positiveVotesReceived[user];
+        delete totalVotesReceived[user];
+
+        TaskRepRecord[] memory records = new TaskRepRecord[](1);
+        records[0] = rec;
+        mgr.applyPrecomputedTaskReps(records, tt);
     }
 }
 
 contract TaskRepCalcTest is Test {
     OpenFLManager manager;
-    JobListingHarness h;
+    OpenFLChallengeHarness h;
 
     uint256 constant WAD = 1e18;
     uint256 constant ALPHA = 2e17;
@@ -90,7 +113,8 @@ contract TaskRepCalcTest is Test {
 
     function setUp() public {
         manager = new OpenFLManager(ReputationMode.PerTask);
-        h = new JobListingHarness(address(manager));
+        h = new OpenFLChallengeHarness(address(manager));
+        manager.setChallengeCodeHash(address(h).codehash);
     }
 
     // ============================================================
@@ -98,9 +122,9 @@ contract TaskRepCalcTest is Test {
     // ============================================================
 
     function testTransform_zeroDelta_mapsToStakeOverRange() public {
-        // stake=1, reward=10, nrActive=5 -> maxGain = 2*10/5 = 4
-        // range = 5, shifted = 1 -> ContributionScore = 1/5 * WAD = 0.2e18
-        assertEq(h.tTransformDelta(0, 1e18, 10e18, 5), 2e17);
+        // stake=1, reward=10, nrActive=5 -> maxGain = 1*10/5 = 2
+        // range = 3, shifted = 1 -> ContributionScore = 1/3 * WAD ≈ 0.333e18
+        assertEq(h.tTransformDelta(0, 1e18, 10e18, 5), WAD / 3);
     }
 
     function testTransform_atMaxGain_returnsWAD() public {
@@ -124,9 +148,9 @@ contract TaskRepCalcTest is Test {
         assertEq(h.tTransformDelta(0, 1e18, 10e18, 0), WAD);
     }
 
-    function testTransform_at1xAverage_isMidUpperBand() public {
-        // delta = reward/nrActive = 2; with 2x cap range=5, shifted=3 -> 0.6
-        assertEq(h.tTransformDelta(int256(2e18), 1e18, 10e18, 5), 6e17);
+    function testTransform_at1xAverage_clipsToWAD() public {
+        // delta = reward/nrActive = 2; with 1x cap maxGain=2, range=3, shifted=3 -> clips to WAD
+        assertEq(h.tTransformDelta(int256(2e18), 1e18, 10e18, 5), WAD);
     }
 
     // ============================================================
@@ -175,16 +199,16 @@ contract TaskRepCalcTest is Test {
         assertEq(h.tComputeConfidence(0, 0), 0);
     }
 
-    function testConfidence_k1_sZero_oneOverSix() public {
-        assertEq(h.tComputeConfidence(1, 0), WAD / 6);
+    function testConfidence_k1_sZero_oneOverThree() public {
+        assertEq(h.tComputeConfidence(1, 0), WAD / 3);
     }
 
     function testConfidence_largeK_approachesOne() public {
-        assertEq(h.tComputeConfidence(1000, 0), (1000 * WAD) / 1005);
+        assertEq(h.tComputeConfidence(1000, 0), (1000 * WAD) / 1002);
     }
 
     function testConfidence_highVariance_drivesDown() public {
-        uint256 maturity = (10 * WAD) / 15;
+        uint256 maturity = (10 * WAD) / 12;
         uint256 stability = (WAD * WAD) / (WAD + 20 * WAD);
         assertEq(h.tComputeConfidence(10, WAD), (maturity * stability) / WAD);
     }
@@ -212,7 +236,7 @@ contract TaskRepCalcTest is Test {
     // ============================================================
 
     function testContribScore_freshUser_firstTask() public {
-        uint256 Confidence = WAD / 6;
+        uint256 Confidence = WAD / 3;
         uint256 ContributionScore = 5e17;
         uint256 weighted = (Confidence * ContributionScore) / WAD;
         uint256 expected = (N_BLEND * weighted) / WAD;
@@ -284,46 +308,26 @@ contract TaskRepCalcTest is Test {
     }
 
     // ============================================================
-    // Integration — _applyTaskRepCalc persists GIR on the manager
+    // Integration — tApplyOne persists GIR on the manager
     // ============================================================
 
     function testIntegration_appliesGIR_perfectVotes() public {
-        _registerAsValidJob(h);
-
         TaskType tt = TaskType.MNIST;
         address user = address(0xCAFE);
 
         // 5/5 positive votes -> V = 1 -> GIR = 0.2 (with prior = 0)
-        IOpenFLChallengeTaskRep.TaskRep memory rep = IOpenFLChallengeTaskRep
-            .TaskRep({
-                user: user,
-                delta: 0,
-                globalReputationScore: 0,
-                positiveVotes: 5,
-                totalVotes: 5
-            });
-        h.tApplyOne(rep, tt, 10e18, 5);
+        h.tApplyOne(user, 0, 5, 5, tt, 10e18, 5);
 
         (, uint256 storedGIR, ) = manager.getUserRep(user, tt);
         assertEq(storedGIR, 2e17);
     }
 
     function testIntegration_appliesGIR_noVotes_initialState() public {
-        _registerAsValidJob(h);
-
         TaskType tt = TaskType.MNIST;
         address user = address(0xC0DE);
 
-        // Prior GIR = 0, totalVotes = 0 -> V = 0 -> new GIR = 0 (0.8*0 + 0.2*0).
-        IOpenFLChallengeTaskRep.TaskRep memory rep = IOpenFLChallengeTaskRep
-            .TaskRep({
-                user: user,
-                delta: 0,
-                globalReputationScore: 0,
-                positiveVotes: 0,
-                totalVotes: 0
-            });
-        h.tApplyOne(rep, tt, 10e18, 5);
+        // Prior GIR = 0, totalVotes = 0 -> V = 0 -> new GIR = 0.
+        h.tApplyOne(user, 0, 0, 0, tt, 10e18, 5);
 
         (, uint256 storedGIR, ) = manager.getUserRep(user, tt);
         assertEq(storedGIR, 0);
@@ -386,138 +390,74 @@ contract TaskRepCalcTest is Test {
     }
 
     // ============================================================
-    // Pluggable confidence
+    // Integration — tApplyOne persists state on the manager
     // ============================================================
-
-    function testPluggable_overrideTakesEffect() public {
-        JobListingFlatConfidence flat =
-            new JobListingFlatConfidence(address(manager));
-        assertEq(flat.tComputeConfidence(7, 0), 5e17);
-        assertEq(flat.tComputeConfidence(0, 999), 5e17);
-    }
-
-    // ============================================================
-    // Integration — _applyTaskRepCalc persists state on the manager
-    // ============================================================
-
-    function _registerAsValidJob(JobListingHarness target) internal {
-        manager.setJobListingCodeHash(address(target).codehash);
-        manager.registerJob(address(target));
-    }
 
     function testIntegration_firstTask_seedsManagerState() public {
-        _registerAsValidJob(h);
-
         TaskType tt = TaskType.MNIST;
         address user = address(0xBEEF);
 
-        // delta=0, stake=1e18, reward=10e18, nrActive=5 -> ContributionScore = 0.2e18
-        IOpenFLChallengeTaskRep.TaskRep memory rep = IOpenFLChallengeTaskRep
-            .TaskRep({
-                user: user,
-                delta: 0,
-                globalReputationScore: 0,
-                positiveVotes: 0,
-                totalVotes: 0
-            });
-        h.tApplyOne(rep, tt, 10e18, 5);
+        // delta=0, stake=1e18, reward=10e18, nrActive=5 -> ContributionScore = WAD/3
+        h.tApplyOne(user, 0, 0, 0, tt, 10e18, 5);
 
         (uint256 storedK, , ) = manager.getUserRep(user, tt);
         uint256 nrTasks = manager.getTaskCount(user, tt);
-        (uint256 storedE, uint256 storedF) =
-            manager.getTaskRepCalcState(user, tt);
+        (uint256 storedE, uint256 storedF) = manager.getTaskRepCalcState(user, tt);
 
-        // k = 1 (first task), seeded E = ContributionScore, F = 0
         assertEq(nrTasks, 1, "task counter incremented");
-        assertEq(storedE, 2e17, "E_1 = ContributionScore");
+        assertEq(storedE, WAD / 3, "E_1 = ContributionScore");
         assertEq(storedF, 0, "F_1 = 0");
 
-        // Confidence_1 = WAD/6, weighted = ContributionScore/6,
-        // K_1 = N_BLEND * ContributionScore/6 / WAD
-        uint256 Confidence = WAD / 6;
-        uint256 weighted = (Confidence * 2e17) / WAD;
+        uint256 Confidence = WAD / 3;
+        uint256 weighted = (Confidence * (WAD / 3)) / WAD;
         uint256 expectedK = (N_BLEND * weighted) / WAD;
         assertEq(storedK, expectedK);
     }
 
     function testIntegration_twoTasks_carriesState() public {
-        _registerAsValidJob(h);
-
         TaskType tt = TaskType.MNIST;
         address user = address(0xBEEF);
 
-        // Task 1: delta=2e18 -> ContributionScore = 0.6e18
-        IOpenFLChallengeTaskRep.TaskRep memory rep1 = IOpenFLChallengeTaskRep
-            .TaskRep({
-                user: user,
-                delta: int256(2e18),
-                globalReputationScore: 0,
-                positiveVotes: 0,
-                totalVotes: 0
-            });
-        h.tApplyOne(rep1, tt, 10e18, 5);
+        // Task 1: delta=2e18 -> ContributionScore = WAD (clips at maxGain)
+        h.tApplyOne(user, int256(2e18), 0, 0, tt, 10e18, 5);
 
         (uint256 k1, , ) = manager.getUserRep(user, tt);
         uint256 nr1 = manager.getTaskCount(user, tt);
         (uint256 e1, uint256 f1) = manager.getTaskRepCalcState(user, tt);
         assertEq(nr1, 1);
-        assertEq(e1, 6e17);
+        assertEq(e1, WAD);
         assertEq(f1, 0);
 
-        // Task 2: same delta -> same ContributionScore = 0.6e18.
-        // priorRunningCMean=0.6, ContributionScore=0.6 -> newRunningCMean = 0.6 (no movement); Delta=0 -> newM2=0
-        h.tApplyOne(rep1, tt, 10e18, 5);
+        // Task 2: same delta -> same ContributionScore = WAD.
+        h.tApplyOne(user, int256(2e18), 0, 0, tt, 10e18, 5);
 
         (uint256 k2, , ) = manager.getUserRep(user, tt);
         uint256 nr2 = manager.getTaskCount(user, tt);
         (uint256 e2, uint256 f2) = manager.getTaskRepCalcState(user, tt);
         assertEq(nr2, 2);
-        assertEq(e2, 6e17);
+        assertEq(e2, WAD);
         assertEq(f2, 0);
 
-        // k=2, s=0 -> Confidence = (2/7) * 1 * WAD = 2*WAD/7
-        // weighted = Confidence * 0.6e18 / WAD = (2/7) * 0.6e18 = 12e17/70 ≈ 1.71e17
-        // K2 = 0.8*k1 + 0.2*weighted
-        uint256 Confidence = (2 * WAD) / 7;
-        uint256 weighted = (Confidence * 6e17) / WAD;
+        uint256 Confidence = WAD / 2;
+        uint256 weighted = (Confidence * WAD) / WAD;
         uint256 expectedK = ((WAD - N_BLEND) * k1 + N_BLEND * weighted) / WAD;
         assertEq(k2, expectedK);
     }
 
     function testIntegration_kickedUser_zeroJ_softDecay() public {
-        _registerAsValidJob(h);
-
         TaskType tt = TaskType.MNIST;
         address user = address(0xBEEF);
 
-        // Seed K with a strong prior via several positive tasks.
-        IOpenFLChallengeTaskRep.TaskRep memory good = IOpenFLChallengeTaskRep
-            .TaskRep({
-                user: user,
-                delta: int256(4e18),
-                globalReputationScore: 0,
-                positiveVotes: 0,
-                totalVotes: 0
-            });
         for (uint i = 0; i < 5; i++) {
-            h.tApplyOne(good, tt, 10e18, 5);
+            h.tApplyOne(user, int256(4e18), 0, 0, tt, 10e18, 5);
         }
         (uint256 PriorTaskRep, , ) = manager.getUserRep(user, tt);
         assertGt(PriorTaskRep, 0);
 
         // Simulate kick: delta = -stake, ContributionScore clips to 0.
-        IOpenFLChallengeTaskRep.TaskRep memory kicked = IOpenFLChallengeTaskRep
-            .TaskRep({
-                user: user,
-                delta: -int256(1e18),
-                globalReputationScore: 0,
-                positiveVotes: 0,
-                totalVotes: 0
-            });
-        h.tApplyOne(kicked, tt, 10e18, 5);
+        h.tApplyOne(user, -int256(1e18), 0, 0, tt, 10e18, 5);
 
         (uint256 newK, , ) = manager.getUserRep(user, tt);
-        // K_new = (1-N_BLEND)*PriorTaskRep + N_BLEND * Confidence * 0 = 0.8 * PriorTaskRep
         assertEq(newK, (PriorTaskRep * (WAD - N_BLEND)) / WAD);
     }
 
@@ -531,89 +471,64 @@ contract TaskRepCalcTest is Test {
     }
 
     function testTaskCount_incrementsPerApply() public {
-        _registerAsValidJob(h);
-
         address user = address(0x1234);
         TaskType tt = TaskType.MNIST;
 
-        IOpenFLChallengeTaskRep.TaskRep memory rep = IOpenFLChallengeTaskRep
-            .TaskRep({user: user, delta: 0, globalReputationScore: 0, positiveVotes: 0, totalVotes: 0});
-
         assertEq(manager.getTaskCount(user, tt), 0);
-        h.tApplyOne(rep, tt, 10e18, 5);
+        h.tApplyOne(user, 0, 0, 0, tt, 10e18, 5);
         assertEq(manager.getTaskCount(user, tt), 1, "after first apply");
-        h.tApplyOne(rep, tt, 10e18, 5);
+        h.tApplyOne(user, 0, 0, 0, tt, 10e18, 5);
         assertEq(manager.getTaskCount(user, tt), 2, "after second apply");
-        h.tApplyOne(rep, tt, 10e18, 5);
+        h.tApplyOne(user, 0, 0, 0, tt, 10e18, 5);
         assertEq(manager.getTaskCount(user, tt), 3, "after third apply");
     }
 
     function testTaskCount_independentPerTaskType() public {
-        _registerAsValidJob(h);
-
         address user = address(0x5678);
-        IOpenFLChallengeTaskRep.TaskRep memory rep = IOpenFLChallengeTaskRep
-            .TaskRep({user: user, delta: 0, globalReputationScore: 0, positiveVotes: 0, totalVotes: 0});
 
-        h.tApplyOne(rep, TaskType.MNIST,   10e18, 5);
-        h.tApplyOne(rep, TaskType.MNIST,   10e18, 5);
-        h.tApplyOne(rep, TaskType.CIFAR10, 10e18, 5);
+        h.tApplyOne(user, 0, 0, 0, TaskType.MNIST,   10e18, 5);
+        h.tApplyOne(user, 0, 0, 0, TaskType.MNIST,   10e18, 5);
+        h.tApplyOne(user, 0, 0, 0, TaskType.CIFAR10, 10e18, 5);
 
         assertEq(manager.getTaskCount(user, TaskType.MNIST),   2, "MNIST count");
         assertEq(manager.getTaskCount(user, TaskType.CIFAR10), 1, "CIFAR10 count");
     }
 
     function testTaskCount_drivesConfidenceGrowth() public {
-        // With correct k, confidence grows each task instead of being stuck at k=1.
-        _registerAsValidJob(h);
-
         address user = address(0x9ABC);
         TaskType tt = TaskType.CIFAR10;
-        IOpenFLChallengeTaskRep.TaskRep memory rep = IOpenFLChallengeTaskRep
-            .TaskRep({user: user, delta: int256(2e18), globalReputationScore: 0, positiveVotes: 0, totalVotes: 0});
 
-        // Apply 10 tasks; TaskRep should increase monotonically towards ~0.6.
         uint256 prevK = 0;
         for (uint i = 0; i < 10; i++) {
-            h.tApplyOne(rep, tt, 10e18, 5);
+            h.tApplyOne(user, int256(2e18), 0, 0, tt, 10e18, 5);
             (uint256 storedK, , ) = manager.getUserRep(user, tt);
             assertGe(storedK, prevK, "task rep must not decrease under constant positive delta");
             prevK = storedK;
         }
         assertEq(manager.getTaskCount(user, tt), 10, "count after 10 tasks");
-        // After 10 tasks, confidence should be > 1/6 (k=1 case) since k now = 10.
-        // maturity(10) = 10/15 ≈ 0.667 > 1/6 ≈ 0.167
-        (uint256 finalK, , ) = manager.getUserRep(user, tt);
-        // A rough lower-bound: K > threshold from k=1 run (computed above as N_BLEND*ContribScore/6/WAD ≈ tiny).
-        // More useful: after 10 perfect tasks, TR should be well above the k=1 first-task value.
+
         uint256 k1Rep;
         {
             OpenFLManager m2 = new OpenFLManager(ReputationMode.PerTask);
-            JobListingHarness h2 = new JobListingHarness(address(m2));
-            m2.setJobListingCodeHash(address(h2).codehash);
-            m2.registerJob(address(h2));
-            h2.tApplyOne(rep, tt, 10e18, 5);
+            OpenFLChallengeHarness h2 = new OpenFLChallengeHarness(address(m2));
+            m2.setChallengeCodeHash(address(h2).codehash);
+            h2.tApplyOne(user, int256(2e18), 0, 0, tt, 10e18, 5);
             (k1Rep, , ) = m2.getUserRep(user, tt);
         }
+        (uint256 finalK, , ) = manager.getUserRep(user, tt);
         assertGt(finalK, k1Rep, "10-task TR must exceed 1-task TR");
     }
 
     function testTaskCount_globalOnlyMode_sharedSlot() public {
-        // In GlobalOnly mode _repKey collapses all task types onto template.
-        // TaskCount must also use _repKey so the count is shared.
         OpenFLManager globalMgr = new OpenFLManager(ReputationMode.GlobalOnly);
-        JobListingHarness gh = new JobListingHarness(address(globalMgr));
-        globalMgr.setJobListingCodeHash(address(gh).codehash);
-        globalMgr.registerJob(address(gh));
+        OpenFLChallengeHarness gh = new OpenFLChallengeHarness(address(globalMgr));
+        globalMgr.setChallengeCodeHash(address(gh).codehash);
 
         address user = address(0xDEAD);
-        IOpenFLChallengeTaskRep.TaskRep memory rep = IOpenFLChallengeTaskRep
-            .TaskRep({user: user, delta: 0, globalReputationScore: 0, positiveVotes: 0, totalVotes: 0});
 
-        gh.tApplyOne(rep, TaskType.MNIST,   10e18, 5);
-        gh.tApplyOne(rep, TaskType.CIFAR10, 10e18, 5);
+        gh.tApplyOne(user, 0, 0, 0, TaskType.MNIST,   10e18, 5);
+        gh.tApplyOne(user, 0, 0, 0, TaskType.CIFAR10, 10e18, 5);
 
-        // GlobalOnly: both task types map to the same slot → shared count = 2.
         assertEq(globalMgr.getTaskCount(user, TaskType.MNIST),   2, "shared count via MNIST");
         assertEq(globalMgr.getTaskCount(user, TaskType.CIFAR10), 2, "shared count via CIFAR10");
     }

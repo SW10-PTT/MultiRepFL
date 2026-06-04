@@ -628,16 +628,48 @@ class FLChallenge(ConnectionHelper):
     
     
     
+    def compute_and_record_task_reps(self, caller):
+        """Calculate and store per-participant TaskRep updates on-chain.
+
+        Guarded: requires at least one round settled (round > 0) and idempotent.
+        Called once per challenge run; applies updates to the manager in one call.
+        """
+        (receipt, events) = self.transact(
+            "computeAndRecordTaskReps",
+            caller,
+            0,
+            [],
+            "challenge.computeAndRecordTaskReps",
+        )
+        return receipt, events
+
+    def get_task_rep_records(self):
+        """Read the stored TaskRepRecord[] from the challenge (after computeAndRecordTaskReps)."""
+        return self.contract.functions.getTaskRepRecords().call()
+
     def _finalize_reputations(self):
-        """Push this challenge's reputation deltas to the manager before participants exit."""
+        """Compute, store, and apply TR updates for this challenge.
+
+        Two-step: challenge computes+stores records; publisher key applies them
+        to the manager directly (avoids bytecode-hash auth on the challenge side).
+        """
         if self.manager_contract is None:
             return
         try:
-            if (False): ## TODO WHEN IN REMOTE STATE SKIP
-                self.transact("finalizeReputations", self._publisher, 0, [], "challenge.finalizeReputations")
-                log("setup_contracts", "Reputation sync pushed to manager via finalizeReputations()")
+            self.compute_and_record_task_reps(self._publisher)
         except Exception as e:
-            log("setup_contracts", f"[warn] finalizeReputations failed: {e}")
+            log("setup_contracts", f"[warn] computeAndRecordTaskReps failed: {e}")
+            return
+        try:
+            records = self.get_task_rep_records()
+            task_type = self.contract.functions.taskType().call()
+            tx = self.build_tx(self._publisher.address, self.manager_contract.address)
+            self.manager_contract.functions.applyPrecomputedTaskReps(
+                records, task_type
+            ).transact(tx)
+            log("setup_contracts", f"TR applied to manager: {len(records)} records task_type={task_type}")
+        except Exception as e:
+            log("setup_contracts", f"[warn] applyPrecomputedTaskReps failed: {e}")
 
     def exit_system(self):
 
@@ -1551,7 +1583,7 @@ class FLChallenge(ConnectionHelper):
             globals.progress = int(
                 ((roundnr + 1) / rounds) * 100
             )
-            log("round_scoring",f"roundnr: {globals.progress}")
+            log("round_scoring",f"round progress: {globals.progress}")
 
 
         log("round_scoring", f"Number of Shapley Axioms violated: {len(runtime_warnings)}\n")
@@ -1568,9 +1600,6 @@ class FLChallenge(ConnectionHelper):
         self.pytorch_model.runRepo.flush()
 
         self._finalize_reputations()
-
-        self.exit_system()
-
 
         return trs
             

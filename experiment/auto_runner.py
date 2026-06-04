@@ -213,19 +213,35 @@ def worker_loop():
 
             config = coerce_types(config)
             #pprint.pp(config)
+            expected_fingerprint = config.pop("expectedFingerprint", None)
             config = ExperimentConfiguration(**config)
 
             start_heartbeat_loop()
 
             startTime = datetime.now().strftime("%d-%m-%y--%H_%M_%S")
             path = getPath(config, startTime, config.dataset, RESULTDATAFOLDER)
-            
+
             globals.repo_dir = path.parent
 
             writer = AsyncWriter(path, OUTPUTHEADERS, WRITERBUFFERSIZE, config, "sample")
             logger = ExperimentLogger(experiment_id=path.stem, metadata=vars(config))
 
             users = build_users(config)
+            # Address maps for THIS machine's blockchain.
+            # Guids match multirep's users; addresses do not — keep these maps separate.
+            addr_to_id: dict[str, str] = {u.address.lower(): u.guid for u in users if u.guid}
+            id_to_addr: dict[str, str] = {u.guid: u.address for u in users if u.guid}
+
+            if expected_fingerprint is not None:
+                actual_fingerprint = config.get_finger_print(users)
+                if actual_fingerprint != expected_fingerprint:
+                    raise ValueError(
+                        f"Fingerprint mismatch before run: "
+                        f"expected={expected_fingerprint[:8]}... "
+                        f"actual={actual_fingerprint[:8]}... — "
+                        f"participant selection differs between multirep and auto_runner"
+                    )
+
             (experiment, filename) = experiment_runner.run_experiment(
                 config.dataset, config, writer, logger, path,
                 prebuilt_users=users,
@@ -244,10 +260,7 @@ def worker_loop():
                 archive_path
             )
 
-            user_guids = [
-                {"guid": u.guid, "address": u.address}
-                for u in users if u.guid is not None
-            ]
+            user_guids = [{"Guid": u.guid, "Address": u.address} for u in users if u.guid is not None]
             complete_run(run_id, user_guids)
             reset(experiment, filename)
             #stop_heartbeat_loop()
@@ -267,7 +280,6 @@ heartbeat_stop = None
 heartbeat_thread = None
 
 def reset(experiment, filename):
-    experiment.py
     del experiment
     del filename
     globals.progress = 0
@@ -310,4 +322,22 @@ def main():
     worker_loop()
 
 if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Run the auto_runner FL experiment worker.")
+    blockchain_group = parser.add_mutually_exclusive_group()
+    blockchain_group.add_argument(
+        "--anvil", action="store_true",
+        help="Start a local Anvil node (30 accounts) and use it as the RPC endpoint.",
+    )
+    blockchain_group.add_argument(
+        "--ganache", action="store_true",
+        help="Start a local Ganache node (30 accounts) and use it as the RPC endpoint.",
+    )
+    args = parser.parse_args()
+
+    if args.anvil or args.ganache:
+        from experiment.blockchain_launcher import start as _start_blockchain
+        _start_blockchain("anvil" if args.anvil else "ganache")
+
     main()

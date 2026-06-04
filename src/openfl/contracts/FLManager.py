@@ -1,3 +1,5 @@
+from enum import IntEnum
+
 from web3 import Web3
 from openfl.contracts.JobListing import JobListing
 from openfl.ml.pytorch_model import PytorchModel
@@ -5,6 +7,16 @@ from openfl.utils.types.TrainingSpecsJobListing import TrainingSpecsChallenge
 from openfl.utils.types.User import User
 from openfl.api import ConnectionHelper, globals
 from openfl.utils.printer import log
+
+
+def build_task_type_enum(names: list[str]):
+    """Build a TaskType IntEnum from the ordered name list returned by the contract.
+
+    Index 0 is always 'template' (the uninitialised sentinel); real task types
+    start at index 1.  The resulting enum is a drop-in replacement for the
+    static TaskType in TrainingSpecsJobListing.py.
+    """
+    return IntEnum("TaskType", {name: i for i, name in enumerate(names)})
 
 class FLManager(ConnectionHelper):
     REPUTATION_MODE_PER_TASK = 0
@@ -258,6 +270,39 @@ class FLManager(ConnectionHelper):
             new_value,
         )
 
+    def get_task_type_names(self) -> list[str]:
+        """Return the canonical TaskType name list from the contract (index = ordinal)."""
+        return list(self.contract.functions.getTaskTypeNames().call())
+
+    def get_task_type_enum(self):
+        """Build and return a TaskType IntEnum whose definition comes from the contract."""
+        return build_task_type_enum(self.get_task_type_names())
+
+    def get_user_all_task_types(self, address: str) -> list:
+        """Return TaskSpecificUser for every real TaskType (Images=1…IMDB=8) in enum order."""
+        return self.contract.functions.getUserAllTaskTypes(
+            Web3.to_checksum_address(address)
+        ).call()
+
+    def get_users_batch(self, addresses: list[str], task_type: int) -> list:
+        return self.contract.functions.getUsersBatch(
+            [Web3.to_checksum_address(a) for a in addresses], task_type
+        ).call()
+
+    def update_q_values_after_selection(
+        self, all_addresses: list[str], selected_addresses: list[str], task_type: int
+    ) -> None:
+        self.transact(
+            "updateQValuesAfterSelection",
+            self.publisher,
+            0,
+            [],
+            "manager.updateQValuesAfterSelection",
+            [Web3.to_checksum_address(a) for a in all_addresses],
+            [Web3.to_checksum_address(a) for a in selected_addresses],
+            task_type,
+        )
+
     def get_task_rep_calc_state(self, user_address: str, task_type: int) -> tuple[int, int]:
         return self.contract.functions.getTaskRepCalcState(
             Web3.to_checksum_address(user_address), task_type
@@ -297,3 +342,21 @@ class FLManager(ConnectionHelper):
             task_type,
         )
         log("setup_contracts", f"Manager reputation update applied from challenge {challenge_address[:10]}...")
+
+    def apply_precomputed_task_reps(self, records: list, task_type: int) -> None:
+        """Write pre-computed TaskRepRecord[] to the manager using the publisher key.
+
+        Called by Python after challenge.compute_and_record_task_reps() stores
+        the records on-chain. Publisher auth avoids the bytecode-hash check that
+        the challenge contract would face when calling the manager directly.
+        """
+        self.transact(
+            "applyPrecomputedTaskReps",
+            self.publisher,
+            0,
+            [],
+            "manager.applyPrecomputedTaskReps",
+            records,
+            task_type,
+        )
+        log("setup_contracts", f"applyPrecomputedTaskReps: {len(records)} records written for task_type={task_type}")

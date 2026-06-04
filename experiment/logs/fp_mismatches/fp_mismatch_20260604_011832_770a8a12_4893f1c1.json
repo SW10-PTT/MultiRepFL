@@ -1,0 +1,208 @@
+{
+  "expected_fp": "770a8a12f1246e64c696ea2d3ef8f4c5aa98ba539c5a7f5f7e0f36eaf87425a6",
+  "actual_fp": "4893f1c1bf1858078c858b54f77d31824b6965cfbd80bc0efb3c20c16f757948",
+  "expected_data": {
+    "dataset": "cifar-10",
+    "minimum_rounds": 3,
+    "min_buy_in": 1000000000000000000,
+    "max_buy_in": 1000000000000000000,
+    "standard_buy_in": 1000000000000000000,
+    "epochs": 1,
+    "batch_size": 32,
+    "punish_factor": 3,
+    "punish_factor_contrib": 3,
+    "first_round_fee": 50,
+    "contribution_score_strategy": "loss_only",
+    "loss_tolerance_pct": 0.05,
+    "use_outlier_detection": false,
+    "freerider_noise_scale": 0.1,
+    "freerider_start_round": 1,
+    "malicious_start_round": 1,
+    "malicious_noise_scale": 1.0,
+    "force_merge_all": false,
+    "participants": [
+      "3da6b9698cb63ada6a4a8813d72fbf312e0465352df8ee7785409ba29d657b0f",
+      "5e9979612437b019670c57a6ff15e718149f5f0e0e2e7b8b61a2c1fb592503a7",
+      "6caafa3ed35b47e36c080482234b46850a7e4f325aa4c4e09faef03149c83c22",
+      "8ed3b5b30c575c43fb063e7a83febee9185e605beaa180f4431bf1613f5828e9",
+      "d30ec9167f0fef5232ac59194b752c113f4dbe8a5ad2e5a5ec7448dec2f26a69"
+    ],
+    "seed": 42,
+    "allow_overlap": false,
+    "replication_factor": 1.0,
+    "user_seeds": {},
+    "partition_strategy": "per_user",
+    "vote_baseline": "local_trained",
+    "global_rep_only": false,
+    "tr_weight": 7,
+    "gir_weight": 3,
+    "per_user_partitions": {
+      "cifar-10": [
+        {
+          "user_index": "a1000000-0000-0000-0000-000000000001",
+          "name": "Balanced A",
+          "data_percent": 8.0,
+          "label_distribution": null,
+          "only_labels": null,
+          "flip_map": {},
+          "behavior": "Honest",
+          "noise_scale": null,
+          "start_round": null
+        },
+        {
+          "user_index": "a1000000-0000-0000-0000-000000000002",
+          "name": "Balanced B",
+          "data_percent": 8.0,
+          "label_distribution": null,
+          "only_labels": null,
+          "flip_map": {},
+          "behavior": "Honest",
+          "noise_scale": null,
+          "start_round": null
+        },
+        {
+          "user_index": "a1000000-0000-0000-0000-000000000006",
+          "name": "CIFAR Expert 2",
+          "data_percent": 10.0,
+          "label_distribution": null,
+          "only_labels": [
+            4,
+            5,
+            6,
+            7,
+            8,
+            9
+          ],
+          "flip_map": {},
+          "behavior": "Honest",
+          "noise_scale": null,
+          "start_round": null
+        },
+        {
+          "user_index": "a1000000-0000-0000-0000-000000000008",
+          "name": "Cross Mal-MNIST Honest-CIFAR",
+          "data_percent": 6.0,
+          "label_distribution": null,
+          "only_labels": null,
+          "flip_map": {},
+          "behavior": "Honest",
+          "noise_scale": null,
+          "start_round": null
+        },
+        {
+          "user_index": "a1000000-0000-0000-0000-000000000011",
+          "name": "Passive A",
+          "data_percent": 2.0,
+          "label_distribution": null,
+          "only_labels": null,
+          "flip_map": {},
+          "behavior": "Honest",
+          "noise_scale": null,
+          "start_round": null
+        }
+      ]
+    }
+  },
+  "actual_data": {
+    "dataset": "cifar-10",
+    "minimum_rounds": 3,
+    "min_buy_in": 1000000000000000000,
+    "max_buy_in": 1000000000000000000,
+    "standard_buy_in": 1000000000000000000,
+    "epochs": 1,
+    "batch_size": 32,
+    "punish_factor": 3,
+    "punish_factor_contrib": 3,
+    "first_round_fee": 50,
+    "contribution_score_strategy": "loss_only",
+    "loss_tolerance_pct": 0.05,
+    "use_outlier_detection": false,
+    "freerider_noise_scale": 0.1,
+    "freerider_start_round": 1,
+    "malicious_start_round": 1,
+    "malicious_noise_scale": 1.0,
+    "force_merge_all": false,
+    "participants": [
+      "3da6b9698cb63ada6a4a8813d72fbf312e0465352df8ee7785409ba29d657b0f",
+      "6caafa3ed35b47e36c080482234b46850a7e4f325aa4c4e09faef03149c83c22",
+      "8ed3b5b30c575c43fb063e7a83febee9185e605beaa180f4431bf1613f5828e9",
+      "d30ec9167f0fef5232ac59194b752c113f4dbe8a5ad2e5a5ec7448dec2f26a69",
+      "eea875d346d54f7423615fbebb3d751164f11d90dfcc1af5dbd4ac10cbd30a2d"
+    ],
+    "seed": 42,
+    "allow_overlap": false,
+    "replication_factor": 1.0,
+    "user_seeds": {},
+    "partition_strategy": "per_user",
+    "vote_baseline": "local_trained",
+    "global_rep_only": false,
+    "tr_weight": 7,
+    "gir_weight": 3,
+    "per_user_partitions": {
+      "cifar-10": [
+        {
+          "user_index": "a1000000-0000-0000-0000-000000000001",
+          "name": "Balanced A",
+          "data_percent": 8.0,
+          "label_distribution": null,
+          "only_labels": null,
+          "flip_map": {},
+          "behavior": "Honest",
+          "noise_scale": null,
+          "start_round": null
+        },
+        {
+          "user_index": "a1000000-0000-0000-0000-000000000002",
+          "name": "Balanced B",
+          "data_percent": 8.0,
+          "label_distribution": null,
+          "only_labels": null,
+          "flip_map": {},
+          "behavior": "Honest",
+          "noise_scale": null,
+          "start_round": null
+        },
+        {
+          "user_index": "a1000000-0000-0000-0000-000000000006",
+          "name": "CIFAR Expert 2",
+          "data_percent": 10.0,
+          "label_distribution": null,
+          "only_labels": [
+            4,
+            5,
+            6,
+            7,
+            8,
+            9
+          ],
+          "flip_map": {},
+          "behavior": "Honest",
+          "noise_scale": null,
+          "start_round": null
+        },
+        {
+          "user_index": "a1000000-0000-0000-0000-000000000008",
+          "name": "Cross Mal-MNIST Honest-CIFAR",
+          "data_percent": 6.0,
+          "label_distribution": null,
+          "only_labels": null,
+          "flip_map": {},
+          "behavior": "Honest",
+          "noise_scale": null,
+          "start_round": null
+        },
+        {
+          "user_index": "a1000000-0000-0000-0000-000000000011",
+          "name": "Passive A",
+          "data_percent": 2.0,
+          "label_distribution": null,
+          "only_labels": null,
+          "flip_map": {},
+          "behavior": "Honest",
+          "noise_scale": null,
+          "start_round": null
+        }
+      ]
+    }
+  }
+}

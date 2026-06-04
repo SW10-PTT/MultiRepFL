@@ -68,3 +68,12 @@ class RunRepo(ITestAndTrainer):
             for u in data
         ]
         return formatted_data
+
+    def get_task_rep_records(self, round, tag, contract: Contract):
+        """Replay path: load saved TaskRepRecord[] from trace file.
+
+        Records were saved by PytorchTrainer.get_task_rep_records() during the
+        live run. Each entry is the raw on-chain tuple:
+        (user, newTaskRep, newRunningCMean, newM2, newIntegrityRep, applyGIR).
+        """
+        return self.load(round, tag)

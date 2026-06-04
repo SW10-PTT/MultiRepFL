@@ -79,26 +79,43 @@ def _config_to_json_element(experiment_config) -> Any:
 # Public API
 # ---------------------------------------------------------------------------
 
-def start_remote_experiment(experiment_config, name: str | None = None, wanted_runs: int = 1) -> str:
-    """POST /custom-experiments/start and return the run_id string."""
+def start_remote_experiment(
+    experiment_config,
+    fingerprint: str,
+    name: str | None = None,
+    wanted_runs: int = 1,
+    experiment_id: str | None = None,
+) -> tuple[str, str]:
+    """POST /custom-experiments/start and return (run_id, experiment_id).
+
+    Pass experiment_id to add runs to an existing experiment instead of
+    creating a new one on every call.
+    """
     config_payload = _config_to_json_element(experiment_config)
+    # Embed the expected fingerprint so auto_runner can validate before running.
+    config_payload["expectedFingerprint"] = fingerprint
 
     body = {
         "wantedRuns": wanted_runs,
         "name": name,
         "configJson": config_payload,
     }
+    if experiment_id is not None:
+        body["experimentId"] = experiment_id
 
     url = f"{_api_url()}/custom-experiments/start"
     log("remote_client", f"Submitting remote experiment to {url} …")
 
     res = requests.post(url, json=body, timeout=30)
+    if not res.ok:
+        log("remote_client", f"Remote request failed {res.status_code}: {res.text}")
     res.raise_for_status()
 
     data = res.json()
-    run_id = data["runId"]
-    log("remote_client", f"Remote run submitted: runId={run_id}")
-    return run_id
+    run_id = str(data["runId"])
+    returned_experiment_id = str(data["experimentId"])
+    log("remote_client", f"Remote run submitted: runId={run_id}, experimentId={returned_experiment_id}")
+    return run_id, returned_experiment_id
 
 
 def poll_run_status(run_id: str, timeout: int = _POLL_TIMEOUT, interval: int = _POLL_INTERVAL) -> dict:
@@ -193,14 +210,20 @@ def run_remote_and_setup_replay(
     name: str | None = None,
     wanted_runs: int = 1,
     timeout: int = _POLL_TIMEOUT,
-) -> Path:
+    experiment_id: str | None = None,
+) -> tuple[Path, str]:
     """Full remote pipeline: submit → poll → download → extract → register.
 
-    Returns the extraction directory.  After this call, globals.repo_dir and
-    globals.reuse_runs are configured so that experiment_runner.run_experiment
-    will replay the remote result instead of training locally.
+    Returns (extraction_directory, experiment_id).  After this call,
+    globals.repo_dir and globals.reuse_runs are configured so that
+    experiment_runner.run_experiment will replay the remote result instead of
+    training locally.  Pass experiment_id to add this run to an existing
+    experiment rather than creating a new one.
     """
-    run_id = start_remote_experiment(experiment_config, name=name, wanted_runs=wanted_runs)
+    run_id, experiment_id = start_remote_experiment(
+        experiment_config, fingerprint=fingerprint, name=name,
+        wanted_runs=wanted_runs, experiment_id=experiment_id,
+    )
     poll_run_status(run_id, timeout=timeout)
 
     download_url = fetch_run_download_url(run_id)
@@ -210,4 +233,4 @@ def run_remote_and_setup_replay(
 
     archive = download_tarball(download_url, dest)
     extract_dir = extract_and_register_runrepo(archive, dest)
-    return extract_dir
+    return extract_dir, experiment_id

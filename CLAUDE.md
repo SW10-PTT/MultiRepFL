@@ -109,3 +109,25 @@ Ganache requires a workspace (not quickstart) with: gas limit set significantly 
 ### Python Version
 
 Python 3.12 is required (3.12.x). AMD GPU on Windows requires exactly Python 3.12 due to wheel availability.
+
+## Key Metric Definitions
+
+### TR — Task Reputation
+Per-(user, task-type) EWMA score in [0, 1] (WAD-scaled: 1e18 = 1.0). Tracks how well a user contributes to tasks of a specific type (e.g., MNIST, CIFAR-10). Updated after each completed task using a contribution score, a running variance for confidence weighting, and a maturity factor k/(k+N_0). Starts at 0 and builds upward with good contributions.
+
+Formula: `TR_k = (1 - N_BLEND) * TR_{k-1} + N_BLEND * (confidence * contrib_score)`
+
+### GIR — Global Integrity Reputation
+Per-user scalar in [0, 1] (WAD-scaled) measuring general trustworthiness across all task types. Updated after each task via EWMA of the squared positive-vote ratio: `V = (positive_votes / total_votes)^2`. Starts at 0 and earns upward from honest feedback behaviour. Decays toward 0 for participants who receive few positive votes.
+
+Formula: `GIR_k = (1 - eta_I) * GIR_{k-1} + eta_I * V_k`  where  `V = (pos_votes / total_votes)^2`
+
+### Balance
+Per-user net ETH gain/loss accumulated across tasks, in ETH (float). Starts at 100 ETH (synthetic baseline added by the plotter). After each task the delta is `GRS_after_task - 1 ETH` (subtracting the 1 ETH collateral that GRS starts at in OpenFLChallenge). Positive delta = net reward; negative delta = net punishment. Stored in `user.balance` as wei (int); plotted as ETH via `/1e18`.
+
+- `GRS` = globalReputationScore in OpenFLChallenge.sol, initialised to 1 ETH (collateral)
+- `delta_balance = GRS_after_task - 1e18`  (net gain/loss for this task, in wei)
+- Cumulative: `user.balance` accumulates `delta_balance` across tasks
+
+### Selection Score
+Weighted combination used by the contract to rank participants: `score = (TR * tr_weight + GIR * gir_weight) / (tr_weight + gir_weight) + (q_weight * Q) / WAD`. Q is the selection-pressure bonus for long-unselected users.

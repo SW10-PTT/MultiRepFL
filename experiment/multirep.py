@@ -7,6 +7,7 @@ import tarfile
 import traceback
 import uuid
 from pathlib import Path
+from xml.dom import NotFoundErr
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -30,6 +31,11 @@ from openfl.utils.printer import log, set_log_file, set_enabled_tags
 from openfl.utils.W3Helper import get_PRIVKEYS, get_RPC_Endpoint
 from openfl.api import globals as fl_globals
 from openfl.api.globals import ReplayMode
+# Populated from the manager contract after it is initialised (see run_multirep).
+# Falls back to the static Python enum so import-time code (get_task_type) still works.
+from openfl.utils.types.TrainingSpecsJobListing import TaskType as _TaskType
+_task_type_enum = _TaskType  # replaced by contract version once manager is up
+_REAL_TASK_TYPES: list = [tt for tt in _TaskType if tt != _TaskType.template]
 from analysis.ExperimentLogger import ExperimentLogger
 from openfl.utils.async_writer import AsyncWriter
 
@@ -44,9 +50,9 @@ _WAD = 10 ** 18  # all on-chain rep values are WAD-scaled
 # EWMA constants — mirror JobListing.sol exactly.
 _ALPHA = int(2e17)                    # forgetting factor for running mean + variance
 _N_BLEND = int(2e17)                  # smoothing on final ContribScore → TaskRep
-_N_0 = 5                              # maturity offset
+_N_0 = 2                              # maturity offset
 _LAMBDA = 20                          # variance penalty weight
-_GAIN_CAP_MULTIPLIER = 2
+_GAIN_CAP_MULTIPLIER = 1
 _STAKE_WAD = int(1e18)                # collateral (hardcoded to 1 ETH, matching Solidity)
 _INTEGRITY_LEARNING_RATE = int(2e17)  # GIR EWMA learning rate
 
@@ -55,7 +61,8 @@ _INTEGRITY_LEARNING_RATE = int(2e17)  # GIR EWMA learning rate
 # Preset file — fill in before running
 # ---------------------------------------------------------------------------
 
-preset_file = "experiment/presets/EXP-globalrep-mixed-distribution-5-task-dataset-switch-10-rounds.json"
+preset_file = "experiment/presets/fast-test-local.json"
+# preset_file = "experiment/presets/EXP-multirep-mixed-distribution-5-task-dataset-switch copy.json"
 
 # ---------------------------------------------------------------------------
 # Output directory for multirep sessions
@@ -89,14 +96,13 @@ def compute_user_score(user: User, task_type: int, q_weight: int = 0, tr_weight:
 
 
 def getTopN(users: List[User], n: int, task_type: int, q_weight: int = 0, tr_weight: int = 6, gir_weight: int = 4) -> List[User]:
-    """Mirror the smart contract's participant selection for fingerprinting."""
+    """Mirror the smart contract's participant selection (retained for debugging/analysis)."""
     fps = {u: u.finger_print for u in users}
     scores = [(compute_user_score(u, task_type, q_weight, tr_weight, gir_weight), u) for u in users]
     scores.sort(key=lambda x: (-x[0], fps[x[1]]))
     selected = [u for _, u in scores[:n]]
     selected_set = {u.address for u in selected}
 
-    # Register every user's finger_print → label so the replay diff can resolve names.
     for _, u in scores:
         label = u.partition_spec.name if (u.partition_spec and u.partition_spec.name) else f"User {u.number}"
         fl_globals.fp_user_labels[fps[u]] = label
@@ -120,69 +126,78 @@ def getTopN(users: List[User], n: int, task_type: int, q_weight: int = 0, tr_wei
 # ---------------------------------------------------------------------------
 
 def get_task_type(dataset: str) -> int:
-    """Map dataset name to TaskType enum value from Types.sol."""
-    from openfl.utils.types.TrainingSpecsJobListing import TaskType
-    return int(TaskType.from_dataset_name(dataset))
+    """Map dataset name to TaskType int value. Uses the contract-loaded enum when available."""
+    name = (dataset or "").replace("-", "").replace("_", "").replace(" ", "").lower()
+    for tt in _task_type_enum:
+        if tt.name.lower() == name:
+            return int(tt)
+    return int(_task_type_enum.template)
+
+
+def _apply_rep_to_user(user: User, rep, task_type: int) -> None:
+    """Write one rep record (dict or tuple from manager) onto a user object."""
+    if isinstance(rep, dict):
+        user.task_rep[task_type]      = rep["taskRep"]
+        user.global_integrity_rep     = rep["globalIntegrityRep"]
+        user.total_contrib_score      = rep["totalContribScore"]
+        user.q_value[task_type]       = rep["qValue"]
+        user.balance                  = rep.get("balance", 0)
+        task_count                    = rep.get("taskCount")
+    else:
+        user.task_rep[task_type]      = rep[1]
+        user.global_integrity_rep     = rep[2]
+        user.total_contrib_score      = rep[3]
+        user.q_value[task_type]       = rep[4]
+        user.balance                  = rep[5] if len(rep) > 5 else 0
+        task_count                    = rep[6] if len(rep) > 6 else None
+    if task_count is not None:
+        user.task_count[task_type] = task_count
+
+
+def sync_users_from_manager(users: List[User], manager, task_type: int) -> None:
+    """Pull authoritative rep state from the manager and write it onto each user.
+
+    Uses positional correspondence (getUsersBatch preserves input order) so that
+    address is only used at the Solidity boundary — Python identifies users by guid.
+    """
+    reps = manager.get_users_batch([u.address for u in users], task_type)
+    for user, rep in zip(users, reps):
+        _apply_rep_to_user(user, rep, task_type)
+
+
+def sync_all_task_types_for_logging(users: List[User], manager) -> None:
+    """Sync every task type slot from the manager onto each user.
+
+    Called before logging/graphing so tr_all and q_all reflect the full
+    on-chain state, not just the task types that happened to be the current
+    task during each round.  Not used on the hot selection path.
+    """
+    for user in users:
+        reps = manager.get_user_all_task_types(user.address)
+        for task_type, rep in zip(_REAL_TASK_TYPES, reps):
+            _apply_rep_to_user(user, rep, int(task_type))
 
 
 def update_users_from_reps(users: List[User], reps, task_type: int) -> None:
+    """Update users from an unordered rep list (dict or tuple) keyed by guid or address.
+
+    Used for replay-path data where order is not guaranteed. Prefers guid lookup;
+    falls back to address only as a last resort (e.g. old recorded traces).
+    """
     users_by_address = {u.address.lower(): u for u in users}
     users_by_guid = {u.guid: u for u in users if u.guid is not None}
     for rep in reps:
-        if isinstance(rep, dict):
-            address = rep.get("address", "")
-            task_rep = rep["taskRep"]
-            global_integrity_rep = rep["globalIntegrityRep"]
-            total_contrib_score = rep["totalContribScore"]
-            q_value = rep["qValue"]
-            balance = rep.get("balance", 0)
-            guid = rep.get("guid")
-        else:
-            address = rep[0]
-            task_rep, global_integrity_rep, total_contrib_score, q_value = rep[1], rep[2], rep[3], rep[4]
-            balance = rep[5] if len(rep) > 5 else 0
-            guid = None
+        guid    = rep.get("guid") if isinstance(rep, dict) else None
+        address = (rep.get("address", "") if isinstance(rep, dict) else rep[0])
         user = (users_by_guid.get(guid) if guid else None) or users_by_address.get(address.lower())
         if user is None:
             continue
-        user.task_rep[task_type] = task_rep
-        user.global_integrity_rep = global_integrity_rep
-        user.total_contrib_score = total_contrib_score
-        user.q_value[task_type] = q_value
-        user.balance = balance
+        _apply_rep_to_user(user, rep, task_type)
 
 
 # ---------------------------------------------------------------------------
 # Q-value update (patience / selection pressure formula)
 # ---------------------------------------------------------------------------
-
-def _compute_q_updates(users: List[User], selected_users: List[User], task_type: int) -> dict:
-    """Return {address: new_q} using pre-run Q values — does not modify users.
-
-    Formula (k = selected, n = total):
-      selected:     q_new = max(0, q_old + k/n - 1)
-      not selected: q_new = max(0, q_old + k/n)
-    """
-    k = len(selected_users)
-    n = len(users)
-    ratio = k / n if n > 0 else 0.0
-    selected_addrs = {u.address for u in selected_users}
-    selected_guids = {u.guid for u in selected_users if u.guid is not None}
-    updates = {}
-    for user in users:
-        q_old = user.q_value.get(task_type, 0) / _WAD
-        is_selected = user.address in selected_addrs or (
-            user.guid is not None and user.guid in selected_guids
-        )
-        delta = ratio - (1.0 if is_selected else 0.0)
-        updates[user.address] = int(max(0.0, q_old + delta) * _WAD)
-    return updates
-
-
-def _apply_q_updates(users: List[User], q_updates: dict, task_type: int) -> None:
-    for user in users:
-        if user.address in q_updates:
-            user.q_value[task_type] = q_updates[user.address]
 
 
 # ---------------------------------------------------------------------------
@@ -269,7 +284,7 @@ def _apply_trs_reps(users: List[User], trs: list, task_type: int, manager, rewar
         # GIR starts at 0 and earns upward; no WAD prior override.
         prior_gir = user.global_integrity_rep
         new_gir = _update_integrity_rep(prior_gir, pos_votes, total_votes)
-        new_balance = max(0, user.balance + delta_balance)
+        new_balance = user.balance + delta_balance
 
         name = user.partition_spec.name if (user.partition_spec and user.partition_spec.name) else f"User {user.number}"
         log("multirep", f"  {name:<14} {delta / _WAD:>12.4f} {contrib_score / _WAD:>14.4f} {confidence / _WAD:>12.4f} "
@@ -281,8 +296,13 @@ def _apply_trs_reps(users: List[User], trs: list, task_type: int, manager, rewar
         manager.set_task_rep_calc_state(user.address, task_type, new_mean, new_m2)
         manager.increment_task_count(user.address, task_type)
         manager.set_user_integrity_rep(user.address, new_gir)
-        manager.set_user_balance(user.address, new_balance)
+        manager.set_user_balance(user.address, max(0, new_balance))
 
+        # Mirror updated values back onto the Python user object so the
+        # logger reads correct values without waiting for getGrsAndTrsBatch.
+        user.task_rep[task_type] = new_task_rep
+        user.global_integrity_rep = new_gir
+        user.balance = new_balance
         user.task_count[task_type] = k
 
 
@@ -311,21 +331,63 @@ def log_user_reputations(users: List[User], task_type: int, selected_users: List
     log("multirep", "─" * 96)
 
 
-def _sync_balances_from_challenge(users: List[User], experiment, manager) -> None:
-    """Local-run path: read each participant's globalReputationScore from the
-    settled challenge contract and write it into the manager's Balance slot."""
+def _trs_from_challenge(users: List[User], experiment, addr_to_id: dict[str, str]) -> list:
+    """Local-run path: read getTaskRepDeltaAndGRS from the settled challenge
+    contract and return a trs list in the same format as the replay path:
+    (guid, delta_task_rep, delta_balance, pos_votes, total_votes).
+
+    addr_to_id is the caller's local blockchain map (multirep's chain). It must
+    NOT be shared with or borrowed from auto_runner — those addresses differ.
+    """
     challenge_contract = experiment.model.contract
+    users_by_guid = {u.guid: u for u in users if u.guid is not None}
+    try:
+        raw = challenge_contract.functions.getTaskRepDeltaAndGRS().call()
+    except Exception as e:
+        log("multirep", f"[warn] getTaskRepDeltaAndGRS failed: {e}")
+        return []
+    trs = []
+    for entry in raw:
+        addr_lower = entry[0].lower()
+        guid = addr_to_id.get(addr_lower)
+        if guid is None:
+            continue
+        user = users_by_guid.get(guid)
+        if user is None:
+            continue
+        delta, grs, pos_votes, total_votes = entry[1], entry[2], entry[3], entry[4]
+        # delta_balance = net ETH change this task (exclude the 1 ETH collateral that GRS starts at)
+        delta_balance = grs - _STAKE_WAD
+        trs.append((guid, delta, delta_balance, pos_votes, total_votes))
+    return trs
+
+
+def _sync_balances_from_challenge(users: List[User], run_data, manager) -> None:
+    """LOCAL path: read final GRS from the settled challenge and write the net
+    balance delta (GRS - 1 ETH collateral) into the manager + Python objects.
+
+    TaskRep and GIR are already on-chain (written by updateUserTaskReps inside
+    experiment_runner), so only balance needs syncing here.
+    """
+    from experiment.experiment_runner import Experiment
+    if not isinstance(run_data, Experiment):
+        log("multirep", "[warn] _sync_balances_from_challenge: unexpected run_data type — skipping")
+        return
+    raw = run_data.grs_snapshot
+    if not raw:
+        log("multirep", "[warn] _sync_balances_from_challenge: GRS snapshot empty — skipping")
+        return
     users_by_address = {u.address.lower(): u for u in users}
-    for _, user in users_by_address.items():
-        try:
-            challenge_user = challenge_contract.functions.users(
-                Web3.to_checksum_address(user.address)
-            ).call()
-            # OpenFLChallenge.User tuple field order: weightedContribScore[0], globalReputationScore[1].
-            grs = challenge_user[1]
-            manager.set_user_balance(user.address, grs)
-        except Exception as e:
-            log("multirep", f"[warn] balance sync failed for {user.address[:10]}...: {e}")
+    for entry in raw:
+        addr = entry[0].lower()
+        grs = entry[2]  # globalReputationScore in the challenge after the task
+        user = users_by_address.get(addr)
+        if user is None:
+            raise NotFoundErr("User not found")
+        delta_balance = grs - _STAKE_WAD  # net gain/loss this task (strip out 1 ETH collateral)
+        new_balance = user.balance + delta_balance
+        user.balance = new_balance
+        manager.set_user_balance(user.address, max(0, new_balance))
 
 
 def filter_partitions_for_users(selected_users: List[User]) -> dict:
@@ -340,6 +402,37 @@ def filter_partitions_for_users(selected_users: List[User]) -> dict:
         for user in selected_users
         if user.partition_spec is not None
     }
+
+
+def rebind_user_specs_for_dataset(all_users: List[User], full_config: ExperimentConfiguration, dataset: str) -> None:
+    """Re-bind each prebuilt user's partition_spec to the spec for `dataset`.
+
+    Users are built once from the first task's dataset, so without this their
+    spec (data_percent, behavior, only_labels, flip_map, noise) stays frozen to
+    that dataset for every later task — e.g. a MNIST-strong user would keep its
+    8% MNIST share on CIFAR-10 tasks instead of its 2% CIFAR share. Match by
+    user_index (the stable preset id, shared across a user's dataset blocks).
+    """
+    from openfl.ml.partition_spec import normalize_dataset_name
+    from openfl.utils.types.Attitude import Attitude
+    specs = full_config.per_user_partitions.get(normalize_dataset_name(dataset), {})
+    for user in all_users:
+        if user.partition_spec is None:
+            continue
+        spec = specs.get(user.partition_spec.user_index)
+        if spec is None:
+            continue
+        user.partition_spec = spec
+        user.partition_name = spec.name
+        user.data_percent = float(spec.data_percent)
+        user.only_labels = list(spec.only_labels) if spec.only_labels is not None else None
+        user.flip_map = dict(spec.flip_map)
+        user.noise_scale = None if spec.noise_scale is None else float(spec.noise_scale)
+        user.start_round = None if spec.start_round is None else int(spec.start_round)
+        # Behavior is per-dataset too; reset attitude so the switch re-gates per task.
+        user.futureAttitude = spec.behavior
+        user.attitudeSwitch = int(spec.start_round) if spec.start_round is not None else 1
+        user.attitude = Attitude.Honest
 
 
 # ---------------------------------------------------------------------------
@@ -441,7 +534,7 @@ def _rep_internals_after_task(users: List[User], manager, task_type: int) -> tup
     for u in users:
         try:
             c_mean, m2 = manager.get_task_rep_calc_state(u.address, task_type)
-            _, _, nr_tasks = manager.contract.functions.getUserRep(u.address, task_type).call()
+            nr_tasks = manager.contract.functions.getTaskCount(u.address, task_type).call()
             conf = _compute_confidence(nr_tasks, m2)
             confidence[u.address] = conf / _WAD
             k_map[u.address] = nr_tasks
@@ -457,37 +550,25 @@ def _rep_internals_after_task(users: List[User], manager, task_type: int) -> tup
     return confidence, k_map, mean_map, m2_map
 
 
-def _run_preset(preset: MultirepRunConfig, exp_config, all_users, manager, fingerprint, experiment_name,
-                writer=None, logger=None, path=None):
+def _run_preset(preset: MultirepRunConfig, exp_config, selection_state, fingerprint, experiment_name,
+                writer=None, logger=None, path=None, session_state=None):
     from experiment.multirep.training_mode import TrainingMode
 
     if preset.training_mode == TrainingMode.REMOTE:
-        return _run_remote(preset, exp_config, all_users, manager, fingerprint, experiment_name,
-                           writer=writer, logger=logger, path=path)
+        return _run_remote(preset, exp_config, selection_state, fingerprint, experiment_name,
+                           writer=writer, logger=logger, path=path, session_state=session_state)
 
     # LOCAL
     fl_globals.reuse_runs = ReplayMode.Record
-    return ExperimentRunner.run_experiment(
-        preset.dataset,
-        exp_config,
-        writer=writer,
-        logger=logger,
-        path=path,
-        prebuilt_users=all_users,
-        prebuilt_manager=manager,
+    return ExperimentRunner.run_experiment_from_selection(
+        selection_state, exp_config, fingerprint,
+        writer=writer, logger=logger, path=path,
     )
 
 
-def _run_remote(preset: MultirepRunConfig, exp_config: ExperimentConfiguration, all_users, manager, fingerprint: str, experiment_name,
-                writer=None, logger=None, path=None):
-    """Submit to the remote API (or reuse a pooled run), replay locally.
-    Falls back to LOCAL if anything goes wrong.
-
-    remote_pool_size controls reuse probability:
-      0  → always submit a new run
-      N  → build a list of length N, fill from existing runs, pick a random
-           slot; if the slot is non-None reuse that run, else submit new.
-    """
+def _run_remote(preset: MultirepRunConfig, exp_config: ExperimentConfiguration, selection_state, fingerprint: str, experiment_name,
+                writer=None, logger=None, path=None, session_state=None):
+    """Download a remote run tarball and replay locally, or fall back to LOCAL."""
     from experiment.multirep.remote_client import (
         run_remote_and_setup_replay, fetch_run_download_url,
         download_tarball, extract_and_register_runrepo,
@@ -513,37 +594,28 @@ def _run_remote(preset: MultirepRunConfig, exp_config: ExperimentConfiguration, 
             archive = download_tarball(download_url, dest)
             extract_and_register_runrepo(archive, dest)
         else:
-            run_remote_and_setup_replay(
+            _, new_experiment_id = run_remote_and_setup_replay(
                 exp_config,
                 fingerprint=fingerprint,
                 name=experiment_name or f"multirep-{preset.dataset}",
+                experiment_id=session_state.get("experiment_id") if session_state else None,
             )
+            if session_state is not None:
+                session_state["experiment_id"] = new_experiment_id
 
-        return ExperimentRunner.run_experiment(
-            preset.dataset,
-            exp_config,
-            writer=writer,
-            logger=logger,
-            path=path,
-            prebuilt_users=all_users,
-            prebuilt_manager=manager,
+        return ExperimentRunner.run_experiment_from_selection(
+            selection_state, exp_config, fingerprint,
+            writer=writer, logger=logger, path=path,
         )
 
     except Exception as e:
         log("multirep", f"[REMOTE] Failed — falling back to LOCAL.\nReason: {type(e).__name__}: {e}\n{traceback.format_exc()}")
         fl_globals.reuse_runs = ReplayMode.Record
-        # Restore repo_dir to task_dir so the JSON lands there, not in the
-        # remote extraction dir that extract_and_register_runrepo may have set.
         if path is not None:
             fl_globals.repo_dir = str(path.parent)
-        return ExperimentRunner.run_experiment(
-            preset.dataset,
-            exp_config,
-            writer=writer,
-            logger=logger,
-            path=path,
-            prebuilt_users=all_users,
-            prebuilt_manager=manager,
+        return ExperimentRunner.run_experiment_from_selection(
+            selection_state, exp_config, fingerprint,
+            writer=writer, logger=logger, path=path,
         )
 
 
@@ -569,7 +641,7 @@ def _apply_preset_config(exp_config: ExperimentConfiguration, preset) -> None:
 # Main
 # ---------------------------------------------------------------------------
 
-def main():
+def main(auto_graphs: bool = False):
     global fallback_count
     preset = MultirepPreset.from_file(preset_file)
     tasks = preset.tasks
@@ -621,6 +693,10 @@ def main():
     set_enabled_tags(full_config.enabled_prints)
     log("multirep", f"=== MultiRep session started {session_ts} — {preset.name} ===")
     all_users = ExperimentRunner.build_users(full_config)
+    # Address maps are scoped to THIS blockchain instance.
+    # auto_runner has its own separate maps — same guids, different addresses.
+    addr_to_id: dict[str, str] = {u.address.lower(): u.guid for u in all_users if u.guid}
+    id_to_addr: dict[str, str] = {u.guid: u.address for u in all_users if u.guid}
 
     # Deploy the manager contract once before the loop so it persists across
     # all tasks, including those that are skipped via the RunRepo cache.
@@ -638,6 +714,15 @@ def main():
         privkeys,
     )
 
+    # Replace the static fallback enum with the authoritative definition from the contract.
+    global _task_type_enum, _REAL_TASK_TYPES
+    try:
+        _task_type_enum = manager.get_task_type_enum()
+        _REAL_TASK_TYPES = [tt for tt in _task_type_enum if int(tt) != 0]
+        log("multirep", f"TaskType loaded from contract: {[tt.name for tt in _REAL_TASK_TYPES]}")
+    except Exception as e:
+        log("multirep", f"[warn] could not load TaskType from contract, using static fallback: {e}")
+
     # Initialize on-chain GIR to 0 for all users so it earns upward from honest voting.
     manager.initialize_user_balances(all_users, initial_value=0)
 
@@ -645,9 +730,23 @@ def main():
     tr_weight = preset.tr_weight
     gir_weight = preset.gir_weight
     experiment_name = preset.name
+    session_state: dict = {"experiment_id": None}  # persists experiment_id across tasks for REMOTE mode
 
     for i, task in enumerate(tasks):
         task_type = get_task_type(task.dataset)
+
+        # Re-bind specs to THIS task's dataset. Users are built once from the
+        # first task's dataset, so their spec (data_percent, behavior, labels)
+        # would otherwise stay frozen to that dataset across the dataset switch.
+        rebind_user_specs_for_dataset(all_users, full_config, task.dataset)
+
+        # Pull authoritative state from manager before selection so Python and
+        # the contract use identical values. Q is on-chain (persisted after each
+        # selection via updateQValuesAfterSelection), so this read includes it.
+        try:
+            sync_users_from_manager(all_users, manager, task_type)
+        except Exception as e:
+            log("multirep", f"[warn] pre-selection sync from manager failed: {e}")
 
         # Capture the rep state that will inform the selection decision.
         pre_state = {
@@ -662,44 +761,32 @@ def main():
             for u in all_users
         }
 
-        # Mirror the contract's selection to predict participants.
-        # All users still register; the contract makes the final choice.
         log("multirep", f"\n=== Task {i+1}/{len(tasks)}: {task.dataset} (mode={training_mode.value}) ===")
-        selected_users = getTopN(all_users, task.number_of_participants, task_type, q_weight, tr_weight, gir_weight)
-        scores = {u.address: compute_user_score(u, task_type, q_weight, tr_weight, gir_weight) for u in all_users}
-
-        # Compute Q updates now, before the run, so q_old is the pre-run value.
-        # Applied after chain sync to ensure our Python-side Q is authoritative.
-        q_updates = _compute_q_updates(all_users, selected_users, task_type)
-
-        # Build ExperimentConfiguration from ONLY the selected users' specs so
-        # contributor counts and the experiment fingerprint are correct.
-        filtered_partitions = filter_partitions_for_users(selected_users)
-        exp_config = task.to_experiment_config(partition_file)
         task.training_mode = training_mode
 
+        # Bootstrap config for selection: task-level params only (no partition filtering).
+        # The contract makes the final selection — no Python-side prediction needed.
+        boot_config = task.to_experiment_config(partition_file)
+        boot_config.q_weight = q_weight
+        boot_config.tr_weight = tr_weight
+        boot_config.gir_weight = gir_weight
+        _apply_preset_config(boot_config, preset)
+
+        selection_state = ExperimentRunner.select_participants_for_task(
+            task.dataset, boot_config, all_users, manager,
+        )
+        selected_users = selection_state.selected_users
+
+        # Build real exp_config from actual selected users' partition specs.
+        filtered_partitions = filter_partitions_for_users(selected_users)
+        exp_config = task.to_experiment_config_with_partitions(filtered_partitions)
         exp_config.q_weight = q_weight
         exp_config.tr_weight = tr_weight
         exp_config.gir_weight = gir_weight
         _apply_preset_config(exp_config, preset)
+
         fingerprint = exp_config.get_finger_print(selected_users)
-        selected_set = {u.address for u in selected_users}
-        fl_globals.fp_score_cache[fingerprint] = [
-            {
-                "name": u.partition_spec.name if (u.partition_spec and u.partition_spec.name) else f"User {u.number}",
-                "fp": u.finger_print,
-                "task_rep": u.task_rep.get(task_type, 0),
-                "gir": u.global_integrity_rep,
-                "q": u.q_value.get(task_type, 0),
-                "score": compute_user_score(u, task_type, q_weight, tr_weight, gir_weight),
-                "selected": u.address in selected_set,
-                "q_weight": q_weight,
-                "tr_weight": tr_weight,
-                "gir_weight": gir_weight,
-                "task_type": task_type,
-            }
-            for u in all_users
-        ]
+        scores = {u.address: compute_user_score(u, task_type, q_weight, tr_weight, gir_weight) for u in all_users}
         log("multirep", f"Run {i+1}/{len(tasks)} | Fall back runs {fallback_count} | dataset={task.dataset} | fp={fingerprint[:8]}...")
 
         # Create a folder for this task's output files.
@@ -711,10 +798,10 @@ def main():
         if cached_run is not None:
             log("multirep", f"Fingerprint {fingerprint[:8]}... found in RunRepo — skipping experiment.")
             _apply_cached_reps(all_users, cached_run, task_type)
-            _apply_q_updates(all_users, q_updates, task_type)
             # Read confidence/k from the manager even for cached tasks so the
             # session pickle has a full confidence trajectory across all tasks.
             post_confidence, post_k, post_mean, post_m2 = _rep_internals_after_task(all_users, manager, task_type)
+            sync_all_task_types_for_logging(all_users, manager)
             log("multirep", f"\n--- Reputation snapshot after task {i+1} (cached) ---")
             log_user_reputations(all_users, task_type, selected_users, q_weight, tr_weight, gir_weight)
             multirep_logger.log_task(
@@ -748,10 +835,10 @@ def main():
         # ------------------------------------------------------------------ #
         # Dispatch: LOCAL / REMOTE                                            #
         # ------------------------------------------------------------------ #
-        fl_globals.expected_fingerprint = fingerprint
         run_result = _run_preset(
-            task, exp_config, all_users, manager, fingerprint, experiment_name,
+            task, exp_config, selection_state, fingerprint, experiment_name,
             writer=writer, logger=task_logger, path=task_csv_path,
+            session_state=session_state,
         )
         if run_result is None:
             writer.finish()
@@ -764,11 +851,12 @@ def main():
             continue
         run_data, filename = run_result
         is_replay = isinstance(run_data, list)
+        # A mismatch-replay (remote succeeded but chain selected different users,
+        # and a cached result for those users was found) returns is_replay=True
+        # but the filename embeds a different fingerprint than predicted.
+        replay_matched = is_replay and (fingerprint in str(filename))
 
-        # Count every REMOTE→LOCAL fallback in one place.  Both the exception
-        # path and the silent HardPlayBack fingerprint-mismatch path return a
-        # non-replay result from a REMOTE-mode call.
-        if training_mode == TrainingMode.REMOTE and not is_replay:
+        if training_mode == TrainingMode.REMOTE and (not is_replay or not replay_matched):
             fallback_count += 1
 
         # ------------------------------------------------------------------ #
@@ -799,26 +887,29 @@ def main():
                 # there. Copy it into task_dir.
                 copy_remote_task_files(remote_src, task_dir)
 
-        # Upload result to the API only for LOCAL runs; REMOTE results
-        # either originated on the server or are already stored there.
-        if training_mode == TrainingMode.LOCAL:
+        # Upload completed runs to the API so they can be replayed remotely.
+        # Only for REMOTE-mode sessions — local-only runs stay local.
+        if training_mode == TrainingMode.REMOTE and not is_replay:
             from experiment.multirep.remote_client import _config_to_json_element
             _upload_run(fingerprint, filename, json.dumps(_config_to_json_element(exp_config)))
 
         # ------------------------------------------------------------------ #
         # Rep updates (chain-authoritative)                                   #
         # ------------------------------------------------------------------ #
-        addresses = [u.address for u in all_users]
+        # Replay: manager was freshly deployed locally, so _apply_trs_reps
+        # must write task rep + running state to chain from the remote TRS.
+        # Local: updateUserTaskReps already ran inside experiment_runner, so
+        # the chain is authoritative — just sync balances then read back.
         if is_replay:
             _apply_trs_reps(all_users, run_data, task_type, manager, exp_config.reward)
         else:
             _sync_balances_from_challenge(all_users, run_data, manager)
         try:
+            addresses = [u.address for u in all_users]
             reps = manager.contract.functions.getGrsAndTrsBatch(addresses, task_type).call()
             update_users_from_reps(all_users, reps, task_type)
         except Exception as e:
             log("multirep", f"[warn] getGrsAndTrsBatch failed: {e}")
-        _apply_q_updates(all_users, q_updates, task_type)
 
         # ------------------------------------------------------------------ #
         # Compute confidence + internals for session logging                  #
@@ -841,6 +932,7 @@ def main():
             pkl_path=rel_pkl, run_data=task_run_data,
         )
 
+        sync_all_task_types_for_logging(all_users, manager)
         log("multirep", f"\n--- Reputation snapshot after task {i+1} ---")
         log_user_reputations(all_users, task_type, selected_users, q_weight)
 
@@ -857,9 +949,14 @@ def main():
     except Exception as e:
         log("multirep", f"[warn] Tarball creation failed: {e}")
 
-    log("multirep", "\n=== All tasks complete. ===")
+    log("multirep", "\n=== All tasks complete ===")
     log("multirep", f"Fall back runs: {fallback_count}")
     log("multirep", f"Session data: {session_dir}")
+
+    if auto_graphs:
+        from analysis.multirep_graphs import generate_all
+        log("multirep", "Generating graphs...")
+        generate_all(session_dir)
 
 
 # ---------------------------------------------------------------------------
@@ -867,10 +964,32 @@ def main():
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
+    import argparse
     import multiprocessing as mp
+
+    parser = argparse.ArgumentParser(description="Run a MultiRep FL experiment session.")
+    blockchain_group = parser.add_mutually_exclusive_group()
+    blockchain_group.add_argument(
+        "--anvil", action="store_true",
+        help="Start a local Anvil node (30 accounts) and use it as the RPC endpoint.",
+    )
+    blockchain_group.add_argument(
+        "--ganache", action="store_true",
+        help="Start a local Ganache node (30 accounts) and use it as the RPC endpoint.",
+    )
+    parser.add_argument(
+        "--graphs", action="store_true",
+        help="Generate graphs automatically after training completes.",
+    )
+    args = parser.parse_args()
+
+    if args.anvil or args.ganache:
+        from experiment.blockchain_launcher import start as _start_blockchain
+        _start_blockchain("anvil" if args.anvil else "ganache")
+
     if False:
         mp.freeze_support()
-    main()
+    main(auto_graphs=args.graphs)
     for p in mp.active_children():
         p.terminate()
     print("Done :)")
