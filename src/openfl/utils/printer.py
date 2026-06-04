@@ -3,6 +3,17 @@ import sys
 from openfl.utils.config import get_print_config
 
 
+# Ensure console output can handle unicode (e.g. arrows) on Windows, where the
+# default console codec (cp1252) raises UnicodeEncodeError. Guard with hasattr:
+# under some debuggers / pytest capture, stdout may not support reconfigure.
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        try:
+            _stream.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
+        except (ValueError, OSError):
+            pass
+
+
 config = get_print_config()
 
 # PRITNS ONLY IF IT IS IN ENBALED_TAGES
@@ -19,7 +30,7 @@ def set_log_file(path: str):
     global _log_file
     if _log_file is not None:
         _log_file.close()
-    _log_file = open(path, "a", buffering=1)  # line-buffered
+    _log_file = open(path, "a", buffering=1, encoding="utf-8")  # line-buffered, utf-8 for unicode (e.g. arrows)
 
 def log(tag, *args, **kwargs):
     if tag in ENABLED_TAGS:
