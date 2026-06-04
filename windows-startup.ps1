@@ -3,9 +3,17 @@
 # ============================================
 #
 # Usage:
-#   .\windows-startup.ps1 ganache
-#   .\windows-startup.ps1 anvil
-#   .\windows-startup.ps1 none    # skip blockchain node, run experiments only
+#   .\windows-startup.ps1 ganache   # auto_runner launches its own Ganache node
+#   .\windows-startup.ps1 anvil     # auto_runner launches its own Anvil node
+#   .\windows-startup.ps1 none      # no node; auto_runner uses RPC_URL from .env/.env.<ENV>
+#
+# The auto_runner now starts and manages its own blockchain node
+# (see experiment/blockchain_launcher.py): it scans for a free port,
+# sets RPC_URL, and tears the node down on exit. This script only
+# activates the venv and launches the worker with the right flag.
+#
+# API_URL (and, for "none" mode, RPC_URL) must be set in the active
+# env file (.env\.env.<ENV>, default .env\.env.ganache).
 #
 # NOTE: If you get "running scripts is disabled", run once as admin:
 #   Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
@@ -40,161 +48,14 @@ if (-not (Test-Path ".venv")) {
 & .venv\Scripts\Activate.ps1
 
 # --------------------------------------------
-# Node setup (skipped for "none" mode)
-# --------------------------------------------
-$nodeCmd = $null
-$nodeProcess = $null
-
-if ($Mode -ne "none") {
-    $nodeArgs = @()
-
-    if ($Mode -eq "ganache") {
-        if (Get-Command ganache -ErrorAction SilentlyContinue) {
-            $nodeCmd = "ganache"
-            $nodeArgs = @(
-                "--wallet.totalAccounts", "30",
-                "--wallet.defaultBalance", "1000000000",
-                "--chain.chainId", "1337",
-                "--server.host", "127.0.0.1",
-                "--server.port", "8545"
-            )
-        } elseif (Get-Command "ganache-cli" -ErrorAction SilentlyContinue) {
-            $nodeCmd = "ganache-cli"
-            $nodeArgs = @(
-                "--accounts", "30",
-                "--defaultBalanceEther", "1000000000",
-                "--networkId", "1337",
-                "--host", "127.0.0.1",
-                "--port", "8545"
-            )
-        } else {
-            Write-Error "ERROR: Neither ganache nor ganache-cli is installed"
-            exit 1
-        }
-    } else {
-        if (-not (Get-Command anvil -ErrorAction SilentlyContinue)) {
-            Write-Error "ERROR: anvil is not installed (install Foundry)"
-            exit 1
-        }
-        $nodeCmd = "anvil"
-        $nodeArgs = @(
-            "--accounts", "30",
-            "--balance", "1000000000",
-            "--chain-id", "1337",
-            "--host", "127.0.0.1",
-            "--port", "8545"
-        )
-    }
-
-    Write-Host "Using: $nodeCmd"
-
-    # --------------------------------------------
-    # Prepare directories
-    # --------------------------------------------
-    New-Item -ItemType Directory -Force "env" | Out-Null
-
-    # --------------------------------------------
-    # Start node (hidden window to avoid corrupting this console)
-    # --------------------------------------------
-    Write-Host "Starting $nodeCmd..."
-
-    $cmdArgs = "/c $nodeCmd " + ($nodeArgs -join " ") + " > ganache.log 2>&1"
-    $nodeProcess = Start-Process -FilePath "cmd.exe" `
-        -ArgumentList $cmdArgs `
-        -PassThru `
-        -WindowStyle Hidden
-
-    Write-Host "$nodeCmd PID: $($nodeProcess.Id)"
-}
-
-# --------------------------------------------
-# Cleanup handler
-# --------------------------------------------
-$cleanupDone = $false
-function Stop-Node {
-    if (-not $script:cleanupDone) {
-        $script:cleanupDone = $true
-        if ($script:nodeProcess) {
-            Write-Host ""
-            Write-Host "Stopping $($script:nodeCmd)..."
-            taskkill /F /T /PID $script:nodeProcess.Id 2>$null
-        }
-    }
-}
-
-if ($Mode -ne "none") {
-    # --------------------------------------------
-    # Wait for RPC
-    # --------------------------------------------
-    Write-Host "Waiting for RPC on :8545..."
-
-    $nodeReady = $false
-
-    for ($i = 1; $i -le 30; $i++) {
-        try {
-            Invoke-WebRequest -Uri "http://127.0.0.1:8545" `
-                -Method Post `
-                -ContentType "application/json" `
-                -Body '{"jsonrpc":"2.0","method":"web3_clientVersion","params":[],"id":1}' `
-                -UseBasicParsing `
-                -ErrorAction Stop | Out-Null
-            $nodeReady = $true
-            break
-        } catch {
-            Start-Sleep -Seconds 1
-        }
-    }
-
-    if (-not $nodeReady) {
-        Stop-Node
-        Write-Error "ERROR: $nodeCmd failed to start"
-        exit 1
-    }
-
-    Write-Host "$nodeCmd is ready"
-
-    # --------------------------------------------
-    # Extract private keys
-    # --------------------------------------------
-    $privateKeys = (Select-String -Path "ganache.log" -Pattern "0x[a-fA-F0-9]{64}" -AllMatches |
-        ForEach-Object { $_.Matches } |
-        ForEach-Object { $_.Value }) -join ","
-
-    # --------------------------------------------
-    # Create/update env/.env.ganache
-    # --------------------------------------------
-    $envFile = "env\.env.ganache"
-
-    if (-not (Test-Path $envFile)) {
-        New-Item -ItemType File -Force $envFile | Out-Null
-    }
-
-    $content = Get-Content $envFile -Raw -ErrorAction SilentlyContinue
-    if (-not $content) { $content = "" }
-
-    if ($content -match '(?m)^PRIVATE_KEYS=') {
-        $content = $content -replace '(?m)^PRIVATE_KEYS=.*', "PRIVATE_KEYS=`"$privateKeys`""
-    } else {
-        $content += "`nPRIVATE_KEYS=`"$privateKeys`""
-    }
-
-    if ($content -notmatch '(?m)^RPC_URL=') {
-        $content += "`nRPC_URL=`"http://127.0.0.1:8545`""
-    }
-
-    Set-Content -Path $envFile -Value $content.TrimStart() -NoNewline
-
-    Write-Host "Created env\.env.ganache"
-} else {
-    Write-Host "Skipping blockchain node (none mode)"
-}
-
-# --------------------------------------------
 # Run experiments
 # --------------------------------------------
-try {
-    Write-Host "Starting experiments..."
-    python experiment/auto_runner.py
-} finally {
-    Stop-Node
+# auto_runner starts/stops its own node for ganache/anvil; "none" relies
+# on an externally-provided RPC_URL from the env file.
+Write-Host "Starting experiments (mode: $Mode)..."
+
+switch ($Mode) {
+    "ganache" { python experiment/auto_runner.py --ganache }
+    "anvil"   { python experiment/auto_runner.py --anvil }
+    "none"    { python experiment/auto_runner.py }
 }
