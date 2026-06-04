@@ -47,15 +47,20 @@ class MultirepLogger:
         post_m2: dict | None = None,
         pkl_path: str | None = None,
         run_data: dict | None = None,
+        contrib_scores: dict | None = None,
     ) -> None:
         """Record one task's worth of data.
 
-        pre_state  : {address: {"tr": int, "gir": int, "q": int, "balance": int}}  (all WAD)
-        scores     : {address: int}  (WAD-scaled selection score)
-        post_*     : {address: float/int}  (already normalised where relevant)
-        run_data   : dict of DataFrames from the individual task pkl tables, or None
+        pre_state      : {address: {"tr": int, "gir": int, "q": int, "balance": int}}  (all WAD)
+        scores         : {address: int}  (WAD-scaled selection score)
+        post_*         : {address: float/int}  (already normalised where relevant)
+        contrib_scores : {address_lower: int}  (WAD-scaled transformed contribution
+                         score for this task; only selected participants appear, so
+                         absent → user did not contribute this task → recorded None)
+        run_data       : dict of DataFrames from the individual task pkl tables, or None
         """
         selected_set = {u.address for u in selected_users}
+        contrib_scores = contrib_scores or {}
 
         for user in users:
             addr = user.address
@@ -72,6 +77,8 @@ class MultirepLogger:
                 else str(user.futureAttitude)
             )
 
+            cs_wad = contrib_scores.get(addr.lower())
+
             self._rep_rows.append({
                 "task_index":        task_index,
                 "dataset":           dataset,
@@ -83,6 +90,9 @@ class MultirepLogger:
                 "behavior":          behavior,
                 "was_selected":      addr in selected_set,
                 "was_cached":        was_cached,
+                # transformed contribution score for THIS task (None if the user
+                # did not contribute / no record was produced for them)
+                "contrib_score":     (cs_wad / _WAD) if cs_wad is not None else None,
                 # pre-task state (values used for the selection decision)
                 "tr_pre":            pre.get("tr", 0) / _WAD,
                 "tr_all_pre":        {tt: v / _WAD for tt, v in pre.get("tr_all", {}).items()},
@@ -115,6 +125,12 @@ class MultirepLogger:
             "pkl_path":   pkl_path,
             "run_data":   run_data,
         })
+
+    def reputation_rows(self) -> list:
+        """Accumulated per-(task, user) reputation rows. Read-only — used by the
+        end-of-session summary printer. Each row carries dataset, task_index,
+        user_name, guid, was_selected, tr_post and contrib_score among others."""
+        return self._rep_rows
 
     def _build_global_accuracy(self) -> pd.DataFrame:
         """Concatenate per-round global accuracy from every task into one DataFrame.

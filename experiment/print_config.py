@@ -31,6 +31,7 @@ PRINTS_ALL = {
     "autorunner",
     "remote_client",
     "replay",
+    "task_rep_contrib",
 }
 
 # PRINTS_MINIMAL = PRINTS_EVEN_LESSER

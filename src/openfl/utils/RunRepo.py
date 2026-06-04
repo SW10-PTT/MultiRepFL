@@ -74,6 +74,7 @@ class RunRepo(ITestAndTrainer):
 
         Records were saved by PytorchTrainer.get_task_rep_records() during the
         live run. Each entry is the raw on-chain tuple:
-        (user, newTaskRep, newRunningCMean, newM2, newIntegrityRep, applyGIR).
+        (user, newTaskRep, newRunningCMean, newM2, newIntegrityRep, applyGIR,
+        contribScore).
         """
         return self.load(round, tag)
