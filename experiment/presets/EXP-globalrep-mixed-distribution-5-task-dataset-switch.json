@@ -9,7 +9,7 @@
   ],
   "name": "task-hopper-showcase",
   "partition_file": "experiment/partitions/EXP-mixed-distribution-all-honest-20-users.json",
-  "q_weight": 0.5,
+  "q_weight": 0.2,
   "tr_weight": 7,
   "gir_weight": 3,
   "training_mode": "remote",

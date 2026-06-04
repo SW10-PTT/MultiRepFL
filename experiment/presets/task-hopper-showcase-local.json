@@ -13,7 +13,7 @@
   "q_weight": 1.0,
   "tr_weight": 7,
   "gir_weight": 3,
-  "training_mode": "local",
+  "training_mode": "remote",
   "fork": true,
   "replication_factor": 6.0,
   "allow_overlap": true,
