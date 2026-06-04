@@ -5,6 +5,7 @@ _repo_root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_repo_root))
 sys.path.insert(0, str(_repo_root / "src"))
 
+import gc
 import pprint
 import socket
 import threading
@@ -16,6 +17,7 @@ import tarfile
 import tempfile
 
 from experiment.experiment_configuration import ExperimentConfiguration
+from experiment.print_config import AGGRESSIVE_GC
 import requests
 import time
 import json
@@ -55,7 +57,7 @@ def claim_run(worker_id):
 def get_upload_url(run_id, fingerprint):
     res = requests.post(
         f"{API}/runs/{run_id}/upload-url",
-        json=str(fingerprint)
+        json=fingerprint.name
     )
 
     res.raise_for_status()
@@ -195,6 +197,9 @@ def worker_loop():
     global worker_id
     
     while True:
+        experiment = None
+        writer = None
+        logger = None
         try:
             if not check_worker_exists():
                 registerWorkerLoop()
@@ -227,6 +232,7 @@ def worker_loop():
 
             startTime = datetime.now().strftime("%d-%m-%y--%H_%M_%S")
             path = getPath(config, startTime, config.dataset, RESULTDATAFOLDER)
+
 
             globals.repo_dir = path.parent
 
@@ -291,7 +297,13 @@ def worker_loop():
             except Exception:
                 reset(experiment, filename)
                 time.sleep(10)
-                continue
+        finally:
+            if AGGRESSIVE_GC:
+                # Drop the prior run's PytorchModel + DataLoaders before claiming
+                # the next run, so persistent DataLoader workers (and their FDs)
+                # are reclaimed instead of accumulating across iterations.
+                del experiment, writer, logger
+                gc.collect()
 
 heartbeat_stop = None
 heartbeat_thread = None

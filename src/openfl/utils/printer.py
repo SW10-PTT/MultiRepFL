@@ -1,5 +1,6 @@
 import yaml
 import sys
+from datetime import datetime
 from openfl.utils.config import get_print_config
 
 
