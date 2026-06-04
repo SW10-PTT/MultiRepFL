@@ -106,8 +106,9 @@ def start_remote_experiment(
     if experiment_id is not None:
         body["experimentId"] = experiment_id
 
-    url = f"{_api_url()}/custom-experiments/start"
-    log("remote_client", f"Submitting remote experiment to {url} …")
+    endpoint = "/custom-experiments/start"
+    url = f"{_api_url()}/{endpoint}"
+    log("remote_client", f"Submitting remote experiment to {endpoint} …")
 
     res = requests.post(url, json=body, timeout=30)
     if not res.ok:

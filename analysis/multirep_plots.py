@@ -22,13 +22,11 @@ BEHAVIOR_COLORS = {
     "honest":    "#2196F3",
     "malicious": "#d62728",
     "freerider": "#9467bd",
-    "inactive":  "#7f7f7f",
 }
 BEHAVIOR_LABELS = {
     "honest":    "Honest",
     "malicious": "Malicious",
     "freerider": "Freerider",
-    "inactive":  "Inactive",
 }
 
 _DEFAULT_ALPHA_FILL = 0.15
@@ -41,6 +39,10 @@ _BALANCE_INITIAL = 100.0
 def _user_color(name: str, behavior: str) -> str:
     base = BEHAVIOR_COLORS.get(behavior, "#888888")
     return base
+
+
+def _drop_inactive(rep: pd.DataFrame) -> pd.DataFrame:
+    return rep[rep["behavior"] != "inactive"]
 
 
 def _with_round_zero(rep: pd.DataFrame, col_defaults: dict) -> pd.DataFrame:
@@ -75,6 +77,7 @@ def _with_round_zero(rep: pd.DataFrame, col_defaults: dict) -> pd.DataFrame:
 
 def plot_tr_over_tasks(rep: pd.DataFrame) -> plt.Figure:
     """Task Reputation (TR) for every user over task index."""
+    rep = _drop_inactive(rep)
     rep = _with_round_zero(rep, {"tr_post": 0.0})
     fig, ax = plt.subplots(figsize=(11, 4))
     for (name, behavior), grp in rep.groupby(["user_name", "behavior"]):
@@ -94,6 +97,7 @@ def plot_tr_over_tasks(rep: pd.DataFrame) -> plt.Figure:
 
 def plot_gir_over_tasks(rep: pd.DataFrame) -> plt.Figure:
     """Global Integrity Reputation (GIR) for every user over task index."""
+    rep = _drop_inactive(rep)
     rep = _with_round_zero(rep, {"gir_post": 0.0})
     fig, ax = plt.subplots(figsize=(11, 4))
     for (name, behavior), grp in rep.groupby(["user_name", "behavior"]):
@@ -111,11 +115,9 @@ def plot_gir_over_tasks(rep: pd.DataFrame) -> plt.Figure:
 
 
 def plot_q_over_tasks(rep: pd.DataFrame) -> plt.Figure:
-    """Q-value (selection pressure) for every user over task index.
-
-    Q is first meaningful after selection for task 0, so no synthetic zero row
-    is prepended — the first real data point already represents the initial state.
-    """
+    """Q-value (selection pressure) for every user over task index."""
+    rep = _drop_inactive(rep)
+    rep = _with_round_zero(rep, {"q_post": 0.0})
     fig, ax = plt.subplots(figsize=(11, 4))
     for (name, behavior), grp in rep.groupby(["user_name", "behavior"]):
         grp = grp.sort_values("task_index")

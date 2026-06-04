@@ -420,21 +420,28 @@ contract OpenFLManager {
         users[user].TaskCount[key] += 1;
     }
 
-    function setTaskCount(address user, TaskType taskType, uint256 count) external {
-        require(
-            validJobs[msg.sender] || msg.sender == publisher,
-            "OFLM: caller not valid job or publisher"
-        );
+    // Seed all per-(user, taskType) rep state in one transaction.
+    // Used by Python to seed a fresh manager with prior-session state before
+    // the job listing is deployed, replacing 4-5 serial setter calls per user.
+    function seedRepState(
+        address user,
+        TaskType taskType,
+        uint256 tr,
+        uint256 gir,
+        uint256 c_mean,
+        uint256 m2,
+        uint256 k,
+        uint256 q
+    ) external {
+        require(msg.sender == publisher, "OFLM: caller not publisher");
         TaskType key = _repKey(taskType);
-        users[user].TaskCount[key] = count;
-    }
-
-    function setQValue(address user, TaskType taskType, uint256 value) external {
-        require(
-            validJobs[msg.sender] || msg.sender == publisher,
-            "OFLM: caller not valid job or publisher"
-        );
-        users[user].QValue[_repKey(taskType)] = value;
+        User storage u = users[user];
+        u.GlobalTaskRep[key] = tr;
+        u.RunningCMean[key] = c_mean;
+        u.M2[key] = m2;
+        u.TaskCount[key] = k;
+        u.QValue[key] = q;
+        u.GlobalIntegrityRep = gir;
     }
 
     event UserIntegrityRepUpdated(

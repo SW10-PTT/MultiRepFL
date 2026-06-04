@@ -131,13 +131,8 @@ def _seed_manager_rep_state(manager, rep_state: dict, task_type: int) -> None:
   applicant scores are read with the correct TR/GIR values.
   """
   _WAD = 1e18
+  manager.batch_seed_rep_state(rep_state, task_type)
   for addr, s in rep_state.items():
-      manager.set_user_task_rep(addr, task_type, s["tr"])
-      manager.set_task_rep_calc_state(addr, task_type, s["c_mean"], s["m2"])
-      manager.set_task_count(addr, task_type, s["k"])
-      manager.set_user_integrity_rep(addr, s["gir"])
-      if s.get("q", 0):
-          manager.set_q_value(addr, task_type, s["q"])
       log("setup", f"[rep_state] seeded {addr[:10]}... tr={s['tr']/_WAD:.4f} gir={s['gir']/_WAD:.4f} q={s.get('q',0)/_WAD:.4f} k={s['k']} task_type={task_type}")
   log("setup", f"[rep_state] seeded {len(rep_state)} users into fresh manager")
 

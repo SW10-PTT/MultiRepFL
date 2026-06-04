@@ -259,29 +259,28 @@ class FLManager(ConnectionHelper):
             task_type,
         )
 
-    def set_q_value(self, user_address: str, task_type: int, value: int) -> None:
-        self.transact(
-            "setQValue",
-            self.publisher,
-            0,
-            [],
-            "manager.setQValue",
-            Web3.to_checksum_address(user_address),
-            task_type,
-            value,
-        )
+    def batch_seed_rep_state(self, rep_state: dict, task_type: int) -> None:
+        """Seed all per-(user, taskType) rep state for N users in N parallel txs.
 
-    def set_task_count(self, user_address: str, task_type: int, count: int) -> None:
-        self.transact(
-            "setTaskCount",
-            self.publisher,
-            0,
-            [],
-            "manager.setTaskCount",
-            Web3.to_checksum_address(user_address),
-            task_type,
-            count,
-        )
+        rep_state: {addr: {tr, gir, c_mean, m2, k, q}} — all WAD ints.
+        Replaces 4-5 serial transact() calls per user with one batch_transact().
+        """
+        calls = [
+            (
+                self.publisher,
+                0,
+                Web3.to_checksum_address(addr),
+                task_type,
+                s["tr"],
+                s["gir"],
+                s["c_mean"],
+                s["m2"],
+                s["k"],
+                s.get("q", 0),
+            )
+            for addr, s in rep_state.items()
+        ]
+        self.batch_transact("seedRepState", calls, [], "manager.seedRepState")
 
     def set_user_balance(self, user_address: str, new_value: int) -> None:
         self.transact(
