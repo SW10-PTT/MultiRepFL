@@ -19,46 +19,35 @@ config = ExperimentConfiguration(
     contribution_score_strategy="loss_tolerance_snap", # Options: dotproduct, naive, accuracy_loss, accuracy_only, loss_only, loss_tolerance_aware, loss_tolerance_snap
     loss_tolerance_pct=0.05, # ε = pct * avg_prev_loss; only used by loss_tolerance_* strategies
     use_outlier_detection=True,
-    minimum_rounds=10,
+    minimum_rounds=20,
     epochs=3,
     punish_factor=3,
     punish_factor_contrib=3,
-    number_of_good_contributors=4,
-    number_of_bad_contributors=1,
-    number_of_freerider_contributors=1,
+    number_of_good_contributors=8,
+    number_of_bad_contributors=0,
+    number_of_freerider_contributors=0,
     force_merge_all=False,
     freerider_noise_scale=0.1,
     malicious_noise_scale=1.0,
     freerider_start_round=1,
     malicious_start_round=1,
     number_of_participants=10,
-    dataset="mnist",
+    dataset="cifar-10",
     data_percentages=None,
     label_rules=None,
     seed=123,
     user_seeds=None,
     allow_overlap=True,
-    replication_factor=1.0,
+    replication_factor=1,
     partition_strategy="per_user", # Options: global, per_user
-    per_user_partitions="experiment/partitions/EXP-equal-distribution-30-users.json", 
+    per_user_partitions="experiment/partitions/EXP-mixed-distribution-all-honest-20-users.json", 
     vote_baseline="local_trained" #Options: local_trained, prev_global
-    #data_percentages=[30, 10, 15, 15, 10, 20],
-    # 0: {"only_labels": [0, 1, 2, 3, 4]}
-    # 0: {"flip_map": {4: 9}}
-    # 0: {"only_labels": [0, 1, 2, 3, 4], "flip_map": {4: 9}}
-    # label_rules={
-    #     0: {"only_labels": [0, 1, 2, 3, 4]},
-    #     1: {"only_labels": [0, 1, 2, 3, 4]},
-    #     2: {"only_labels": [0, 1, 2, 3, 4]},
-    #     3: {"only_labels": [5, 6, 7, 8, 9]},
-    #     4: {"only_labels": [5, 6, 7, 8, 9]},
-    #     5: {"only_labels": [5, 6, 7, 8, 9]},
-    # },
 )
 
 # OVERSKRIV variabler her for testing. eksempel: config = ExperimentConfiguration(minimum_rounds=1), hvis du kun vil køre een round#DATASET = "cifar-10"
 RESULTDATAFOLDER = Path(__file__).resolve().parent.joinpath("data/sample")
-DATASET = "mnist"
+DATASET = "cifar-10"
+# DATASET = "mnist"
 
 OUTPUTHEADERS = [
     "round",

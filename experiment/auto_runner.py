@@ -1,17 +1,23 @@
 from pathlib import Path
+import sys
+
+_repo_root = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(_repo_root))
+sys.path.insert(0, str(_repo_root / "src"))
+
+import gc
 import pprint
 import socket
-import sys
 import threading
 
 from openfl.utils.require_env import require_env_var
 from openfl.utils.types.User import User
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import tarfile
 import tempfile
 
 from experiment.experiment_configuration import ExperimentConfiguration
+from experiment.print_config import AGGRESSIVE_GC
 import requests
 import time
 import json
@@ -19,12 +25,13 @@ from datetime import datetime
 
 from analysis import ExperimentLogger
 from experiment import experiment_runner
+from experiment.experiment_runner import build_users
 from experiment.helper import getPath
 from openfl.utils.async_writer import AsyncWriter
 from openfl.api import globals
 
 from openfl.utils import printer, config
-from openfl.utils.printer import log
+from openfl.utils.printer import log, set_log_file
 
 API = require_env_var("API_URL")
 
@@ -50,7 +57,7 @@ def claim_run(worker_id):
 def get_upload_url(run_id, fingerprint):
     res = requests.post(
         f"{API}/runs/{run_id}/upload-url",
-        json=str(fingerprint)
+        json=fingerprint.name
     )
 
     res.raise_for_status()
@@ -73,7 +80,7 @@ def create_tarball(folder_path: Path, fingerpint):
     archive_path = folder_path_actual.parent / f"{fingerpint.stem}.tar.gz"
 
     with tarfile.open(archive_path, "w:gz") as tar:
-        tar.add(folder_path_actual, folder_path.name)
+        tar.add(folder_path_actual, folder_path.stem)
 
     return archive_path
 
@@ -91,13 +98,17 @@ def upload_file(upload_url, file_path: Path):
             timeout=300
         )
 
-    log("autorunner",res.status_code)
-    log("autorunner",res.text)
+    log("autorunner", res.status_code)
+    log("autorunner", res.text)
 
     res.raise_for_status()
 
-def complete_run(run_id):
-    requests.post(f"{API}/runs/{run_id}/complete", json={"RunId": str(run_id) })
+def complete_run(run_id, user_guids=None):
+    body = {"RunId": str(run_id)}
+    if user_guids:
+        body["userGuids"] = user_guids
+    response = requests.post(f"{API}/runs/{run_id}/complete", json=body)
+    response.raise_for_status()
 
 def fail_run(run_id, error):
     requests.post(f"{API}/runs/{run_id}/fail", json={
@@ -185,9 +196,10 @@ def registerWorkerLoop():
 def worker_loop():
     global worker_id
     
-    
-
     while True:
+        experiment = None
+        writer = None
+        logger = None
         try:
             if not check_worker_exists():
                 registerWorkerLoop()
@@ -208,22 +220,54 @@ def worker_loop():
             if isinstance(config, str):
                 config = json.loads(config)
 
+            # Pop custom multirep fields before coerce_types so the dict is clean.
+            assert isinstance(config, dict)
+            expected_fingerprint = config.pop("expectedFingerprint", None)
+            initial_rep_state_by_guid: dict = config.pop("initialRepState", None) or {}
             config = coerce_types(config)
-            #pprint.pp(config)
+            assert isinstance(config, dict)
             config = ExperimentConfiguration(**config)
 
             start_heartbeat_loop()
 
             startTime = datetime.now().strftime("%d-%m-%y--%H_%M_%S")
             path = getPath(config, startTime, config.dataset, RESULTDATAFOLDER)
-            
+
+
             globals.repo_dir = path.parent
 
             writer = AsyncWriter(path, OUTPUTHEADERS, WRITERBUFFERSIZE, config, "sample")
             logger = ExperimentLogger(experiment_id=path.stem, metadata=vars(config))
 
+            users = build_users(config)
+            # Address maps for THIS machine's blockchain.
+            # Guids match multirep's users; addresses do not — keep these maps separate.
+            addr_to_id: dict[str, str] = {u.address.lower(): u.guid for u in users if u.guid}
+            id_to_addr: dict[str, str] = {u.guid: u.address for u in users if u.guid}
+
+            # Convert guid-keyed rep state to local addresses.
+            initial_rep_state = {
+                id_to_addr[guid]: {k: int(v) for k, v in state.items() if k != "task_type"}
+                for guid, state in initial_rep_state_by_guid.items()
+                if guid in id_to_addr
+            }
+            missing = [g for g in initial_rep_state_by_guid if g not in id_to_addr]
+            log("autorunner", f"[rep_state] run={run_id} received state for {len(initial_rep_state_by_guid)} users, mapped {len(initial_rep_state)}, unmatched_guids={missing}")
+
+            if expected_fingerprint is not None:
+                actual_fingerprint = config.get_finger_print(users)
+                if actual_fingerprint != expected_fingerprint:
+                    raise ValueError(
+                        f"Fingerprint mismatch before run: "
+                        f"expected={expected_fingerprint[:8]}... "
+                        f"actual={actual_fingerprint[:8]}... — "
+                        f"participant selection differs between multirep and auto_runner"
+                    )
+
             (experiment, filename) = experiment_runner.run_experiment(
-                config.dataset, config, writer, logger, path
+                config.dataset, config, writer, logger, path,
+                prebuilt_users=users,
+                initial_rep_state=initial_rep_state or None,
             )
 
             writer.finish()
@@ -239,25 +283,34 @@ def worker_loop():
                 archive_path
             )
 
-            reset()
-            complete_run(run_id)
-            stop_heartbeat_loop()
+            user_guids = [{"Guid": u.guid, "Address": u.address} for u in users if u.guid is not None]
+            complete_run(run_id, user_guids)
+            reset(experiment, filename)
+            #stop_heartbeat_loop()
 
         except Exception as e:
             stop_heartbeat_loop()
             log("autorunner", "Run failed:", e)
             try:
                 fail_run(run_id, e)
-                reset()
+                reset(experiment, filename)
             except Exception:
-                reset()
+                reset(experiment, filename)
                 time.sleep(10)
-                continue
+        finally:
+            if AGGRESSIVE_GC:
+                # Drop the prior run's PytorchModel + DataLoaders before claiming
+                # the next run, so persistent DataLoader workers (and their FDs)
+                # are reclaimed instead of accumulating across iterations.
+                del experiment, writer, logger
+                gc.collect()
 
 heartbeat_stop = None
 heartbeat_thread = None
 
-def reset():
+def reset(experiment, filename):
+    del experiment
+    del filename
     globals.progress = 0
     User.user_count = 0
 
@@ -294,8 +347,30 @@ def stop_heartbeat_loop():
     heartbeat_thread = None
 
 def main():
+    log_dir = Path(__file__).resolve().parent / "logs"
+    log_dir.mkdir(exist_ok=True)
+    session_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    set_log_file(str(log_dir / f"autorunner_{session_ts}.log"))
     globals.reuse_runs = globals.ReplayMode.Record
     worker_loop()
 
 if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Run the auto_runner FL experiment worker.")
+    blockchain_group = parser.add_mutually_exclusive_group()
+    blockchain_group.add_argument(
+        "--anvil", action="store_true",
+        help="Start a local Anvil node (30 accounts) and use it as the RPC endpoint.",
+    )
+    blockchain_group.add_argument(
+        "--ganache", action="store_true",
+        help="Start a local Ganache node (30 accounts) and use it as the RPC endpoint.",
+    )
+    args = parser.parse_args()
+
+    if args.anvil or args.ganache:
+        from experiment.blockchain_launcher import start as _start_blockchain
+        _start_blockchain("anvil" if args.anvil else "ganache")
+
     main()

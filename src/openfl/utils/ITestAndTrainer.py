@@ -22,6 +22,7 @@ import torch
 if TYPE_CHECKING:
     from experiment.experiment_configuration import ExperimentConfiguration
 from openfl.api.globals import ReplayMode
+from openfl.utils.printer import log
 from openfl.utils.types.Attitude import Attitude
 from openfl.ml.Participant import Participant
 from openfl.utils.types.User import User
@@ -120,7 +121,7 @@ class ITestAndTrainer(ABC):
 
     def set_participants(self, participants: List[Participant]):
         if self._data["participants"] == []:
-            self._data["participants"] = [{"finger_print": p.finger_print, "id": p.id} for p in participants]
+            self._data["participants"] = [{"finger_print": p.finger_print, "id": p.id, "guid": p.guid} for p in participants]
 
     def get_participants(self, users: List[User]):
         usersRaw = self._data["participants"]
@@ -146,6 +147,7 @@ class ITestAndTrainer(ABC):
                     break
 
         return [user for user in users if user.id is not None]
+    
     @abstractmethod
     def on_chain_hashed_weights(self, round, tag, FLChallenge):
         pass
@@ -154,9 +156,14 @@ class ITestAndTrainer(ABC):
     def get_task_rep_delta_and_GRS(self, round, tag, contract: Contract, get_participant_func):
         pass
 
+    def get_task_rep_records(self, round, tag, contract: Contract):
+        """Read TaskRepRecord[] after computeAndRecordTaskReps(). Override in subclasses."""
+        return []
+
 
 def match_replay_user_user(replay_user, user: User):
-    return replay_user["finger_print"] == user.finger_print
+    saved = replay_user.get("guid")
+    return saved is not None and user.guid is not None and str(saved) == user.guid
 
 def uuid_hook(obj):
     for k, v in obj.items():
@@ -199,13 +206,101 @@ def _serialize(obj):
         return str(obj)
     raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
 
+def _extract_fp_from_name(name: str) -> str | None:
+    m = re.search(r'([0-9a-f]{64})\.json$', name)
+    return m.group(1) if m else None
+
+
+_FP_SCALAR_FIELDS = [
+    "dataset", "minimum_rounds", "min_buy_in", "max_buy_in", "standard_buy_in",
+    "epochs", "batch_size", "punish_factor", "punish_factor_contrib", "first_round_fee",
+    "contribution_score_strategy", "loss_tolerance_pct", "use_outlier_detection",
+    "freerider_noise_scale", "freerider_start_round", "malicious_start_round",
+    "malicious_noise_scale", "force_merge_all", "seed", "allow_overlap",
+    "replication_factor", "user_seeds", "partition_strategy", "vote_baseline",
+    "global_rep_only", "tr_weight", "gir_weight",
+]
+
+
+def _load_fp_data_from_trace(trace_path: Path) -> dict | None:
+    """Reconstruct the fingerprint data dict from a saved trace file."""
+    try:
+        with open(trace_path) as f:
+            d = json.load(f)
+        cfg = d.get("config", {})
+        participants = sorted(p["finger_print"] for p in d.get("participants", []) if "finger_print" in p)
+        result = {k: cfg.get(k) for k in _FP_SCALAR_FIELDS}
+        result["participants"] = participants
+        result["per_user_partitions"] = cfg.get("per_user_partitions")
+        return result
+    except Exception as e:
+        log("replay", f"[fingerprint diff] could not load trace file {trace_path.name}: {e}")
+        return None
+
+
+def _resolve_participant_label(fp: str) -> str:
+    label = globals.fp_user_labels.get(fp)
+    return f"{label} ({fp[:8]}...)" if label else f"{fp[:8]}..."
+
+
+def _log_fp_diff(local_fp: str, file_fp: str, local_data: dict, file_data: dict) -> None:
+    lines = [f"[fingerprint diff] local={local_fp[:8]}... vs file={file_fp[:8]}..."]
+    all_keys = sorted(set(local_data) | set(file_data))
+    found_diff = False
+    for k in all_keys:
+        va, vb = local_data.get(k), file_data.get(k)
+        if va == vb:
+            continue
+        found_diff = True
+        if k == "participants":
+            sa = set(va) if isinstance(va, list) else set()
+            sb = set(vb) if isinstance(vb, list) else set()
+            only_local = sa - sb
+            only_file  = sb - sa
+            if only_local:
+                lines.append(f"  selected locally but NOT by chain: {[_resolve_participant_label(p) for p in sorted(only_local)]}")
+            if only_file:
+                lines.append(f"  selected by chain but NOT locally:  {[_resolve_participant_label(p) for p in sorted(only_file)]}")
+            if only_local or only_file:
+                pass
+        elif k == "per_user_partitions":
+            local_keys = sorted(va) if isinstance(va, dict) else []
+            file_keys  = sorted(vb) if isinstance(vb, dict) else []
+            lines.append(f"  per_user_partitions keys: local={local_keys}  file={file_keys}" if local_keys != file_keys
+                         else f"  per_user_partitions: keys match but content differs (serialisation format may differ)")
+        else:
+            lines.append(f"  {k}: local={va!r}  file={vb!r}")
+    if not found_diff:
+        lines.append("  (no field-level differences found — per_user_partitions content may still differ)")
+    log("replay", "\n".join(lines))
+
+
 def get_filename(finger_print, config):
     if ReplayMode.PlayBack in globals.reuse_runs:
-        files = [f for f in list(Path(globals.repo_dir).glob("*.json")) if f.is_file() and f.name.endswith(f"{finger_print}.json")]
+        search_dir = Path(globals.repo_dir)
+        all_json = [f for f in search_dir.rglob("*.json") if f.is_file()]
+        files = [f for f in all_json if f.name.endswith(f"{finger_print}.json")]
         random_file = random.choice(files) if files else None
         if random_file:
             globals.reuse_runs = globals.reuse_runs | ReplayMode._actively_replaying
             return random_file
+
+        log("replay", f"[fallback] PlayBack set but no file matching fingerprint '{finger_print}' found in '{globals.repo_dir}'. "
+                      f"Falling back to local training. "
+                      f"Files present ({len(all_json)}): {[f.name for f in all_json[:10]]}{'...' if len(all_json) > 10 else ''}")
+
+        local_data = globals.fp_data_cache.get(finger_print)
+        for f in all_json[:3]:
+            file_fp = _extract_fp_from_name(f.name)
+            if not file_fp or file_fp == finger_print:
+                continue
+            file_data = globals.fp_data_cache.get(file_fp) or _load_fp_data_from_trace(f)
+            if local_data and file_data:
+                _log_fp_diff(finger_print, file_fp, local_data, file_data)
+            elif not local_data:
+                log("replay", f"[fingerprint diff] local fp {finger_print[:8]}... not in cache — fingerprint computed before cache was available")
+            else:
+                log("replay", f"[fingerprint diff] file fp {file_fp[:8]}... not loadable for comparison")
 
     return Path(globals.repo_dir) / make_filename(config, finger_print)
 

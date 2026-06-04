@@ -4,6 +4,10 @@ import "./Types.sol";
 import "./OpenFLManager.sol";
 
 contract JobListing {
+    uint256 private constant MAX_BIDS = 10;
+
+    uint256 internal constant WAD = 1e18;
+
     modifier onlyNotYetRegisteredUsers() {
         require(applicants[msg.sender].addr == address(0), "SAR");
         _;
@@ -20,7 +24,8 @@ contract JobListing {
     struct User {
         uint globalTaskRep; // 32
         uint globalIntegrity; // 32
-        uint nrOfTasksParticipated; // 1
+        uint qValue; // 32  — Q-value from manager at registration time
+        bytes32 tiebreaker; // 32  — deterministic tie-breaker (hash of off-chain fingerprint)
         address addr; // 20
         bool isSelected; // 1
     }
@@ -32,7 +37,8 @@ contract JobListing {
     uint16 nrOfApplicants;
     address managerAddress;
     bytes32 challengeCodeHash;
-    address challengeAddress;
+    address public challengeAddress;
+    address public publisher;
 
     TrainingSpecifications trainingSpecs;
     address[] selectedParticipants;
@@ -46,10 +52,18 @@ contract JobListing {
         uint8 _punishfactorContrib,
         uint8 _freeriderPenalty,
         address _managerAddress,
-        TaskType _taskType
+        TaskType _taskType,
+        uint256 _qWeight,
+        uint256 _trWeight,
+        uint256 _girWeight
     ) payable {
+        require(
+            _trWeight + _girWeight > 0,
+            "JL: trWeight + girWeight must be > 0"
+        );
         managerAddress = _managerAddress;
         manager = OpenFLManager(_managerAddress);
+        publisher = msg.sender;
         applicationWindowCloseTime = block.timestamp + 0 seconds;
 
         trainingSpecs.freeriderPenalty = _freeriderPenalty;
@@ -61,6 +75,9 @@ contract JobListing {
         trainingSpecs.punishfactorContrib = _punishfactorContrib;
         trainingSpecs.reward = _reward;
         trainingSpecs.taskType = _taskType;
+        trainingSpecs.qWeight = _qWeight;
+        trainingSpecs.trWeight = _trWeight;
+        trainingSpecs.girWeight = _girWeight;
 
         challengeCodeHash = manager.getChallengeCodeHash();
     }
@@ -89,30 +106,38 @@ contract JobListing {
             );
     }
 
-    function getSelectedParticipants() public returns (address[] memory) {
+    function getSelectedParticipants() public view returns (address[] memory) {
         return selectedParticipants;
     }
 
-    function register() public payable onlyNotYetRegisteredUsers {
+    function register(
+        bytes32 _tiebreaker
+    ) public payable onlyNotYetRegisteredUsers {
         require(
             msg.value >= trainingSpecs.min_collateral &&
                 msg.value <= trainingSpecs.max_collateral,
             "NWR"
         );
-        registrationProcess(msg.sender);
+        registrationProcess(msg.sender, _tiebreaker);
     }
 
-    function registrationProcess(address userAddr) internal {
+    function registrationProcess(
+        address userAddr,
+        bytes32 _tiebreaker
+    ) internal {
         User storage user = applicants[userAddr];
 
-        (
-            uint taskRep,
-            uint globalIntegrity,
-            uint nrOfTasksParticipated
-        ) = manager.getUserRep(userAddr, trainingSpecs.taskType);
+        // TaskRep is per-task (TaskType acts as dataset key) — getUserRep
+        // returns the user's TaskRep specifically for this job's task.
+        (uint taskRep, uint globalIntegrity, uint qValue) = manager.getUserRep(
+            userAddr,
+            trainingSpecs.taskType
+        );
+
         user.globalTaskRep = taskRep;
         user.globalIntegrity = globalIntegrity;
-        user.nrOfTasksParticipated = nrOfTasksParticipated;
+        user.qValue = qValue;
+        user.tiebreaker = _tiebreaker;
         user.addr = userAddr;
         user.isSelected = false;
 
@@ -146,32 +171,78 @@ contract JobListing {
 
         selectedParticipants = selected;
 
+        // Update Q-values: patience bonus for non-selected, reset for selected.
+        manager.updateQValuesAfterSelection(
+            applicantAddresses,
+            selected,
+            trainingSpecs.taskType
+        );
+
         emit SelectionComplete(selected);
     }
 
+    function _selectionScore(User storage u) internal view returns (uint) {
+        // score = (taskRep * trWeight + gir * girWeight) / (trWeight + girWeight) + qWeight * q / WAD
+        uint denom = trainingSpecs.trWeight + trainingSpecs.girWeight;
+        uint normalWeight = (u.globalTaskRep *
+            trainingSpecs.trWeight +
+            u.globalIntegrity *
+            trainingSpecs.girWeight) / denom;
+        uint qBonus = (trainingSpecs.qWeight * u.qValue) / WAD;
+        return normalWeight + qBonus;
+    }
+
+    // Returns true when candidate A is strictly weaker than B and should be
+    // evicted first. Weaker = lower score, or same score with higher tiebreaker.
+    function _isWeaker(
+        uint sA,
+        bytes32 tbA,
+        uint sB,
+        bytes32 tbB
+    ) internal pure returns (bool) {
+        if (sA != sB) return sA < sB;
+        return tbA > tbB;
+    }
 
     function getTopN(uint N) public view returns (address[] memory) {
         address[] memory heapUsers = new address[](N);
         uint[] memory heapScores = new uint[](N);
+        bytes32[] memory heapTBs = new bytes32[](N);
 
         uint size = 0;
 
         for (uint i = 0; i < applicantAddresses.length; i++) {
-            uint score = applicants[applicantAddresses[i]].globalTaskRep;
+            address addr = applicantAddresses[i];
+            uint score = _selectionScore(applicants[addr]);
+            bytes32 tb = applicants[addr].tiebreaker;
 
             if (size < N) {
-                heapUsers[size] = applicantAddresses[i];
+                heapUsers[size] = addr;
                 heapScores[size] = score;
+                heapTBs[size] = tb;
 
-                // heapify up
+                // heapify up — bubble while child is strictly weaker than parent
+                // (min-heap invariant: parent ≤ child, i.e. parent is weaker or equal)
                 uint idx = size;
                 while (idx > 0) {
                     uint parent = (idx - 1) / 2;
-                    if (heapScores[parent] <= heapScores[idx]) break;
+                    // stop when parent IS weaker than child (heap property OK for min-heap)
+                    if (
+                        _isWeaker(
+                            heapScores[parent],
+                            heapTBs[parent],
+                            heapScores[idx],
+                            heapTBs[idx]
+                        )
+                    ) break;
 
                     (heapScores[parent], heapScores[idx]) = (
                         heapScores[idx],
                         heapScores[parent]
+                    );
+                    (heapTBs[parent], heapTBs[idx]) = (
+                        heapTBs[idx],
+                        heapTBs[parent]
                     );
                     (heapUsers[parent], heapUsers[idx]) = (
                         heapUsers[idx],
@@ -182,39 +253,65 @@ contract JobListing {
                 }
 
                 size++;
-            } else if (score > heapScores[0]) {
-                heapUsers[0] = applicantAddresses[i];
+            } else if (!_isWeaker(score, tb, heapScores[0], heapTBs[0])) {
+                // new candidate is not weaker than heap minimum → evict minimum
+                heapUsers[0] = addr;
                 heapScores[0] = score;
+                heapTBs[0] = tb;
 
-                // heapify down
+                // heapify down — sink the new root to its correct position
                 uint idx = 0;
                 while (true) {
                     uint left = 2 * idx + 1;
                     uint right = 2 * idx + 2;
-                    uint smallest = idx;
+                    uint weakest = idx;
 
-                    if (left < N && heapScores[left] < heapScores[smallest])
-                        smallest = left;
+                    if (
+                        left < N &&
+                        _isWeaker(
+                            heapScores[left],
+                            heapTBs[left],
+                            heapScores[weakest],
+                            heapTBs[weakest]
+                        )
+                    ) weakest = left;
+                    if (
+                        right < N &&
+                        _isWeaker(
+                            heapScores[right],
+                            heapTBs[right],
+                            heapScores[weakest],
+                            heapTBs[weakest]
+                        )
+                    ) weakest = right;
 
-                    if (right < N && heapScores[right] < heapScores[smallest])
-                        smallest = right;
+                    if (weakest == idx) break;
 
-                    if (smallest == idx) break;
-
-                    (heapScores[idx], heapScores[smallest]) = (
-                        heapScores[smallest],
+                    (heapScores[idx], heapScores[weakest]) = (
+                        heapScores[weakest],
                         heapScores[idx]
                     );
-                    (heapUsers[idx], heapUsers[smallest]) = (
-                        heapUsers[smallest],
+                    (heapTBs[idx], heapTBs[weakest]) = (
+                        heapTBs[weakest],
+                        heapTBs[idx]
+                    );
+                    (heapUsers[idx], heapUsers[weakest]) = (
+                        heapUsers[weakest],
                         heapUsers[idx]
                     );
 
-                    idx = smallest;
+                    idx = weakest;
                 }
             }
         }
 
         return heapUsers;
     }
+
+    // Returns the TaskType (= dataset) bound to this JobListing — convenience
+    // getter for off-chain callers and verification.
+    function getTaskType() external view returns (TaskType) {
+        return trainingSpecs.taskType;
+    }
+
 }
