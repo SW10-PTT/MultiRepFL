@@ -260,7 +260,7 @@ def worker_loop():
                 archive_path
             )
 
-            user_guids = [u.guid for u in users if u.guid is not None]
+            user_guids = [{"Guid": u.guid, "Address": u.address} for u in users if u.guid is not None]
             complete_run(run_id, user_guids)
             reset(experiment, filename)
             #stop_heartbeat_loop()
@@ -280,7 +280,6 @@ heartbeat_stop = None
 heartbeat_thread = None
 
 def reset(experiment, filename):
-    experiment.py
     del experiment
     del filename
     globals.progress = 0

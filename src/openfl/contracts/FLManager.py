@@ -342,3 +342,21 @@ class FLManager(ConnectionHelper):
             task_type,
         )
         log("setup_contracts", f"Manager reputation update applied from challenge {challenge_address[:10]}...")
+
+    def apply_precomputed_task_reps(self, records: list, task_type: int) -> None:
+        """Write pre-computed TaskRepRecord[] to the manager using the publisher key.
+
+        Called by Python after challenge.compute_and_record_task_reps() stores
+        the records on-chain. Publisher auth avoids the bytecode-hash check that
+        the challenge contract would face when calling the manager directly.
+        """
+        self.transact(
+            "applyPrecomputedTaskReps",
+            self.publisher,
+            0,
+            [],
+            "manager.applyPrecomputedTaskReps",
+            records,
+            task_type,
+        )
+        log("setup_contracts", f"applyPrecomputedTaskReps: {len(records)} records written for task_type={task_type}")

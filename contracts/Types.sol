@@ -42,6 +42,18 @@ struct TrainingSpecifications {
     uint256 girWeight; // GIR multiplier in selection score (default 4)
 }
 
+// Per-user computed TaskRep outputs from one challenge. Stored on-chain by
+// OpenFLChallenge.computeAndRecordTaskReps() so Python replay can pass them
+// directly to OpenFLManager.applyPrecomputedTaskReps() without recalculation.
+struct TaskRepRecord {
+    address user;
+    uint256 newTaskRep;
+    uint256 newRunningCMean;
+    uint256 newM2;
+    uint256 newIntegrityRep; // only meaningful when applyGIR == true
+    bool applyGIR;
+}
+
 struct ChallengeSpecifications {
     bytes32 modelHash;
     uint min_collateral;

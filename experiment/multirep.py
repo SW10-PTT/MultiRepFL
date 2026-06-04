@@ -61,7 +61,8 @@ _INTEGRITY_LEARNING_RATE = int(2e17)  # GIR EWMA learning rate
 # Preset file — fill in before running
 # ---------------------------------------------------------------------------
 
-preset_file = "experiment/presets/EXP-multirep-mixed-distribution-5-task-dataset-switch copy.json"
+preset_file = "experiment/presets/fast-test-local.json"
+# preset_file = "experiment/presets/EXP-multirep-mixed-distribution-5-task-dataset-switch copy.json"
 
 # ---------------------------------------------------------------------------
 # Output directory for multirep sessions
@@ -95,20 +96,16 @@ def compute_user_score(user: User, task_type: int, q_weight: int = 0, tr_weight:
 
 
 def getTopN(users: List[User], n: int, task_type: int, q_weight: int = 0, tr_weight: int = 6, gir_weight: int = 4) -> List[User]:
-    """Mirror the smart contract's participant selection for fingerprinting."""
+    """Mirror the smart contract's participant selection (retained for debugging/analysis)."""
     fps = {u: u.finger_print for u in users}
     scores = [(compute_user_score(u, task_type, q_weight, tr_weight, gir_weight), u) for u in users]
     scores.sort(key=lambda x: (-x[0], fps[x[1]]))
     selected = [u for _, u in scores[:n]]
     selected_set = {u.address for u in selected}
 
-    # Register every user's finger_print → label so the replay diff can resolve names.
-    # Also snapshot finger_prints at selection time so batch_register_for_job can detect drift.
-    fl_globals.fp_at_selection.clear()
     for _, u in scores:
         label = u.partition_spec.name if (u.partition_spec and u.partition_spec.name) else f"User {u.number}"
         fl_globals.fp_user_labels[fps[u]] = label
-        fl_globals.fp_at_selection[u.address] = fps[u]
 
     log("multirep", f"Selection (top {n} of {len(users)}, task_type={task_type}, q_weight={q_weight / _WAD:.4f}, tr={tr_weight}, gir={gir_weight}):")
     log("multirep", f"  {'Name':<16} {'TR':>8} {'GIR':>8} {'Q':>8} {'Score':>10}  fp[:8]  sel")
@@ -553,37 +550,25 @@ def _rep_internals_after_task(users: List[User], manager, task_type: int) -> tup
     return confidence, k_map, mean_map, m2_map
 
 
-def _run_preset(preset: MultirepRunConfig, exp_config, all_users, manager, fingerprint, experiment_name,
-                writer=None, logger=None, path=None):
+def _run_preset(preset: MultirepRunConfig, exp_config, selection_state, fingerprint, experiment_name,
+                writer=None, logger=None, path=None, session_state=None):
     from experiment.multirep.training_mode import TrainingMode
 
     if preset.training_mode == TrainingMode.REMOTE:
-        return _run_remote(preset, exp_config, all_users, manager, fingerprint, experiment_name,
-                           writer=writer, logger=logger, path=path)
+        return _run_remote(preset, exp_config, selection_state, fingerprint, experiment_name,
+                           writer=writer, logger=logger, path=path, session_state=session_state)
 
     # LOCAL
     fl_globals.reuse_runs = ReplayMode.Record
-    return ExperimentRunner.run_experiment(
-        preset.dataset,
-        exp_config,
-        writer=writer,
-        logger=logger,
-        path=path,
-        prebuilt_users=all_users,
-        prebuilt_manager=manager,
+    return ExperimentRunner.run_experiment_from_selection(
+        selection_state, exp_config, fingerprint,
+        writer=writer, logger=logger, path=path,
     )
 
 
-def _run_remote(preset: MultirepRunConfig, exp_config: ExperimentConfiguration, all_users, manager, fingerprint: str, experiment_name,
-                writer=None, logger=None, path=None):
-    """Submit to the remote API (or reuse a pooled run), replay locally.
-    Falls back to LOCAL if anything goes wrong.
-
-    remote_pool_size controls reuse probability:
-      0  → always submit a new run
-      N  → build a list of length N, fill from existing runs, pick a random
-           slot; if the slot is non-None reuse that run, else submit new.
-    """
+def _run_remote(preset: MultirepRunConfig, exp_config: ExperimentConfiguration, selection_state, fingerprint: str, experiment_name,
+                writer=None, logger=None, path=None, session_state=None):
+    """Download a remote run tarball and replay locally, or fall back to LOCAL."""
     from experiment.multirep.remote_client import (
         run_remote_and_setup_replay, fetch_run_download_url,
         download_tarball, extract_and_register_runrepo,
@@ -609,37 +594,28 @@ def _run_remote(preset: MultirepRunConfig, exp_config: ExperimentConfiguration, 
             archive = download_tarball(download_url, dest)
             extract_and_register_runrepo(archive, dest)
         else:
-            run_remote_and_setup_replay(
+            _, new_experiment_id = run_remote_and_setup_replay(
                 exp_config,
                 fingerprint=fingerprint,
                 name=experiment_name or f"multirep-{preset.dataset}",
+                experiment_id=session_state.get("experiment_id") if session_state else None,
             )
+            if session_state is not None:
+                session_state["experiment_id"] = new_experiment_id
 
-        return ExperimentRunner.run_experiment(
-            preset.dataset,
-            exp_config,
-            writer=writer,
-            logger=logger,
-            path=path,
-            prebuilt_users=all_users,
-            prebuilt_manager=manager,
+        return ExperimentRunner.run_experiment_from_selection(
+            selection_state, exp_config, fingerprint,
+            writer=writer, logger=logger, path=path,
         )
 
     except Exception as e:
         log("multirep", f"[REMOTE] Failed — falling back to LOCAL.\nReason: {type(e).__name__}: {e}\n{traceback.format_exc()}")
         fl_globals.reuse_runs = ReplayMode.Record
-        # Restore repo_dir to task_dir so the JSON lands there, not in the
-        # remote extraction dir that extract_and_register_runrepo may have set.
         if path is not None:
             fl_globals.repo_dir = str(path.parent)
-        return ExperimentRunner.run_experiment(
-            preset.dataset,
-            exp_config,
-            writer=writer,
-            logger=logger,
-            path=path,
-            prebuilt_users=all_users,
-            prebuilt_manager=manager,
+        return ExperimentRunner.run_experiment_from_selection(
+            selection_state, exp_config, fingerprint,
+            writer=writer, logger=logger, path=path,
         )
 
 
@@ -665,7 +641,7 @@ def _apply_preset_config(exp_config: ExperimentConfiguration, preset) -> None:
 # Main
 # ---------------------------------------------------------------------------
 
-def main():
+def main(auto_graphs: bool = False):
     global fallback_count
     preset = MultirepPreset.from_file(preset_file)
     tasks = preset.tasks
@@ -754,6 +730,7 @@ def main():
     tr_weight = preset.tr_weight
     gir_weight = preset.gir_weight
     experiment_name = preset.name
+    session_state: dict = {"experiment_id": None}  # persists experiment_id across tasks for REMOTE mode
 
     for i, task in enumerate(tasks):
         task_type = get_task_type(task.dataset)
@@ -784,43 +761,32 @@ def main():
             for u in all_users
         }
 
-        # Mirror the contract's selection to predict participants.
-        # All users still register; the contract makes the final choice.
         log("multirep", f"\n=== Task {i+1}/{len(tasks)}: {task.dataset} (mode={training_mode.value}) ===")
-        selected_users = getTopN(all_users, task.number_of_participants, task_type, q_weight, tr_weight, gir_weight)
-        scores = {u.address: compute_user_score(u, task_type, q_weight, tr_weight, gir_weight) for u in all_users}
-
-        # Build ExperimentConfiguration from ONLY the selected users' specs so
-        # contributor counts and the experiment fingerprint are correct.
-        # to_experiment_config_with_partitions wraps filtered_partitions under
-        # the dataset key so auto_runner sees exactly the same user set and can
-        # independently compute and verify the fingerprint before running.
-        filtered_partitions = filter_partitions_for_users(selected_users)
-        exp_config = task.to_experiment_config_with_partitions(filtered_partitions)
         task.training_mode = training_mode
 
+        # Bootstrap config for selection: task-level params only (no partition filtering).
+        # The contract makes the final selection — no Python-side prediction needed.
+        boot_config = task.to_experiment_config(partition_file)
+        boot_config.q_weight = q_weight
+        boot_config.tr_weight = tr_weight
+        boot_config.gir_weight = gir_weight
+        _apply_preset_config(boot_config, preset)
+
+        selection_state = ExperimentRunner.select_participants_for_task(
+            task.dataset, boot_config, all_users, manager,
+        )
+        selected_users = selection_state.selected_users
+
+        # Build real exp_config from actual selected users' partition specs.
+        filtered_partitions = filter_partitions_for_users(selected_users)
+        exp_config = task.to_experiment_config_with_partitions(filtered_partitions)
         exp_config.q_weight = q_weight
         exp_config.tr_weight = tr_weight
         exp_config.gir_weight = gir_weight
         _apply_preset_config(exp_config, preset)
+
         fingerprint = exp_config.get_finger_print(selected_users)
-        selected_set = {u.address for u in selected_users}
-        fl_globals.fp_score_cache[fingerprint] = [
-            {
-                "name": u.partition_spec.name if (u.partition_spec and u.partition_spec.name) else f"User {u.number}",
-                "fp": u.finger_print,
-                "task_rep": u.task_rep.get(task_type, 0),
-                "gir": u.global_integrity_rep,
-                "q": u.q_value.get(task_type, 0),
-                "score": compute_user_score(u, task_type, q_weight, tr_weight, gir_weight),
-                "selected": u.address in selected_set,
-                "q_weight": q_weight,
-                "tr_weight": tr_weight,
-                "gir_weight": gir_weight,
-                "task_type": task_type,
-            }
-            for u in all_users
-        ]
+        scores = {u.address: compute_user_score(u, task_type, q_weight, tr_weight, gir_weight) for u in all_users}
         log("multirep", f"Run {i+1}/{len(tasks)} | Fall back runs {fallback_count} | dataset={task.dataset} | fp={fingerprint[:8]}...")
 
         # Create a folder for this task's output files.
@@ -869,10 +835,10 @@ def main():
         # ------------------------------------------------------------------ #
         # Dispatch: LOCAL / REMOTE                                            #
         # ------------------------------------------------------------------ #
-        fl_globals.expected_fingerprint = fingerprint
         run_result = _run_preset(
-            task, exp_config, all_users, manager, fingerprint, experiment_name,
+            task, exp_config, selection_state, fingerprint, experiment_name,
             writer=writer, logger=task_logger, path=task_csv_path,
+            session_state=session_state,
         )
         if run_result is None:
             writer.finish()
@@ -885,11 +851,12 @@ def main():
             continue
         run_data, filename = run_result
         is_replay = isinstance(run_data, list)
+        # A mismatch-replay (remote succeeded but chain selected different users,
+        # and a cached result for those users was found) returns is_replay=True
+        # but the filename embeds a different fingerprint than predicted.
+        replay_matched = is_replay and (fingerprint in str(filename))
 
-        # Count every REMOTE→LOCAL fallback in one place.  Both the exception
-        # path and the silent HardPlayBack fingerprint-mismatch path return a
-        # non-replay result from a REMOTE-mode call.
-        if training_mode == TrainingMode.REMOTE and not is_replay:
+        if training_mode == TrainingMode.REMOTE and (not is_replay or not replay_matched):
             fallback_count += 1
 
         # ------------------------------------------------------------------ #
@@ -982,9 +949,14 @@ def main():
     except Exception as e:
         log("multirep", f"[warn] Tarball creation failed: {e}")
 
-    log("multirep", "\n=== All tasks complete. ===")
+    log("multirep", "\n=== All tasks complete ===")
     log("multirep", f"Fall back runs: {fallback_count}")
     log("multirep", f"Session data: {session_dir}")
+
+    if auto_graphs:
+        from analysis.multirep_graphs import generate_all
+        log("multirep", "Generating graphs...")
+        generate_all(session_dir)
 
 
 # ---------------------------------------------------------------------------
@@ -1005,6 +977,10 @@ if __name__ == "__main__":
         "--ganache", action="store_true",
         help="Start a local Ganache node (30 accounts) and use it as the RPC endpoint.",
     )
+    parser.add_argument(
+        "--graphs", action="store_true",
+        help="Generate graphs automatically after training completes.",
+    )
     args = parser.parse_args()
 
     if args.anvil or args.ganache:
@@ -1013,7 +989,7 @@ if __name__ == "__main__":
 
     if False:
         mp.freeze_support()
-    main()
+    main(auto_graphs=args.graphs)
     for p in mp.active_children():
         p.terminate()
     print("Done :)")

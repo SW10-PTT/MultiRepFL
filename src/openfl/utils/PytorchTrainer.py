@@ -65,6 +65,18 @@ class PyTorchTrainer(ITestAndTrainer):
             self.save(round, tag, formatted_data)
         return formatted_data  # callers need the guid-keyed format, not raw on-chain tuples
 
+    def get_task_rep_records(self, round, tag, contract: Contract):
+        """Live path: read TaskRepRecord[] from challenge after computeAndRecordTaskReps().
+
+        Each on-chain record is a tuple:
+        (user, newTaskRep, newRunningCMean, newM2, newIntegrityRep, applyGIR).
+        Saved to trace file when in Record mode for remote replay.
+        """
+        data = contract.functions.getTaskRepRecords().call()
+        if ReplayMode.Record in reuse_runs:
+            self.save(round, tag, data)
+        return data
+
     # NOT TO BE USED WITH MP
     def train_user_proc(
             self,

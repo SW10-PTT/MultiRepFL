@@ -440,4 +440,51 @@ contract OpenFLManager {
 
         emit UserIntegrityRepUpdated(user, current, newValue);
     }
+
+    // Apply pre-computed TaskRep outputs from a completed challenge.
+    // Callable by a registered challenge (production) or the publisher (replay).
+    // Does no calculation — blindly writes the values computed by the challenge.
+    function applyPrecomputedTaskReps(
+        TaskRepRecord[] calldata records,
+        TaskType taskType
+    ) external {
+        require(
+            msg.sender == publisher || _isValidChallenge(msg.sender),
+            "OFLM: unauthorized"
+        );
+
+        TaskType key = _repKey(taskType);
+
+        for (uint i = 0; i < records.length; i++) {
+            TaskRepRecord calldata r = records[i];
+            if (r.user == address(0)) continue;
+
+            User storage u = users[r.user];
+
+            uint256 oldTaskRep = u.GlobalTaskRep[key];
+            u.GlobalTaskRep[key] = r.newTaskRep;
+            emit UserTaskRepUpdated(r.user, key, oldTaskRep, r.newTaskRep);
+
+            u.RunningCMean[key] = r.newRunningCMean;
+            u.M2[key] = r.newM2;
+            emit TaskRepCalcStateUpdated(r.user, key, r.newRunningCMean, r.newM2);
+
+            u.TaskCount[key] += 1;
+
+            if (r.applyGIR) {
+                uint256 oldGIR = u.GlobalIntegrityRep;
+                u.GlobalIntegrityRep = r.newIntegrityRep;
+                emit UserIntegrityRepUpdated(r.user, oldGIR, r.newIntegrityRep);
+            }
+        }
+    }
+
+    function _isValidChallenge(address addr) internal view returns (bool) {
+        if (challengeCodeHash == bytes32(0)) return false;
+        bytes32 codeHash;
+        assembly {
+            codeHash := extcodehash(addr)
+        }
+        return codeHash == challengeCodeHash;
+    }
 }

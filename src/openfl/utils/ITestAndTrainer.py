@@ -156,6 +156,10 @@ class ITestAndTrainer(ABC):
     def get_task_rep_delta_and_GRS(self, round, tag, contract: Contract, get_participant_func):
         pass
 
+    def get_task_rep_records(self, round, tag, contract: Contract):
+        """Read TaskRepRecord[] after computeAndRecordTaskReps(). Override in subclasses."""
+        return []
+
 
 def match_replay_user_user(replay_user, user: User):
     saved = replay_user.get("guid")
@@ -258,31 +262,7 @@ def _log_fp_diff(local_fp: str, file_fp: str, local_data: dict, file_data: dict)
             if only_file:
                 lines.append(f"  selected by chain but NOT locally:  {[_resolve_participant_label(p) for p in sorted(only_file)]}")
             if only_local or only_file:
-                lines.append(f"  → possible causes: tied scores (Python sort vs Solidity heap scan order) or rep-slot mismatch (Python and contract using different TaskType values)")
-                _WAD = 10 ** 18
-                score_rows = globals.fp_score_cache.get(local_fp)
-                if score_rows:
-                    meta = score_rows[0]
-                    lines.append(
-                        f"  getTopN inputs (Python local, task_type={meta['task_type']}, "
-                        f"q_weight={meta['q_weight'] / _WAD:.4f}, "
-                        f"tr={meta['tr_weight']}, gir={meta['gir_weight']}):"
-                    )
-                    lines.append(f"    {'Name':<16} {'TR':>10} {'GIR':>10} {'Q':>10} {'Score':>10}  fp[:8]  sel  chain")
-                    fp_in_file = set(vb) if isinstance(vb, list) else set()
-                    for row in sorted(score_rows, key=lambda r: -r["score"]):
-                        in_chain = "YES" if row["fp"] in fp_in_file else "no"
-                        in_local = "YES" if row["selected"] else "no"
-                        lines.append(
-                            f"    {row['name']:<16} "
-                            f"{row['task_rep'] / _WAD:>10.4f} "
-                            f"{row['gir'] / _WAD:>10.4f} "
-                            f"{row['q'] / _WAD:>10.4f} "
-                            f"{row['score'] / _WAD:>10.4f}  "
-                            f"{row['fp'][:8]}  {in_local:<3}  {in_chain}"
-                        )
-                else:
-                    lines.append("  (getTopN score table not available for this fingerprint)")
+                pass
         elif k == "per_user_partitions":
             local_keys = sorted(va) if isinstance(va, dict) else []
             file_keys  = sorted(vb) if isinstance(vb, dict) else []

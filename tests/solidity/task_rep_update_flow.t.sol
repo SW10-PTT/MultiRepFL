@@ -2,141 +2,137 @@
 pragma solidity ^0.8.9;
 
 import "forge-std/Test.sol";
-import "../../contracts/JobListing.sol";
+import "../../contracts/OpenFLChallenge.sol";
 import "../../contracts/OpenFLManager.sol";
 import "../../contracts/Types.sol";
 
-// Minimal challenge stub that returns one participant with a positive delta.
-contract MockChallenge {
-    address public participant;
-    int256 public delta;
-    uint256 public nrOfActiveParticipants;
+// Harness that lets tests inject participant state and bypass the jobListing
+// requirement. Uses TaskType.template in the constructor (skips jobListing
+// check), then allows the task type and round to be overridden.
+contract MockChallenge is OpenFLChallenge {
+    constructor(address mgr) payable OpenFLChallenge(
+        ChallengeSpecifications({
+            modelHash: bytes32(0),
+            min_collateral: 1e18,
+            max_collateral: 1.8e18,
+            managerAddress: mgr,
+            reward: 1e18,
+            min_rounds: 1,
+            punishfactor: 3,
+            punishfactorContrib: 3,
+            freeriderPenalty: 0,
+            taskType: TaskType.template,
+            jobListingAddress: address(0)
+        })
+    ) {}
 
-    constructor(address _p, int256 _delta, uint256 _nrActive) {
-        participant = _p;
-        delta = _delta;
-        nrOfActiveParticipants = _nrActive;
+    function addParticipant(
+        address addr,
+        int256 delta,
+        uint256 posVotes,
+        uint256 totVotes
+    ) external {
+        users[addr].taskRepDelta = delta;
+        users[addr].isRegistered = true;
+        participants.push(addr);
+        nrOfActiveParticipants++;
+        positiveVotesReceived[addr] = posVotes;
+        totalVotesReceived[addr] = totVotes;
     }
 
-    // Matches IOpenFLChallengeTaskRep.TaskRep struct used by JobListing.
-    function getTaskRepDeltaAndGRS() external view returns (
-        IOpenFLChallengeTaskRep.TaskRep[] memory reps
-    ) {
-        reps = new IOpenFLChallengeTaskRep.TaskRep[](1);
-        reps[0] = IOpenFLChallengeTaskRep.TaskRep({
-            user:                 participant,
-            taskRepDelta:                delta,
-            globalReputationScore:uint256(1e18),   // 1 ETH collateral
-            positiveVotes:        3,
-            totalVotes:           4
-        });
-    }
+    function setTaskTypeMNIST() external { taskType = TaskType.MNIST; }
+    function setRound(uint8 r) external { round = r; }
 }
 
 contract TaskRepUpdateFlowTest is Test {
     uint256 constant WAD = 1e18;
 
     OpenFLManager manager;
-    JobListing    job;
-    MockChallenge challenge;
-    address       user  = address(0xBEEF);
-    address       pub   = address(this);
+    MockChallenge  challenge;
+    address        user = address(0xBEEF);
 
     function setUp() public {
-        // Deploy manager in PerTask mode
         manager = new OpenFLManager(ReputationMode.PerTask);
+        challenge = new MockChallenge(address(manager));
 
-        // Deploy JobListing: min 1e18, max 1.8e18, reward 1e18, 3 rounds,
-        // punishfactor 3, punishfactorContrib 3, freerider 50,
-        // MNIST task type, qWeight 0, trWeight 6, girWeight 4
-        job = new JobListing(
-            1e18, 1.8e18, 1e18, 3, 3, 3, 50,
-            address(manager), TaskType.MNIST,
-            0, 6, 4
-        );
+        // Authorise challenge to call applyPrecomputedTaskReps on the manager.
+        manager.setChallengeCodeHash(address(challenge).codehash);
 
-        // Register job with manager so it can call setUserTaskRep etc.
-        manager.setJobListingCodeHash(address(job).codehash);
-        manager.registerJob(address(job));
+        // Configure challenge for a real task.
+        challenge.setTaskTypeMNIST();
+        challenge.setRound(1);
 
-        // Wire up challenge with a positive delta (equivalent of gaining 0.2e18 above stake)
-        challenge = new MockChallenge(user, int256(2e17), 5);
+        // Wire a participant with a positive delta (0.2e18 above stake).
+        // positiveVotes=3, totalVotes=4 → GIR will be updated.
+        challenge.addParticipant(user, int256(2e17), 3, 4);
+    }
 
-        // Register challenge with job (codehash check — skip by hashing the mock)
-        // Use a forge cheatcode to set the codehash on the job listing
-        bytes32 mockHash = address(challenge).codehash;
-        // JobListing stores challengeCodeHash from manager at constructor time,
-        // which was 0 (challenge not yet known). Override it via the manager setter.
-        // Actually simpler: just call job.registerChallenge directly — it checks
-        // job.challengeCodeHash which came from manager.getChallengeCodeHash() = 0.
-        // So we need to seed the manager with the mock challenge hash first.
-        manager.setChallengeCodeHash(mockHash);
-
-        // Re-deploy job so it picks up the correct challengeCodeHash.
-        job = new JobListing(
-            1e18, 1.8e18, 1e18, 3, 3, 3, 50,
-            address(manager), TaskType.MNIST,
-            0, 6, 4
-        );
-        manager.setJobListingCodeHash(address(job).codehash);
-        manager.registerJob(address(job));
-
-        // Now register the challenge (publisher = address(this), so updateUserTaskReps is callable)
-        job.registerChallenge(address(challenge));
+    // Two-step helper mirroring Python's _finalize_reputations:
+    // challenge stores records, then publisher applies them to manager.
+    function _computeAndApply(MockChallenge c, TaskType tt) internal {
+        c.computeAndRecordTaskReps();
+        TaskRepRecord[] memory records = c.getTaskRepRecords();
+        manager.applyPrecomputedTaskReps(records, tt);
     }
 
     function testUpdateWritesNonZeroTaskRep() public {
-        // Pre-state: TR and TaskCount should be 0
         (uint256 tr0,,) = manager.getUserRep(user, TaskType.MNIST);
         uint256 k0 = manager.getTaskCount(user, TaskType.MNIST);
         assertEq(tr0, 0, "pre: TR should be 0");
-        assertEq(k0, 0, "pre: task count should be 0");
+        assertEq(k0,  0, "pre: task count should be 0");
 
-        // Run the update
-        job.updateUserTaskReps();
+        _computeAndApply(challenge, TaskType.MNIST);
 
-        // Post-state: TR and TaskCount should be non-zero
         (uint256 tr1, uint256 gir1,) = manager.getUserRep(user, TaskType.MNIST);
         uint256 k1 = manager.getTaskCount(user, TaskType.MNIST);
 
-        assertGt(tr1, 0,  "TR must be non-zero after update");
+        assertGt(tr1,  0, "TR must be non-zero after update");
         assertGt(gir1, 0, "GIR must be non-zero after update (positive votes)");
-        assertEq(k1, 1,   "task count must be 1 after first update");
+        assertEq(k1,   1, "task count must be 1 after first update");
     }
 
-    function testSecondUpdateIncrementsTaskCount() public {
-        job.updateUserTaskReps();
-        (uint256 tr1,,) = manager.getUserRep(user, TaskType.MNIST);
+    function testIdempotency_secondCallReverts() public {
+        challenge.computeAndRecordTaskReps();
+        vm.expectRevert("OFC: already computed");
+        challenge.computeAndRecordTaskReps();
+    }
+
+    function testGuard_revertsBeforeAnyRound() public {
+        MockChallenge fresh = new MockChallenge(address(manager));
+        manager.setChallengeCodeHash(address(fresh).codehash);
+        fresh.setTaskTypeMNIST();
+        vm.expectRevert("OFC: no rounds settled");
+        fresh.computeAndRecordTaskReps();
+    }
+
+    function testSecondTaskIncrementsTaskCount() public {
+        _computeAndApply(challenge, TaskType.MNIST);
         uint256 k1 = manager.getTaskCount(user, TaskType.MNIST);
         assertEq(k1, 1);
 
-        // Second task — need a fresh job + challenge (taskRepsApplied flag blocks reuse)
-        MockChallenge c2 = new MockChallenge(user, int256(2e17), 5);
-        // setChallengeCodeHash only sets once, so skip — just increment directly
-        // Instead, just verify k increments by calling incrementTaskCount directly
-        manager.incrementTaskCount(user, TaskType.MNIST);
-        assertEq(manager.getTaskCount(user, TaskType.MNIST), 2, "task count should be 2");
+        MockChallenge c2 = new MockChallenge(address(manager));
+        manager.setChallengeCodeHash(address(c2).codehash);
+        c2.setTaskTypeMNIST();
+        c2.setRound(1);
+        c2.addParticipant(user, int256(2e17), 3, 4);
+        _computeAndApply(c2, TaskType.MNIST);
 
-        // Confidence for k=2 should be higher → TR should grow
-        (uint256 tr2,,) = manager.getUserRep(user, TaskType.MNIST);
-        assertGe(tr2, tr1, "TR must not decrease");
+        uint256 k2 = manager.getTaskCount(user, TaskType.MNIST);
+        assertEq(k2, 2, "task count should be 2 after second challenge");
+    }
+
+    function testRecordsStoredOnChallenge() public {
+        challenge.computeAndRecordTaskReps();
+        TaskRepRecord[] memory records = challenge.getTaskRepRecords();
+        assertEq(records.length, 1, "one record per participant");
+        assertEq(records[0].user, user);
+        assertGt(records[0].newTaskRep, 0);
+        assertTrue(records[0].applyGIR);
     }
 
     function testCIFARAndMNISTCountsAreIndependent() public {
-        // Deploy a CIFAR job
-        JobListing cifarJob = new JobListing(
-            1e18, 1.8e18, 1e18, 3, 3, 3, 50,
-            address(manager), TaskType.CIFAR10,
-            0, 6, 4
-        );
-        manager.setJobListingCodeHash(address(cifarJob).codehash);
-        manager.registerJob(address(cifarJob));
-
-        manager.incrementTaskCount(user, TaskType.MNIST);
-        manager.incrementTaskCount(user, TaskType.MNIST);
-        manager.incrementTaskCount(user, TaskType.CIFAR10);
-
-        assertEq(manager.getTaskCount(user, TaskType.MNIST),  2, "MNIST count");
-        assertEq(manager.getTaskCount(user, TaskType.CIFAR10), 1, "CIFAR10 count");
+        _computeAndApply(challenge, TaskType.MNIST);
+        assertEq(manager.getTaskCount(user, TaskType.MNIST),   1, "MNIST count after 1 task");
+        assertEq(manager.getTaskCount(user, TaskType.CIFAR10), 0, "CIFAR10 count still 0");
     }
 }
