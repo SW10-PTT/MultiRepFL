@@ -26,11 +26,15 @@ class ExperimentLogger:
                           k=None, running_c_mean=None, m2=None,
                           global_task_rep=None, global_integrity_rep=None,
                           task_rep_delta=None, final_grs=None,
-                          positive_votes=None, total_votes=None):
+                          positive_votes=None, total_votes=None,
+                          contrib_score=None):
         """One row per participant at end-of-task.
 
         WAD-normalised floats (divided by 1e18, range [0, 1]):
-            running_c_mean, m2, global_task_rep, global_integrity_rep
+            running_c_mean, m2, global_task_rep, global_integrity_rep,
+            contrib_score (the transformed contribution score for this task —
+            the output of OpenFLChallenge._trTransformDelta(task_rep_delta, ...),
+            i.e. the per-task signal that feeds the TaskRep EWMA).
         Raw on-chain integers:
             task_rep_delta (int256 wei, signed), final_grs (uint256 wei),
             positive_votes / total_votes (cross-round vote tallies for this
@@ -56,6 +60,7 @@ class ExperimentLogger:
             "final_grs":            final_grs,
             "positive_votes":       positive_votes,
             "total_votes":          total_votes,
+            "contrib_score":        contrib_score,
         })
 
     # -------- GLOBAL ROUND --------
@@ -237,7 +242,7 @@ class NullExperimentLogger:
     def log_contribution_scores(self, round=None, user_numbers=None, user_addresses=None, scores=None, raw_values=None, outlier_info=None, previous_avg=None): pass
     def log_receipt(self, round=None, tx_type=None, tx_hash=None, gas_used=None): pass
     def log_warning(self, round=None, message=None): pass
-    def log_task_rep_calc(self, address=None, user_id=None, task_type=None, k=None, running_c_mean=None, m2=None, global_task_rep=None, global_integrity_rep=None, task_rep_delta=None, final_grs=None, positive_votes=None, total_votes=None): pass
+    def log_task_rep_calc(self, address=None, user_id=None, task_type=None, k=None, running_c_mean=None, m2=None, global_task_rep=None, global_integrity_rep=None, task_rep_delta=None, final_grs=None, positive_votes=None, total_votes=None, contrib_score=None): pass
     def log_setup(self, total_experiment_time=None, hardware=None, config=None): pass
     def log_trs(self, trs): pass
     def finalize(self): pass

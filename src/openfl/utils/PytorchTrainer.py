@@ -69,7 +69,8 @@ class PyTorchTrainer(ITestAndTrainer):
         """Live path: read TaskRepRecord[] from challenge after computeAndRecordTaskReps().
 
         Each on-chain record is a tuple:
-        (user, newTaskRep, newRunningCMean, newM2, newIntegrityRep, applyGIR).
+        (user, newTaskRep, newRunningCMean, newM2, newIntegrityRep, applyGIR,
+        contribScore).
         Saved to trace file when in Record mode for remote replay.
         """
         data = contract.functions.getTaskRepRecords().call()

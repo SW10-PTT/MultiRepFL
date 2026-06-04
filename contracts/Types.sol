@@ -52,6 +52,12 @@ struct TaskRepRecord {
     uint256 newM2;
     uint256 newIntegrityRep; // only meaningful when applyGIR == true
     bool applyGIR;
+    // Transformed contribution score for this task: the output of
+    // OpenFLChallenge._trTransformDelta(taskRepDelta, ...), WAD-scaled to
+    // [0, 1e18]. This is the per-task contribution signal that feeds the
+    // TaskRep EWMA. Recorded here purely so Python can read/print the exact
+    // on-chain value; applyPrecomputedTaskReps ignores it.
+    uint256 contribScore;
 }
 
 struct ChallengeSpecifications {

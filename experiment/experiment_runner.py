@@ -325,6 +325,15 @@ def run_experiment_from_selection(
       log("experiment_end", f"[warn] GRS snapshot failed: {e}")
       grs_snapshot = []
 
+  # Snapshot the per-participant TaskRepRecord[] (written by computeAndRecordTaskReps
+  # at the end of simulate()). Carries the transformed contribution score (cs) so
+  # callers — e.g. multirep's session summary — can read the exact on-chain value.
+  try:
+      task_rep_records = newChallenge.contract.functions.getTaskRepRecords().call()
+  except Exception as e:
+      log("experiment_end", f"[warn] TaskRepRecords snapshot failed: {e}")
+      task_rep_records = []
+
   newChallenge.exit_system()
 
   try:
@@ -352,7 +361,8 @@ def run_experiment_from_selection(
   log("experiment_end", "="*75 + "\n")
 
   if logger is not None:
-      _log_task_rep_calc(logger, newChallenge, manager, new_job_listing, pytorch_model, grs_snapshot=grs_snapshot)
+      _log_task_rep_calc(logger, newChallenge, manager, new_job_listing, pytorch_model,
+                         grs_snapshot=grs_snapshot, task_rep_records=task_rep_records)
 
       try:
           import torch
@@ -404,7 +414,7 @@ def run_experiment_from_selection(
       logger.log_setup(total_experiment_time, hardware, config)
 
   pytorch_model.cleanup()
-  return (Experiment(newChallenge, manager, grs_snapshot), filename)
+  return (Experiment(newChallenge, manager, grs_snapshot, task_rep_records), filename)
 
 
 def run_experiment(
@@ -642,14 +652,19 @@ def table_with_gas_and_transactions_latex(experiment):
   log("latex_output", "complete round & {:,.0f} & {:.5f} \\ ".format(tot, tot * 20e9 / 1e18))
   log("latex_output", "\\hline\n\\end{tabular}")
 
-def _log_task_rep_calc(logger, challenge, manager, job_listing, pytorch_model, grs_snapshot=None):
+def _log_task_rep_calc(logger, challenge, manager, job_listing, pytorch_model,
+                       grs_snapshot=None, task_rep_records=None):
     """Read per-participant TaskRepCalc state from the manager contract after
     updateUserTaskReps has fired and log it as the task_rep_calc table.
 
     Columns with WAD-normalised values (running_c_mean, m2, global_task_rep)
     are stored as floats in [0, 1]. All other on-chain integers are stored raw.
+
+    Also prints, per participant, the transformed contribution score (cs) and the
+    resulting TaskRep (TR) for this task under the task_rep_contrib tag.
     """
     WAD = 10 ** 18
+    ZERO_ADDR = "0x0000000000000000000000000000000000000000"
     task_type = job_listing.get_task_type()
 
     # Use pre-exit snapshot when available; fall back to live contract query.
@@ -657,10 +672,31 @@ def _log_task_rep_calc(logger, challenge, manager, job_listing, pytorch_model, g
     trs_by_addr = {
         entry[0].lower(): (entry[1], entry[2], entry[3], entry[4])
         for entry in trs_raw
-        if entry[0] != "0x0000000000000000000000000000000000000000"
+        if entry[0] != ZERO_ADDR
     }
 
+    # Transformed contribution score (cs) per participant, exactly as computed
+    # on-chain by _trTransformDelta inside computeAndRecordTaskReps(). We read it
+    # back from the stored TaskRepRecord[] rather than re-deriving the fixed-point
+    # math in Python, so the value printed is the contract's own. contribScore is
+    # the last record field (index 6), WAD-scaled to [0, 1]. Prefer the pre-exit
+    # snapshot; fall back to a live read (records are immutable once written).
+    cs_by_addr = {}
+    try:
+        records = task_rep_records if task_rep_records else challenge.contract.functions.getTaskRepRecords().call()
+        for rec in records:
+            if rec[0] != ZERO_ADDR:
+                cs_by_addr[rec[0].lower()] = rec[6]
+    except Exception as e:
+        log("task_rep_contrib", f"[warn] getTaskRepRecords failed, contribScore unavailable: {e}")
+
     all_participants = pytorch_model.participants + pytorch_model.disqualified
+
+    log("task_rep_contrib", "\n" + "=" * 75)
+    log("task_rep_contrib",
+        f"CONTRIBUTION SCORE (cs = _trTransformDelta(taskRepDelta)) & RESULTING TASKREP (TR)  task_type={task_type}")
+    log("task_rep_contrib", "-" * 75)
+
     for user in all_participants:
         addr = user.address
         e, f = manager.contract.functions.getTaskRepCalcState(addr, task_type).call()
@@ -668,6 +704,15 @@ def _log_task_rep_calc(logger, challenge, manager, job_listing, pytorch_model, g
         delta, grs, positive_votes, total_votes = trs_by_addr.get(
             addr.lower(), (None, None, None, None)
         )
+        cs_wad = cs_by_addr.get(addr.lower())
+        contrib_score = cs_wad / WAD if cs_wad is not None else None
+
+        cs_str = f"{contrib_score:8.6f}" if contrib_score is not None else "     n/a"
+        delta_str = f"{delta / WAD:+9.6f}" if delta is not None else "      n/a"
+        tr_str = f"{task_rep_wad / WAD:8.6f}"
+        log("task_rep_contrib",
+            f"  user {str(user.id):>3}  {addr[:10]}...  taskRepDelta={delta_str}  ->  cs={cs_str}  TR={tr_str}")
+
         logger.log_task_rep_calc(
             address=addr,
             user_id=str(user.id),
@@ -681,11 +726,17 @@ def _log_task_rep_calc(logger, challenge, manager, job_listing, pytorch_model, g
             final_grs=grs,
             positive_votes=positive_votes,
             total_votes=total_votes,
+            contrib_score=contrib_score,
         )
+
+    log("task_rep_contrib", "=" * 75 + "\n")
 
 
 class Experiment:
-  def __init__(self, model, manager, grs_snapshot=None):
+  def __init__(self, model, manager, grs_snapshot=None, task_rep_records=None):
     self.model = model
     self.manager = manager
     self.grs_snapshot = grs_snapshot or []
+    # Per-participant TaskRepRecord[] tuples (incl. contribScore at index 6),
+    # snapshotted right after the challenge settled. [] when unavailable.
+    self.task_rep_records = task_rep_records or []

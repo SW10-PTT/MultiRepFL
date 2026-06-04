@@ -1278,7 +1278,7 @@ contract OpenFLChallenge {
     uint256 internal constant TR_LAMBDA = 20;
     uint256 internal constant TR_STAKE_WAD = 1e18;
     uint256 internal constant TR_INTEGRITY_LEARNING_RATE = 2e17;
-    uint256 internal constant TR_GAIN_CAP_MULTIPLIER = 1;
+    uint256 internal constant TR_GAIN_CAP_MULTIPLIER = 2;
 
     // Computed TaskRep outputs for this challenge run. Written once by
     // computeAndRecordTaskReps(); read by Python for remote replay.
@@ -1328,14 +1328,15 @@ contract OpenFLChallenge {
         bool applyGIR,
         uint256 nrActive
     ) internal view returns (TaskRepRecord memory) {
-        (uint256 newTaskRep, uint256 newMean, uint256 newM2) = _trCalcNewRep(mgr, addr, nrActive);
+        (uint256 newTaskRep, uint256 newMean, uint256 newM2, uint256 cs) = _trCalcNewRep(mgr, addr, nrActive);
         return TaskRepRecord({
             user: addr,
             newTaskRep: newTaskRep,
             newRunningCMean: newMean,
             newM2: newM2,
             newIntegrityRep: _trCalcGIR(mgr, addr, applyGIR),
-            applyGIR: applyGIR
+            applyGIR: applyGIR,
+            contribScore: cs
         });
     }
 
@@ -1343,11 +1344,11 @@ contract OpenFLChallenge {
         IOpenFLManager mgr,
         address addr,
         uint256 nrActive
-    ) internal view returns (uint256 newTaskRep, uint256 newMean, uint256 newM2) {
+    ) internal view returns (uint256 newTaskRep, uint256 newMean, uint256 newM2, uint256 cs) {
         (uint256 priorTaskRep, , ) = mgr.getUserRep(addr, taskType);
         (uint256 priorMean, uint256 priorM2) = mgr.getTaskRepCalcState(addr, taskType);
         uint256 k = mgr.getTaskCount(addr, taskType) + 1;
-        uint256 cs = _trTransformDelta(users[addr].taskRepDelta, TR_STAKE_WAD, totalReward, nrActive);
+        cs = _trTransformDelta(users[addr].taskRepDelta, TR_STAKE_WAD, totalReward, nrActive);
         (newMean, newM2) = _trUpdateRunningStats(cs, priorMean, priorM2, k);
         newTaskRep = _trUpdateContribScore(priorTaskRep, _trComputeConfidence(k, newM2), cs);
     }

@@ -52,7 +52,7 @@ _ALPHA = int(2e17)                    # forgetting factor for running mean + var
 _N_BLEND = int(2e17)                  # smoothing on final ContribScore → TaskRep
 _N_0 = 2                              # maturity offset
 _LAMBDA = 20                          # variance penalty weight
-_GAIN_CAP_MULTIPLIER = 1
+_GAIN_CAP_MULTIPLIER = 2
 _STAKE_WAD = int(1e18)                # collateral (hardcoded to 1 ETH, matching Solidity)
 _INTEGRITY_LEARNING_RATE = int(2e17)  # GIR EWMA learning rate
 
@@ -254,15 +254,20 @@ def _update_integrity_rep(prior_gir: int, pos_votes: int, total_votes: int) -> i
 # TRS (replay rep update)
 # ---------------------------------------------------------------------------
 
-def _apply_trs_reps(users: List[User], trs: list, task_type: int, manager, reward: int) -> None:
+def _apply_trs_reps(users: List[User], trs: list, task_type: int, manager, reward: int) -> dict:
     """Apply EWMA TaskRep update on-chain and in Python for replayed runs.
 
     trs format: (guid, delta_task_rep, delta_balance, pos_votes, total_votes).
     Mirrors the Solidity JobListing._applyContribAndStats EWMA chain so TaskRep
     stays in [0, WAD] regardless of the number of tasks completed.
+
+    Returns {address_lower: contrib_score_wad} — the transformed contribution score
+    actually used to update each participant's TaskRep this task. This is the
+    replay-path equivalent of the on-chain TaskRepRecord.contribScore.
     """
     nr_active = len(trs)
     users_by_guid = {u.guid: u for u in users if u.guid is not None}
+    contrib_scores: dict = {}
     log("multirep", f"{'User':<16} {'delta':>12} {'ContribScore':>14} {'confidence':>12} {'TaskRep→':>10} {'GIR→':>10} {'Balance(ETH)':>14}")
     for entry in trs:
         guid, delta, delta_balance = str(entry[0]), entry[1], entry[2]
@@ -277,6 +282,7 @@ def _apply_trs_reps(users: List[User], trs: list, task_type: int, manager, rewar
         k = user.task_count.get(task_type, 0) + 1
 
         contrib_score = _transform_delta(delta, _STAKE_WAD, reward, nr_active)
+        contrib_scores[user.address.lower()] = contrib_score
         new_mean, new_m2 = _update_running_stats(contrib_score, prior_mean, prior_m2, k)
         confidence = _compute_confidence(k, new_m2)
         new_task_rep = _update_contrib_score(prior_task_rep, confidence, contrib_score)
@@ -305,6 +311,8 @@ def _apply_trs_reps(users: List[User], trs: list, task_type: int, manager, rewar
         user.balance = new_balance
         user.task_count[task_type] = k
 
+    return contrib_scores
+
 
 # ---------------------------------------------------------------------------
 # Partition filtering
@@ -329,6 +337,139 @@ def log_user_reputations(users: List[User], task_type: int, selected_users: List
         addr = u.address[:20] if u.address else "N/A"
         log("multirep", f"{label:<12} {addr:<20}  {tr:>8.4f} {gir:>8.4f} {u.balance / _WAD:>13.4f} {q:>7.3f} {score_display:>8.4f}  {selected:>8}")
     log("multirep", "─" * 96)
+
+
+# ---------------------------------------------------------------------------
+# TaskRep + contribution-score reporting (per task + end-of-session summary)
+# ---------------------------------------------------------------------------
+
+_NAME_CAP = 28  # max user-name column width; longer names are truncated with "…"
+
+
+def _contrib_scores_from_records(records: list) -> dict:
+    """Build {address_lower: contrib_score_wad} from a challenge's TaskRepRecord[]
+    snapshot (LOCAL-run path). contribScore is record field index 6; only
+    participants that produced a record appear. Returns {} on empty/bad input.
+
+    This is the local-path counterpart of the dict _apply_trs_reps returns for
+    the replay path — both carry the transformed contribution score (cs) that was
+    actually used to update each participant's TaskRep this task.
+    """
+    ZERO_ADDR = "0x0000000000000000000000000000000000000000"
+    out: dict = {}
+    for rec in records or []:
+        try:
+            addr = rec[0]
+        except (IndexError, TypeError):
+            continue
+        if addr and addr != ZERO_ADDR:
+            out[addr.lower()] = rec[6]
+    return out
+
+
+def _log_task_contrib_and_taskrep(all_users: List[User], task_type: int, dataset: str,
+                                  task_index: int, selected_users: List[User],
+                                  contrib_scores: dict) -> None:
+    """Per-task terminal print: the transformed contribution score (cs) and the
+    resulting TaskRep (TR) for each user. Users not selected for this task show
+    N/A — they made no contribution and earned no new TaskRep this task.
+    """
+    selected_set = {u.address for u in selected_users}
+    contrib_scores = contrib_scores or {}
+
+    def _name(u: User) -> str:
+        n = u.partition_spec.name if (u.partition_spec and u.partition_spec.name) else f"User {u.number}"
+        return n if len(n) <= _NAME_CAP else n[:_NAME_CAP - 1] + "…"
+
+    # Width the user column to the widest name so cells stay aligned.
+    name_w = max([len("User")] + [len(_name(u)) for u in all_users])
+    log("task_rep_contrib",
+        f"\n── Task {task_index + 1} ({dataset}) — Contribution Score (cs) & resulting TaskRep (TR) ──")
+    log("task_rep_contrib", f"  {'User':<{name_w}}  {'Selected':>8}  {'cs':>10}  {'TR':>10}")
+    for u in all_users:
+        name = _name(u)
+        if u.address in selected_set:
+            cs_wad = contrib_scores.get(u.address.lower())
+            cs_str = f"{cs_wad / _WAD:10.4f}" if cs_wad is not None else f"{'n/a':>10}"
+            tr_str = f"{u.task_rep.get(task_type, 0) / _WAD:10.4f}"
+            sel = "YES"
+        else:
+            cs_str = f"{'N/A':>10}"
+            tr_str = f"{'N/A':>10}"
+            sel = "no"
+        log("task_rep_contrib", f"  {name:<{name_w}}  {sel:>8}  {cs_str}  {tr_str}")
+
+
+def _log_session_rep_summary(rep_rows: list) -> None:
+    """End-of-session terminal print: one table per dataset (e.g. MNIST, CIFAR-10),
+    rows = users, columns = that dataset's tasks. Each cell shows TR|cs — the
+    resulting TaskRep and the transformed contribution score for that task. A user
+    not selected for a task shows N/A. Built from MultirepLogger's per-(task,user)
+    reputation rows, so it covers local, replay and cached tasks uniformly.
+    """
+    if not rep_rows:
+        log("task_rep_contrib", "[session summary] no reputation rows recorded — nothing to print.")
+        return
+
+    CELL_W = 14  # column width; fits "TR|cs" e.g. "0.0000|0.0000" (13) + padding
+
+    def _disp(name: str) -> str:
+        return name if len(name) <= _NAME_CAP else name[:_NAME_CAP - 1] + "…"
+
+    # Preserve first-seen order for both datasets and users.
+    datasets: list = []
+    for r in rep_rows:
+        if r["dataset"] not in datasets:
+            datasets.append(r["dataset"])
+
+    # Width the user column to the widest name across the whole session so every
+    # per-dataset table lines up identically.
+    name_w = max([len("User")] + [len(_disp(r["user_name"])) for r in rep_rows])
+
+    title = "SESSION SUMMARY — resulting TaskRep (TR) & Contribution Score (cs) per task"
+    legend = "cell = TR|cs        N/A = user not selected for that task"
+    max_cols = max(len({r["task_index"] for r in rep_rows if r["dataset"] == ds}) for ds in datasets)
+    bar_w = max(len(title), 2 + name_w + max_cols * (1 + CELL_W))
+
+    log("task_rep_contrib", "\n" + "═" * bar_w)
+    log("task_rep_contrib", title)
+    log("task_rep_contrib", "  " + legend)
+    log("task_rep_contrib", "═" * bar_w)
+
+    for dataset in datasets:
+        ds_rows = [r for r in rep_rows if r["dataset"] == dataset]
+        task_indices = sorted({r["task_index"] for r in ds_rows})
+
+        users_order: list = []
+        seen: set = set()
+        for r in ds_rows:
+            key = r.get("guid") or r["user_name"]
+            if key not in seen:
+                seen.add(key)
+                users_order.append((key, _disp(r["user_name"])))
+
+        # (task_index, user_key) -> (was_selected, tr_post, contrib_score)
+        cell: dict = {}
+        for r in ds_rows:
+            key = r.get("guid") or r["user_name"]
+            cell[(r["task_index"], key)] = (r["was_selected"], r.get("tr_post"), r.get("contrib_score"))
+
+        header = f"  {'User':<{name_w}}" + "".join(f" {('T' + str(ti + 1)):>{CELL_W}}" for ti in task_indices)
+        prefix = f"── {dataset} "
+        log("task_rep_contrib", "\n" + prefix + "─" * max(3, len(header) - len(prefix)))
+        log("task_rep_contrib", header)
+        for key, name in users_order:
+            cells = []
+            for ti in task_indices:
+                was_sel, tr, cs = cell.get((ti, key), (False, None, None))
+                if not was_sel:
+                    cells.append(f" {'N/A':>{CELL_W}}")
+                else:
+                    tr_s = f"{tr:.4f}" if tr is not None else "--"
+                    cs_s = f"{cs:.4f}" if cs is not None else "n/a"
+                    cells.append(f" {(tr_s + '|' + cs_s):>{CELL_W}}")
+            log("task_rep_contrib", f"  {name:<{name_w}}" + "".join(cells))
+    log("task_rep_contrib", "\n" + "═" * bar_w + "\n")
 
 
 def _trs_from_challenge(users: List[User], experiment, addr_to_id: dict[str, str]) -> list:
@@ -804,6 +945,9 @@ def main(auto_graphs: bool = False):
             sync_all_task_types_for_logging(all_users, manager)
             log("multirep", f"\n--- Reputation snapshot after task {i+1} (cached) ---")
             log_user_reputations(all_users, task_type, selected_users, q_weight, tr_weight, gir_weight)
+            # Cached tasks reapply stored reputations; the per-task contribution
+            # score was not recomputed, so cs prints as n/a (TR is still shown).
+            _log_task_contrib_and_taskrep(all_users, task_type, task.dataset, i, selected_users, {})
             multirep_logger.log_task(
                 task_index=i, dataset=task.dataset, task_type=task_type,
                 fingerprint=fingerprint, was_cached=True,
@@ -811,6 +955,7 @@ def main(auto_graphs: bool = False):
                 pre_state=pre_state, scores=scores,
                 post_confidence=post_confidence, post_k=post_k,
                 post_running_mean=post_mean, post_m2=post_m2,
+                contrib_scores={},
             )
             continue
 
@@ -847,6 +992,7 @@ def main(auto_graphs: bool = False):
                 fingerprint=fingerprint, was_cached=False,
                 users=all_users, selected_users=selected_users,
                 pre_state=pre_state, scores=scores,
+                contrib_scores={},
             )
             continue
         run_data, filename = run_result
@@ -900,10 +1046,15 @@ def main(auto_graphs: bool = False):
         # must write task rep + running state to chain from the remote TRS.
         # Local: updateUserTaskReps already ran inside experiment_runner, so
         # the chain is authoritative — just sync balances then read back.
+        # contrib_scores: {address_lower: cs_wad} — the transformed contribution
+        # score used to update each participant's TaskRep this task. Replay derives
+        # it from the TRS (same EWMA inputs as the contract); local reads the exact
+        # on-chain value from the challenge's TaskRepRecord snapshot.
         if is_replay:
-            _apply_trs_reps(all_users, run_data, task_type, manager, exp_config.reward)
+            contrib_scores = _apply_trs_reps(all_users, run_data, task_type, manager, exp_config.reward)
         else:
             _sync_balances_from_challenge(all_users, run_data, manager)
+            contrib_scores = _contrib_scores_from_records(getattr(run_data, "task_rep_records", []))
         try:
             addresses = [u.address for u in all_users]
             reps = manager.contract.functions.getGrsAndTrsBatch(addresses, task_type).call()
@@ -930,11 +1081,13 @@ def main(auto_graphs: bool = False):
             post_confidence=post_confidence, post_k=post_k,
             post_running_mean=post_mean, post_m2=post_m2,
             pkl_path=rel_pkl, run_data=task_run_data,
+            contrib_scores=contrib_scores,
         )
 
         sync_all_task_types_for_logging(all_users, manager)
         log("multirep", f"\n--- Reputation snapshot after task {i+1} ---")
         log_user_reputations(all_users, task_type, selected_users, q_weight)
+        _log_task_contrib_and_taskrep(all_users, task_type, task.dataset, i, selected_users, contrib_scores)
 
     # ---------------------------------------------------------------------- #
     # Finalise session: save session.pkl + tarball                            #
@@ -952,6 +1105,9 @@ def main(auto_graphs: bool = False):
     log("multirep", "\n=== All tasks complete ===")
     log("multirep", f"Fall back runs: {fallback_count}")
     log("multirep", f"Session data: {session_dir}")
+
+    # End-of-session summary: per-dataset TaskRep + contribution-score tables.
+    _log_session_rep_summary(multirep_logger.reputation_rows())
 
     if auto_graphs:
         from analysis.multirep_graphs import generate_all

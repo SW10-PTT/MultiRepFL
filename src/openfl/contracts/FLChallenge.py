@@ -663,10 +663,21 @@ class FLChallenge(ConnectionHelper):
         try:
             records = self.get_task_rep_records()
             task_type = self.contract.functions.taskType().call()
-            tx = self.build_tx(self._publisher.address, self.manager_contract.address)
-            self.manager_contract.functions.applyPrecomputedTaskReps(
-                records, task_type
-            ).transact(tx)
+            # manager_contract is the FLManager wrapper, not a raw web3 contract.
+            # Route the write through its transact() so it targets the manager's
+            # web3 contract (self.contract) and handles both fork (unlocked
+            # accounts) and non-fork (signed) modes. Sent from the publisher, which
+            # is the manager's deployer, so it passes the on-chain auth check
+            # (msg.sender == publisher).
+            self.manager_contract.transact(
+                "applyPrecomputedTaskReps",
+                self._publisher,
+                0,
+                [],
+                "manager.applyPrecomputedTaskReps",
+                records,
+                task_type,
+            )
             log("setup_contracts", f"TR applied to manager: {len(records)} records task_type={task_type}")
         except Exception as e:
             log("setup_contracts", f"[warn] applyPrecomputedTaskReps failed: {e}")
