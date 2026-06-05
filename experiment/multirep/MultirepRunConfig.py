@@ -13,7 +13,7 @@ class MultirepRunConfig:
         first_round_fee=50,
         use_outlier_detection=True,
         contribution_score_strategy="loss_tolerance_snap",
-        loss_tolerance_pct=0.05,
+        loss_tolerance_pct=0.1,
         freerider_noise_scale=0.1,
         freerider_start_round=3,
         malicious_noise_scale=1.0,

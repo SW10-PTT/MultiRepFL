@@ -61,7 +61,7 @@ class FLChallenge(ConnectionHelper):
         self.FREERIDER_FACTOR = training_specs.freeriderPenalty
         
         self.contribution_score_strategy = training_specs.contribution_score_strategy
-        self.loss_tolerance_pct = getattr(training_specs, "loss_tolerance_pct", 0.05)
+        self.loss_tolerance_pct = getattr(training_specs, "loss_tolerance_pct", 0.1)
         self.use_outlier_detection = training_specs.outlier_detection
         self.scores = []
         self.gas_feedback = []
