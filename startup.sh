@@ -50,6 +50,12 @@ fi
 source .venv/bin/activate
 
 # --------------------------------------------
+# Compile contracts
+# --------------------------------------------
+echo "Compiling contracts..."
+.venv/bin/python scripts/compile_contracts.py
+
+# --------------------------------------------
 # Run experiments
 # --------------------------------------------
 # auto_runner starts/stops its own node for ganache/anvil; "none" relies
