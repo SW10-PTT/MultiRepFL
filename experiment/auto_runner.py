@@ -141,10 +141,20 @@ def claim_run(worker_id):
         "workerId": worker_id
     })
 
+    if res.status_code == 409:
+        body = res.json()
+        if body.get("denied") and body.get("expectedCommit"):
+            _switch_to_commit(body["expectedCommit"])
+        return None
+
     if res.status_code != 200:
         return None
 
-    return res.json() 
+    data = res.json()
+    if data.get("shutdown"):
+        log("autorunner", "Server requested shutdown. Exiting.")
+        os._exit(0)
+    return data
 
 def get_upload_url(run_id, fingerprint):
     res = requests.post(
