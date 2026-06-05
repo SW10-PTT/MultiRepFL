@@ -6,6 +6,7 @@ sys.path.insert(0, str(_repo_root))
 sys.path.insert(0, str(_repo_root / "src"))
 
 import gc
+import os
 import pprint
 import socket
 import threading
@@ -36,6 +37,51 @@ from openfl.utils.printer import log, set_log_file
 API = require_env_var("API_URL")
 
 worker_id = None
+
+_RAM_THRESHOLD_GB = 10.0
+
+def _free_ram_gb() -> float:
+    try:
+        import psutil
+        return psutil.virtual_memory().available / (1024 ** 3)
+    except ImportError:
+        pass
+    with open("/proc/meminfo") as f:
+        for line in f:
+            if line.startswith("MemAvailable:"):
+                return int(line.split()[1]) / (1024 * 1024)
+    raise OSError("Cannot determine available RAM")
+
+def _check_ram_startup() -> None:
+    """Startup guard: exit immediately if free RAM < threshold. No restart."""
+    try:
+        free_gb = _free_ram_gb()
+    except Exception as e:
+        log("autorunner", f"[mem] RAM check failed: {e} — skipping")
+        return
+    if free_gb < _RAM_THRESHOLD_GB:
+        log("autorunner", f"[mem] Only {free_gb:.1f} GB free (need {_RAM_THRESHOLD_GB} GB). Exiting.")
+        sys.exit(1)
+
+def _check_ram_and_maybe_restart() -> None:
+    """Post-run check: if free RAM < threshold, clean up blockchain and restart after 30 s."""
+    try:
+        free_gb = _free_ram_gb()
+    except Exception as e:
+        log("autorunner", f"[mem] RAM check failed: {e} — skipping")
+        return
+    if free_gb >= _RAM_THRESHOLD_GB:
+        return
+    log("autorunner", f"[mem] Only {free_gb:.1f} GB free (need {_RAM_THRESHOLD_GB} GB). Restarting in 30 s...")
+    stop_heartbeat_loop()
+    try:
+        from experiment.blockchain_launcher import _cleanup as _bc_cleanup
+        _bc_cleanup()
+    except Exception:
+        pass
+    time.sleep(30)
+    os.environ["_AUTORUNNER_RESTART_REASON"] = f"low_ram:{free_gb:.1f}GB"
+    os.execv(sys.executable, [sys.executable] + sys.argv)
 
 def register_worker():
     res = requests.post(f"{API}/workers/register", json={
@@ -305,6 +351,8 @@ def worker_loop():
                 del experiment, writer, logger
                 gc.collect()
 
+        _check_ram_and_maybe_restart()
+
 heartbeat_stop = None
 heartbeat_thread = None
 
@@ -351,6 +399,9 @@ def main():
     log_dir.mkdir(exist_ok=True)
     session_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     set_log_file(str(log_dir / f"autorunner_{session_ts}.log"))
+    restart_reason = os.environ.pop("_AUTORUNNER_RESTART_REASON", None)
+    if restart_reason:
+        log("autorunner", f"[mem] Restarted — previous process shut down due to: {restart_reason}")
     globals.reuse_runs = globals.ReplayMode.Record
     worker_loop()
 
@@ -368,6 +419,8 @@ if __name__ == "__main__":
         help="Start a local Ganache node (30 accounts) and use it as the RPC endpoint.",
     )
     args = parser.parse_args()
+
+    _check_ram_startup()
 
     if args.anvil or args.ganache:
         from experiment.blockchain_launcher import start as _start_blockchain
