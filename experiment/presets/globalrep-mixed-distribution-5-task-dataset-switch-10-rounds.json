@@ -10,19 +10,19 @@
   "name": "task-hopper-showcase",
   "partition_file": "experiment/partitions/EXP-mixed-distribution-all-honest-20-users.json",
   "q_weight": 0.2,
-  "tr_weight": 7,
-  "gir_weight": 3,
+  "tr_weight": 8,
+  "gir_weight": 2,
   "training_mode": "remote",
   "fork": true,
   "replication_factor": 4.0,
   "allow_overlap": true,
   "seed": 123,
-  "global_rep_only": false,
+  "global_rep_only": true,
   "vote_baseline": "local_trained",
   "tasks": [
     {
       "dataset": "MNIST",
-      "minimum_rounds": 20,
+      "minimum_rounds": 15,
       "epochs": 3,
       "number_of_participants": 8,
       "contribution_score_strategy": "loss_tolerance_snap",
@@ -30,7 +30,7 @@
     },
     {
       "dataset": "MNIST",
-      "minimum_rounds": 20,
+      "minimum_rounds": 15,
       "epochs": 3,
       "number_of_participants": 8,
       "contribution_score_strategy": "loss_tolerance_snap",
@@ -38,7 +38,7 @@
     },
     {
       "dataset": "MNIST",
-      "minimum_rounds": 20,
+      "minimum_rounds": 15,
       "epochs": 3,
       "number_of_participants": 8,
       "contribution_score_strategy": "loss_tolerance_snap",
@@ -46,7 +46,7 @@
     },
     {
       "dataset": "MNIST",
-      "minimum_rounds": 20,
+      "minimum_rounds": 15,
       "epochs": 3,
       "number_of_participants": 8,
       "contribution_score_strategy": "loss_tolerance_snap",
@@ -54,7 +54,7 @@
     },
     {
       "dataset": "MNIST",
-      "minimum_rounds": 20,
+      "minimum_rounds": 15,
       "epochs": 3,
       "number_of_participants": 8,
       "contribution_score_strategy": "loss_tolerance_snap",
@@ -62,7 +62,7 @@
     },
     {
       "dataset": "CIFAR-10",
-      "minimum_rounds": 20,
+      "minimum_rounds": 15,
       "epochs": 3,
       "number_of_participants": 8,
       "contribution_score_strategy": "loss_tolerance_snap",
@@ -70,7 +70,7 @@
     },
     {
       "dataset": "CIFAR-10",
-      "minimum_rounds": 20,
+      "minimum_rounds": 15,
       "epochs": 3,
       "number_of_participants": 8,
       "contribution_score_strategy": "loss_tolerance_snap",
@@ -78,7 +78,7 @@
     },
     {
       "dataset": "CIFAR-10",
-      "minimum_rounds": 20,
+      "minimum_rounds": 15,
       "epochs": 3,
       "number_of_participants": 8,
       "contribution_score_strategy": "loss_tolerance_snap",
@@ -86,7 +86,7 @@
     },
     {
       "dataset": "CIFAR-10",
-      "minimum_rounds": 20,
+      "minimum_rounds": 15,
       "epochs": 3,
       "number_of_participants": 8,
       "contribution_score_strategy": "loss_tolerance_snap",
@@ -94,7 +94,87 @@
     },
     {
       "dataset": "CIFAR-10",
-      "minimum_rounds": 20,
+      "minimum_rounds": 15,
+      "epochs": 3,
+      "number_of_participants": 8,
+      "contribution_score_strategy": "loss_tolerance_snap",
+      "use_outlier_detection": true
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 15,
+      "epochs": 3,
+      "number_of_participants": 8,
+      "contribution_score_strategy": "loss_tolerance_snap",
+      "use_outlier_detection": true
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 15,
+      "epochs": 3,
+      "number_of_participants": 8,
+      "contribution_score_strategy": "loss_tolerance_snap",
+      "use_outlier_detection": true
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 15,
+      "epochs": 3,
+      "number_of_participants": 8,
+      "contribution_score_strategy": "loss_tolerance_snap",
+      "use_outlier_detection": true
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 15,
+      "epochs": 3,
+      "number_of_participants": 8,
+      "contribution_score_strategy": "loss_tolerance_snap",
+      "use_outlier_detection": true
+    },
+    {
+      "dataset": "MNIST",
+      "minimum_rounds": 15,
+      "epochs": 3,
+      "number_of_participants": 8,
+      "contribution_score_strategy": "loss_tolerance_snap",
+      "use_outlier_detection": true
+    },
+    {
+      "dataset": "CIFAR-10",
+      "minimum_rounds": 15,
+      "epochs": 3,
+      "number_of_participants": 8,
+      "contribution_score_strategy": "loss_tolerance_snap",
+      "use_outlier_detection": true
+    },
+    {
+      "dataset": "CIFAR-10",
+      "minimum_rounds": 15,
+      "epochs": 3,
+      "number_of_participants": 8,
+      "contribution_score_strategy": "loss_tolerance_snap",
+      "use_outlier_detection": true
+    },
+    {
+      "dataset": "CIFAR-10",
+      "minimum_rounds": 15,
+      "epochs": 3,
+      "number_of_participants": 8,
+      "contribution_score_strategy": "loss_tolerance_snap",
+      "use_outlier_detection": true
+    },
+    {
+      "dataset": "CIFAR-10",
+      "minimum_rounds": 15,
+      "epochs": 3,
+      "number_of_participants": 8,
+      "contribution_score_strategy": "loss_tolerance_snap",
+      "use_outlier_detection": true
+    },
+    {
+      "dataset": "CIFAR-10",
+      "minimum_rounds": 15,
       "epochs": 3,
       "number_of_participants": 8,
       "contribution_score_strategy": "loss_tolerance_snap",

@@ -1275,7 +1275,7 @@ contract OpenFLChallenge {
     uint256 internal constant TR_ALPHA = 2e17;
     uint256 internal constant TR_N_BLEND = 2e17;
     uint256 internal constant TR_N_0 = 2;
-    uint256 internal constant TR_LAMBDA = 20;
+    uint256 internal constant TR_LAMBDA = 5;
     uint256 internal constant TR_STAKE_WAD = 1e18;
     uint256 internal constant TR_INTEGRITY_LEARNING_RATE = 2e17;
     uint256 internal constant TR_GAIN_CAP_MULTIPLIER = 2;
