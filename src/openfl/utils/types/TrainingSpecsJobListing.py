@@ -61,7 +61,7 @@ class TrainingSpecsJobListing:
             self.taskType,
         )
 
-    def to_challenge(self, contribution_score_strategy, outlier_detection, joblisting_address, loss_tolerance_pct=0.05):
+    def to_challenge(self, contribution_score_strategy, outlier_detection, joblisting_address, loss_tolerance_pct=0.1):
         return TrainingSpecsChallenge(
             modelHash=self.modelHash,
             min_collateral=self.min_collateral,
@@ -87,7 +87,7 @@ class TrainingSpecsChallenge(TrainingSpecsJobListing):
     contribution_score_strategy: str = ""
     joblisting_address: str = "0x0000000000000000000000000000000000000000"
     outlier_detection: bool = False
-    loss_tolerance_pct: float = 0.05
+    loss_tolerance_pct: float = 0.1
 
     def to_solidity_challenge(self):
         return (
