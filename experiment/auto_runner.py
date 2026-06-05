@@ -7,8 +7,10 @@ sys.path.insert(0, str(_repo_root / "src"))
 
 import gc
 import os
+import platform
 import pprint
 import socket
+import subprocess
 import threading
 
 from openfl.utils.require_env import require_env_var
@@ -81,14 +83,58 @@ def _check_ram_and_maybe_restart() -> None:
         pass
     time.sleep(30)
     os.environ["_AUTORUNNER_RESTART_REASON"] = f"low_ram:{free_gb:.1f}GB"
-    os.execv(sys.executable, [sys.executable] + sys.argv)
+    _restart()
+
+def _git_commit() -> str | None:
+    try:
+        return subprocess.check_output(
+            ["git", "rev-parse", "HEAD"],
+            cwd=str(_repo_root),
+            stderr=subprocess.DEVNULL,
+            text=True,
+        ).strip()
+    except Exception:
+        return None
+
+def _restart() -> None:
+    """Replace this process with a fresh instance. Safe to call from any thread."""
+    args = [sys.executable] + sys.argv
+    if platform.system() == "Windows":
+        subprocess.Popen(args)
+        os._exit(0)  # Hard exit — terminates all threads, safe from non-main thread
+    else:
+        os.execv(sys.executable, args)
+
+def _switch_to_commit(sha: str) -> None:
+    log("autorunner", f"[version] Server requires commit {sha[:8]}. Fetching and switching...")
+    subprocess.check_call(["git", "fetch", "origin"], cwd=str(_repo_root))
+    subprocess.check_call(["git", "checkout", "-f", sha], cwd=str(_repo_root))
+    log("autorunner", "[version] Compiling contracts...")
+    subprocess.check_call([sys.executable, "scripts/compile_contracts.py"], cwd=str(_repo_root))
+    log("autorunner", f"[version] Done. Restarting as {sha[:8]}...")
+    try:
+        from experiment.blockchain_launcher import _cleanup as _bc_cleanup
+        _bc_cleanup()
+    except Exception:
+        pass
+    os.environ["_AUTORUNNER_RESTART_REASON"] = f"version_switch:{sha[:8]}"
+    _restart()
 
 def register_worker():
     res = requests.post(f"{API}/workers/register", json={
-        "name": socket.gethostname()[:6]
+        "name": socket.gethostname()[:6],
+        "gitCommit": _git_commit(),
     })
+    if res.status_code == 409:
+        body = res.json()
+        if body.get("denied") and body.get("expectedCommit"):
+            _switch_to_commit(body["expectedCommit"])
     res.raise_for_status()
-    return res.json()["workerId"]
+    data = res.json()
+    if data.get("shutdown"):
+        log("autorunner", "Server requested shutdown. Exiting.")
+        raise SystemExit(0)
+    return data["workerId"]
 
 def claim_run(worker_id):
     res = requests.post(f"{API}/runs/claim", json={
@@ -113,12 +159,18 @@ def get_upload_url(run_id, fingerprint):
 def heartbeat(worker_id):
     from openfl.api import globals
     try:
-        requests.post(f"{API}/workers/heartbeat", json={
+        res = requests.post(f"{API}/workers/heartbeat", json={
             "workerId": worker_id,
             "progress": globals.progress
         }, timeout=2)
+        if res.status_code == 409:
+            body = res.json()
+            if body.get("denied") and body.get("expectedCommit"):
+                _switch_to_commit(body["expectedCommit"])
+        elif res.ok and res.json().get("shutdown"):
+            log("autorunner", "Server requested shutdown. Exiting.")
+            os._exit(0)
     except Exception:
-        # ignore failures (network hiccups etc.)
         pass
 
 def create_tarball(folder_path: Path, fingerpint):
