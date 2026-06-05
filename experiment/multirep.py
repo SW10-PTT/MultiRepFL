@@ -46,6 +46,8 @@ from openfl.utils.async_writer import AsyncWriter
 # Used to predict participant selection for fingerprinting / RunRepo caching.
 # ---------------------------------------------------------------------------
 
+SKIP_RUN_CACHE = True  # set True to always run fresh (ignore fingerprint cache)
+
 _WAD = 10 ** 18  # all on-chain rep values are WAD-scaled
 
 # EWMA constants — mirror JobListing.sol exactly.
@@ -367,7 +369,7 @@ def _contrib_scores_from_records(records: list) -> dict:
         except (IndexError, TypeError):
             continue
         if addr and addr != ZERO_ADDR:
-            out[addr.lower()] = rec[6]
+            out[addr.lower()] = rec[6] if len(rec) > 6 else None
     return out
 
 
@@ -997,7 +999,7 @@ def main(auto_graphs: bool = False):
         task_dir = tasks_dir / f"task_{i+1:03d}_{safe_dataset}_{fingerprint[:8]}"
         task_dir.mkdir(parents=True, exist_ok=True)
 
-        cached_run = _fetch_cached_run(fingerprint)
+        cached_run = None if SKIP_RUN_CACHE else _fetch_cached_run(fingerprint)
         if cached_run is not None:
             log("multirep", f"Fingerprint {fingerprint[:8]}... found in RunRepo — skipping experiment.")
             _apply_cached_reps(all_users, cached_run, task_type)
