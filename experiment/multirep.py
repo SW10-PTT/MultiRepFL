@@ -4,6 +4,7 @@ import random
 import re
 import sys
 import tarfile
+import time
 import traceback
 import uuid
 from pathlib import Path
@@ -45,13 +46,15 @@ from openfl.utils.async_writer import AsyncWriter
 # Used to predict participant selection for fingerprinting / RunRepo caching.
 # ---------------------------------------------------------------------------
 
+SKIP_RUN_CACHE = True  # set True to always run fresh (ignore fingerprint cache)
+
 _WAD = 10 ** 18  # all on-chain rep values are WAD-scaled
 
 # EWMA constants — mirror JobListing.sol exactly.
 _ALPHA = int(2e17)                    # forgetting factor for running mean + variance
 _N_BLEND = int(2e17)                  # smoothing on final ContribScore → TaskRep
 _N_0 = 2                              # maturity offset
-_LAMBDA = 5                          # variance penalty weight
+_LAMBDA = 5                           # variance penalty weight
 _GAIN_CAP_MULTIPLIER = 2
 _STAKE_WAD = int(1e18)                # collateral (hardcoded to 1 ETH, matching Solidity)
 _INTEGRITY_LEARNING_RATE = int(2e17)  # GIR EWMA learning rate
@@ -61,8 +64,11 @@ _INTEGRITY_LEARNING_RATE = int(2e17)  # GIR EWMA learning rate
 # Preset file — fill in before running
 # ---------------------------------------------------------------------------
 
-preset_file = "experiment/presets/fast-test-local.json"
+preset_file = "experiment/presets/fast-test-local-mnist-only.json"
 # preset_file = "experiment/presets/EXP-multirep-mixed-distribution-5-task-dataset-switch copy.json"
+
+FORCE_REMOTE = False           # if True, retry remote forever instead of falling back to local
+FORCE_REMOTE_RETRY_DELAY = 30  # seconds between retries when FORCE_REMOTE is True
 
 # ---------------------------------------------------------------------------
 # Output directory for multirep sessions
@@ -363,7 +369,7 @@ def _contrib_scores_from_records(records: list) -> dict:
         except (IndexError, TypeError):
             continue
         if addr and addr != ZERO_ADDR:
-            out[addr.lower()] = rec[6]
+            out[addr.lower()] = rec[6] if len(rec) > 6 else None
     return out
 
 
@@ -615,9 +621,14 @@ def _fetch_runs_by_fingerprint(fingerprint: str) -> list:
     return []
 
 
-def _register_run(api_url: str, fingerprint: str, config: str) -> str | None:
+def _register_run(api_url: str, fingerprint: str, config: str, name: str | None = None, experiment_id: str | None = None) -> str | None:
     try:
-        res = requests.post(f"{api_url}/runs/local", json={"fingerprint": fingerprint, "config": config}, timeout=10)
+        body = {"fingerprint": fingerprint, "config": config}
+        if name:
+            body["name"] = name
+        if experiment_id:
+            body["experimentId"] = experiment_id
+        res = requests.post(f"{api_url}/runs/local", json=body, timeout=10)
         if res.status_code == 200:
             return res.json().get("id")
         log("multirep", f"[warn] run registration returned {res.status_code}: {res.text[:120]}")
@@ -626,13 +637,13 @@ def _register_run(api_url: str, fingerprint: str, config: str) -> str | None:
     return None
 
 
-def _upload_run(fingerprint: str, filename: Path, config: str) -> None:
+def _upload_run(fingerprint: str, filename: Path, config: str, name: str | None = None, experiment_id: str | None = None) -> None:
     """Register a new run in the API, create a tarball of filename, and upload it."""
     api_url = os.environ.get("API_URL")
     if not api_url:
         return
 
-    run_id = _register_run(api_url, fingerprint, config)
+    run_id = _register_run(api_url, fingerprint, config, name=name, experiment_id=experiment_id)
     if run_id is None:
         log("multirep", "[warn] Could not register run — skipping upload.")
         return
@@ -658,6 +669,34 @@ def _upload_run(fingerprint: str, filename: Path, config: str) -> None:
         log("multirep", f"Run uploaded successfully (run_id={run_id}).")
     except Exception as e:
         log("multirep", f"[warn] Upload failed: {e}")
+
+
+def _upload_session_tarball(tarball: Path, experiment_name: str) -> None:
+    """Upload the session tarball to the finished-experiments S3 bucket."""
+    api_url = os.environ.get("API_URL")
+    if not api_url:
+        return
+
+    s3_key = f"{experiment_name}/{tarball.name}"
+    try:
+        url_res = requests.post(
+            f"{api_url}/api/finished-experiments/upload-url",
+            json={"name": s3_key},
+            timeout=10,
+        )
+        url_res.raise_for_status()
+        upload_url = url_res.json()["uploadUrl"]
+
+        with open(tarball, "rb") as f:
+            put_res = requests.put(
+                upload_url, data=f,
+                headers={"Content-Type": "application/gzip"},
+                timeout=600,
+            )
+        put_res.raise_for_status()
+        log("multirep", f"Session tarball uploaded: {s3_key}")
+    except Exception as e:
+        log("multirep", f"[warn] Session tarball upload failed: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -713,12 +752,13 @@ def _rep_internals_after_task(users: List[User], manager, task_type: int) -> tup
 
 
 def _run_preset(preset: MultirepRunConfig, exp_config, selection_state, fingerprint, experiment_name,
-                task_type=0, writer=None, logger=None, path=None, session_state=None):
+                task_type=0, writer=None, logger=None, path=None, session_state=None, force_remote=False):
     from experiment.multirep.training_mode import TrainingMode
 
     if preset.training_mode == TrainingMode.REMOTE:
         return _run_remote(preset, exp_config, selection_state, fingerprint, experiment_name,
-                           task_type=task_type, writer=writer, logger=logger, path=path, session_state=session_state)
+                           task_type=task_type, writer=writer, logger=logger, path=path, session_state=session_state,
+                           force_remote=force_remote)
 
     # LOCAL
     fl_globals.reuse_runs = ReplayMode.Record
@@ -729,59 +769,64 @@ def _run_preset(preset: MultirepRunConfig, exp_config, selection_state, fingerpr
 
 
 def _run_remote(preset: MultirepRunConfig, exp_config: ExperimentConfiguration, selection_state, fingerprint: str, experiment_name,
-                task_type=0, writer=None, logger=None, path=None, session_state=None):
-    """Download a remote run tarball and replay locally, or fall back to LOCAL."""
+                task_type=0, writer=None, logger=None, path=None, session_state=None, force_remote=False):
+    """Download a remote run tarball and replay locally, or fall back to LOCAL (or retry if force_remote)."""
     from experiment.multirep.remote_client import (
         run_remote_and_setup_replay, fetch_run_download_url,
         download_tarball, extract_and_register_runrepo,
     )
 
-    try:
-        pool_size = preset.remote_pool_size
-        use_existing_run = None
+    while True:
+        try:
+            pool_size = preset.remote_pool_size
+            use_existing_run = None
 
-        if pool_size > 0:
-            pool = [None] * pool_size
-            runs = _fetch_runs_by_fingerprint(fingerprint)
-            for i, run in enumerate(runs[:pool_size]):
-                pool[i] = run
-            idx = random.randint(0, pool_size - 1)
-            use_existing_run = pool[idx]
-            log("multirep", f"[REMOTE] pool_size={pool_size}, existing={len(runs)}, idx={idx}, reuse={use_existing_run is not None}")
+            if pool_size > 0:
+                pool = [None] * pool_size
+                runs = _fetch_runs_by_fingerprint(fingerprint)
+                for i, run in enumerate(runs[:pool_size]):
+                    pool[i] = run
+                idx = random.randint(0, pool_size - 1)
+                use_existing_run = pool[idx]
+                log("multirep", f"[REMOTE] pool_size={pool_size}, existing={len(runs)}, idx={idx}, reuse={use_existing_run is not None}")
 
-        if use_existing_run is not None:
-            run_id = str(use_existing_run.get("id", "unknown"))
-            download_url = fetch_run_download_url(run_id)
-            dest = Path(__file__).resolve().parent / "data" / "remote_runs" / run_id
-            archive = download_tarball(download_url, dest)
-            extract_and_register_runrepo(archive, dest)
-        else:
-            rep_state = _collect_rep_state(selection_state.selected_users, selection_state.manager, task_type)
-            log("multirep_remote", f"[rep_state] shipping state for {len(rep_state)} users (task_type={task_type}, run fingerprint={fingerprint[:8]}...): { {g: {k: v for k,v in s.items()} for g,s in rep_state.items()} }")
-            _, new_experiment_id = run_remote_and_setup_replay(
-                exp_config,
-                fingerprint=fingerprint,
-                name=experiment_name or f"multirep-{preset.dataset}",
-                experiment_id=session_state.get("experiment_id") if session_state else None,
-                initial_rep_state=rep_state,
+            if use_existing_run is not None:
+                run_id = str(use_existing_run.get("id", "unknown"))
+                download_url = fetch_run_download_url(run_id)
+                dest = Path(__file__).resolve().parent / "data" / "remote_runs" / run_id
+                archive = download_tarball(download_url, dest)
+                extract_and_register_runrepo(archive, dest)
+            else:
+                rep_state = _collect_rep_state(selection_state.selected_users, selection_state.manager, task_type)
+                log("multirep_remote", f"[rep_state] shipping state for {len(rep_state)} users (task_type={task_type}, run fingerprint={fingerprint[:8]}...): { {g: {k: v for k,v in s.items()} for g,s in rep_state.items()} }")
+                _, new_experiment_id = run_remote_and_setup_replay(
+                    exp_config,
+                    fingerprint=fingerprint,
+                    name=experiment_name or f"multirep-{preset.dataset}",
+                    experiment_id=session_state.get("experiment_id") if session_state else None,
+                    initial_rep_state=rep_state,
+                )
+                if session_state is not None:
+                    session_state["experiment_id"] = new_experiment_id
+
+            return ExperimentRunner.run_experiment_from_selection(
+                selection_state, exp_config, fingerprint,
+                writer=writer, logger=logger, path=path,
             )
-            if session_state is not None:
-                session_state["experiment_id"] = new_experiment_id
 
-        return ExperimentRunner.run_experiment_from_selection(
-            selection_state, exp_config, fingerprint,
-            writer=writer, logger=logger, path=path,
-        )
-
-    except Exception as e:
-        log("multirep", f"[REMOTE] Failed — falling back to LOCAL.\nReason: {type(e).__name__}: {e}\n{traceback.format_exc()}")
-        fl_globals.reuse_runs = ReplayMode.Record
-        if path is not None:
-            fl_globals.repo_dir = str(path.parent)
-        return ExperimentRunner.run_experiment_from_selection(
-            selection_state, exp_config, fingerprint,
-            writer=writer, logger=logger, path=path,
-        )
+        except Exception as e:
+            if force_remote:
+                log("multirep", f"[REMOTE] Failed — retrying in {FORCE_REMOTE_RETRY_DELAY}s.\nReason: {type(e).__name__}: {e}\n{traceback.format_exc()}")
+                time.sleep(FORCE_REMOTE_RETRY_DELAY)
+                continue
+            log("multirep", f"[REMOTE] Failed — falling back to LOCAL.\nReason: {type(e).__name__}: {e}\n{traceback.format_exc()}")
+            fl_globals.reuse_runs = ReplayMode.Record
+            if path is not None:
+                fl_globals.repo_dir = str(path.parent)
+            return ExperimentRunner.run_experiment_from_selection(
+                selection_state, exp_config, fingerprint,
+                writer=writer, logger=logger, path=path,
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -959,7 +1004,7 @@ def main(auto_graphs: bool = False):
         task_dir = tasks_dir / f"task_{i+1:03d}_{safe_dataset}_{fingerprint[:8]}"
         task_dir.mkdir(parents=True, exist_ok=True)
 
-        cached_run = _fetch_cached_run(fingerprint)
+        cached_run = None if SKIP_RUN_CACHE else _fetch_cached_run(fingerprint)
         if cached_run is not None:
             log("multirep", f"Fingerprint {fingerprint[:8]}... found in RunRepo — skipping experiment.")
             _apply_cached_reps(all_users, cached_run, task_type)
@@ -1009,6 +1054,7 @@ def main(auto_graphs: bool = False):
             task_type=task_type,
             writer=writer, logger=task_logger, path=task_csv_path,
             session_state=session_state,
+            force_remote=FORCE_REMOTE,
         )
         if run_result is None:
             writer.finish()
@@ -1062,7 +1108,8 @@ def main(auto_graphs: bool = False):
         # Only for REMOTE-mode sessions — local-only runs stay local.
         if training_mode == TrainingMode.REMOTE and not is_replay:
             from experiment.multirep.remote_client import _config_to_json_element
-            _upload_run(fingerprint, filename, json.dumps(_config_to_json_element(exp_config)))
+            _upload_run(fingerprint, filename, json.dumps(_config_to_json_element(exp_config)),
+                        name=experiment_name, experiment_id=session_state.get("experiment_id"))
 
         # ------------------------------------------------------------------ #
         # Rep updates (chain-authoritative)                                   #
@@ -1121,11 +1168,15 @@ def main(auto_graphs: bool = False):
     multirep_logger.save(session_pkl)
     log("multirep", f"Session pickle saved: {session_pkl}")
 
+    tarball = None
     try:
         tarball = pack_session_tarball(session_dir)
         log("multirep", f"Session tarball: {tarball}")
     except Exception as e:
         log("multirep", f"[warn] Tarball creation failed: {e}")
+
+    if tarball is not None:
+        _upload_session_tarball(tarball, preset.name)
 
     log("multirep", "\n=== All tasks complete ===")
     log("multirep", f"Fall back runs: {fallback_count}")
@@ -1162,7 +1213,14 @@ if __name__ == "__main__":
         "--graphs", action="store_true",
         help="Generate graphs automatically after training completes.",
     )
+    parser.add_argument(
+        "--preset",
+        help="Path to preset JSON file (overrides the hardcoded preset_file at the top of this module).",
+    )
     args = parser.parse_args()
+
+    if args.preset:
+        preset_file = args.preset
 
     if args.anvil or args.ganache:
         from experiment.blockchain_launcher import start as _start_blockchain

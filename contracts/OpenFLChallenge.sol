@@ -281,7 +281,9 @@ contract OpenFLChallenge {
         if (!isTemplate) {
             require(taskSpecs.jobListingAddress != address(0), "NO_JOBADDR");
 
-            IJobListingSelection job = IJobListingSelection(taskSpecs.jobListingAddress);
+            IJobListingSelection job = IJobListingSelection(
+                taskSpecs.jobListingAddress
+            );
 
             address[] memory selectedUsers = job.getSelectedParticipants();
             emit SelectedUsers(selectedUsers); //TODO: DEBUG
@@ -622,111 +624,119 @@ contract OpenFLChallenge {
                 // Return the reserved reward and skip distribution.
                 rewardLeft += rewardPerRound;
             } else {
-            positiveSumOfWeightedContribScore = uint256(
-                sumOfWeightedContribScore
-            );
+                positiveSumOfWeightedContribScore = uint256(
+                    sumOfWeightedContribScore
+                );
 
-            // check if a user should be disqualified or punished
-            for (uint i = 0; i < participants.length; i++) {
-                User storage user = users[participants[i]];
+                // check if a user should be disqualified or punished
+                for (uint i = 0; i < participants.length; i++) {
+                    User storage user = users[participants[i]];
 
-                if (
-                    _isEligibleForRewards(user) &&
-                    contributionScore[round][user.addr] < 0
-                ) {
-                    require(
-                        punishfactorContrib > 0,
-                        "punishfactorcontrib <= 0"
-                    );
-                    require(
-                        user.globalReputationScore > 0,
-                        "user.globalreputation <= 0"
-                    );
-                    require(
-                        contributionScore[round][user.addr] < 0,
-                        "contrib >= 0"
-                    );
-                    uint punishment = (user.globalReputationScore /
-                        punishfactorContrib) *
-                        absUint((contributionScore[round][user.addr]));
-                    int taskPunishment = (((user.taskRepDelta + int(min_collateral)) /
-                        int(uint(punishfactorContrib))) *
-                        int(absUint((contributionScore[round][user.addr])))) /
-                        int(1e18);
-                    require(punishment > 0, "punishment is <= 0 in settle! 1");
-                    punishment /= 1e18;
-                    require(punishment > 0, "punishment is <= 0 in settle! 2");
                     if (
-                        user.globalReputationScore <=
-                        min_collateral / punishfactorContrib ||
-                        user.globalReputationScore <= punishment
+                        _isEligibleForRewards(user) &&
+                        contributionScore[round][user.addr] < 0
                     ) {
-                        reward += user.globalReputationScore;
-                        user.taskRepDelta = -1e18;
-
-                        emit Disqualification(
-                            participants[i],
-                            user.roundReputation,
-                            user.globalReputationScore,
-                            0
+                        require(
+                            punishfactorContrib > 0,
+                            "punishfactorcontrib <= 0"
                         );
+                        require(
+                            user.globalReputationScore > 0,
+                            "user.globalreputation <= 0"
+                        );
+                        require(
+                            contributionScore[round][user.addr] < 0,
+                            "contrib >= 0"
+                        );
+                        uint punishment = (user.globalReputationScore /
+                            punishfactorContrib) *
+                            absUint((contributionScore[round][user.addr]));
+                        int taskPunishment = (((user.taskRepDelta +
+                            int(min_collateral)) /
+                            int(uint(punishfactorContrib))) *
+                            int(
+                                absUint((contributionScore[round][user.addr]))
+                            )) / int(1e18);
+                        require(
+                            punishment > 0,
+                            "punishment is <= 0 in settle! 1"
+                        );
+                        punishment /= 1e18;
+                        require(
+                            punishment > 0,
+                            "punishment is <= 0 in settle! 2"
+                        );
+                        if (
+                            user.globalReputationScore <=
+                            min_collateral / punishfactorContrib ||
+                            user.globalReputationScore <= punishment
+                        ) {
+                            reward += user.globalReputationScore;
+                            user.taskRepDelta = -1e18;
 
-                        user.globalReputationScore = 0;
-                        nrOfActiveParticipants -= 1;
-                        user.isDisqualified = true;
-                        _removeKickedUserVotesFromTallies(user.addr);
-                    } else {
-                        // this is a punishment
-                        user.globalReputationScore -= punishment;
-                        user.taskRepDelta -= int256(taskPunishment);
-                        reward += punishment;
+                            emit Disqualification(
+                                participants[i],
+                                user.roundReputation,
+                                user.globalReputationScore,
+                                0
+                            );
+
+                            user.globalReputationScore = 0;
+                            nrOfActiveParticipants -= 1;
+                            user.isDisqualified = true;
+                            _removeKickedUserVotesFromTallies(user.addr);
+                        } else {
+                            // this is a punishment
+                            user.globalReputationScore -= punishment;
+                            user.taskRepDelta -= int256(taskPunishment);
+                            reward += punishment;
+
+                            emit Reward(
+                                user.addr,
+                                user.roundReputation,
+                                punishment,
+                                user.globalReputationScore,
+                                false
+                            );
+
+                            delete user.whitelistedForRewards;
+                            delete user.weightedContribScore;
+                        }
+                    }
+                }
+
+                // Give rewards based on positive contribution score
+                for (uint i = 0; i < participants.length; i++) {
+                    User storage user = users[participants[i]];
+
+                    if (
+                        _isEligibleForRewards(user) &&
+                        contributionScore[round][user.addr] >= 0
+                    ) {
+                        // NOTE: This refactor adds the case of !user.Disqualified, in contrast to before)
+                        uint personalReward = (reward *
+                            uint(user.weightedContribScore)) /
+                            positiveSumOfWeightedContribScore;
+
+                        user.globalReputationScore += personalReward;
+
+                        uint personalRep = (rewardPerRound *
+                            uint(user.weightedContribScore)) /
+                            positiveSumOfWeightedContribScore;
+                        user.taskRepDelta += int(personalRep);
 
                         emit Reward(
                             user.addr,
                             user.roundReputation,
-                            punishment,
+                            personalReward,
                             user.globalReputationScore,
-                            false
+                            true
                         );
-
-                        delete user.whitelistedForRewards;
-                        delete user.weightedContribScore;
                     }
+
+                    delete user.whitelistedForRewards;
+                    delete user.weightedContribScore;
                 }
-            }
-
-            // Give rewards based on positive contribution score
-            for (uint i = 0; i < participants.length; i++) {
-                User storage user = users[participants[i]];
-
-                if (
-                    _isEligibleForRewards(user) &&
-                    contributionScore[round][user.addr] >= 0
-                ) {
-                    // NOTE: This refactor adds the case of !user.Disqualified, in contrast to before)
-                    uint personalReward = (reward *
-                        uint(user.weightedContribScore)) /
-                        positiveSumOfWeightedContribScore;
-
-                    user.globalReputationScore += personalReward;
-
-                    uint personalRep = (rewardPerRound *
-                        uint(user.weightedContribScore)) /
-                        positiveSumOfWeightedContribScore;
-                    user.taskRepDelta += int(personalRep);
-
-                    emit Reward(
-                        user.addr,
-                        user.roundReputation,
-                        personalReward,
-                        user.globalReputationScore,
-                        true
-                    );
-                }
-
-                delete user.whitelistedForRewards;
-                delete user.weightedContribScore;
-            }
             } // else (sumOfWeightedContribScore > 0)
         }
         emit EndRound(
@@ -1275,7 +1285,7 @@ contract OpenFLChallenge {
     uint256 internal constant TR_ALPHA = 2e17;
     uint256 internal constant TR_N_BLEND = 2e17;
     uint256 internal constant TR_N_0 = 2;
-    uint256 internal constant TR_LAMBDA = 20;
+    uint256 internal constant TR_LAMBDA = 5;
     uint256 internal constant TR_STAKE_WAD = 1e18;
     uint256 internal constant TR_INTEGRITY_LEARNING_RATE = 2e17;
     uint256 internal constant TR_GAIN_CAP_MULTIPLIER = 2;
@@ -1285,7 +1295,11 @@ contract OpenFLChallenge {
     bool public taskRepRecordsWritten;
     TaskRepRecord[] internal _taskRepRecords;
 
-    function getTaskRepRecords() external view returns (TaskRepRecord[] memory) {
+    function getTaskRepRecords()
+        external
+        view
+        returns (TaskRepRecord[] memory)
+    {
         return _taskRepRecords;
     }
 
@@ -1307,10 +1321,17 @@ contract OpenFLChallenge {
         bool applyGIR = mgr.reputationMode() == ReputationMode.PerTask;
         uint256 nrActive = nrOfActiveParticipants;
 
-        TaskRepRecord[] memory records = new TaskRepRecord[](participants.length);
+        TaskRepRecord[] memory records = new TaskRepRecord[](
+            participants.length
+        );
 
         for (uint i = 0; i < participants.length; i++) {
-            records[i] = _computeOneRecord(mgr, participants[i], applyGIR, nrActive);
+            records[i] = _computeOneRecord(
+                mgr,
+                participants[i],
+                applyGIR,
+                nrActive
+            );
         }
 
         for (uint i = 0; i < records.length; i++) {
@@ -1328,29 +1349,51 @@ contract OpenFLChallenge {
         bool applyGIR,
         uint256 nrActive
     ) internal view returns (TaskRepRecord memory) {
-        (uint256 newTaskRep, uint256 newMean, uint256 newM2, uint256 cs) = _trCalcNewRep(mgr, addr, nrActive);
-        return TaskRepRecord({
-            user: addr,
-            newTaskRep: newTaskRep,
-            newRunningCMean: newMean,
-            newM2: newM2,
-            newIntegrityRep: _trCalcGIR(mgr, addr, applyGIR),
-            applyGIR: applyGIR,
-            contribScore: cs
-        });
+        (
+            uint256 newTaskRep,
+            uint256 newMean,
+            uint256 newM2,
+            uint256 cs
+        ) = _trCalcNewRep(mgr, addr, nrActive);
+        return
+            TaskRepRecord({
+                user: addr,
+                newTaskRep: newTaskRep,
+                newRunningCMean: newMean,
+                newM2: newM2,
+                newIntegrityRep: _trCalcGIR(mgr, addr, applyGIR),
+                applyGIR: applyGIR,
+                contribScore: cs
+            });
     }
 
     function _trCalcNewRep(
         IOpenFLManager mgr,
         address addr,
         uint256 nrActive
-    ) internal view returns (uint256 newTaskRep, uint256 newMean, uint256 newM2, uint256 cs) {
+    )
+        internal
+        view
+        returns (uint256 newTaskRep, uint256 newMean, uint256 newM2, uint256 cs)
+    {
         (uint256 priorTaskRep, , ) = mgr.getUserRep(addr, taskType);
-        (uint256 priorMean, uint256 priorM2) = mgr.getTaskRepCalcState(addr, taskType);
+        (uint256 priorMean, uint256 priorM2) = mgr.getTaskRepCalcState(
+            addr,
+            taskType
+        );
         uint256 k = mgr.getTaskCount(addr, taskType) + 1;
-        cs = _trTransformDelta(users[addr].taskRepDelta, TR_STAKE_WAD, totalReward, nrActive);
+        cs = _trTransformDelta(
+            users[addr].taskRepDelta,
+            TR_STAKE_WAD,
+            totalReward,
+            nrActive
+        );
         (newMean, newM2) = _trUpdateRunningStats(cs, priorMean, priorM2, k);
-        newTaskRep = _trUpdateContribScore(priorTaskRep, _trComputeConfidence(k, newM2), cs);
+        newTaskRep = _trUpdateContribScore(
+            priorTaskRep,
+            _trComputeConfidence(k, newM2),
+            cs
+        );
     }
 
     function _trCalcGIR(
@@ -1360,7 +1403,12 @@ contract OpenFLChallenge {
     ) internal view returns (uint256) {
         (, uint256 priorGIR, ) = mgr.getUserRep(addr, taskType);
         if (!applyGIR) return priorGIR;
-        return _trUpdateIntegrityRep(priorGIR, positiveVotesReceived[addr], totalVotesReceived[addr]);
+        return
+            _trUpdateIntegrityRep(
+                priorGIR,
+                positiveVotesReceived[addr],
+                totalVotesReceived[addr]
+            );
     }
 
     // ---- Pure TaskRepCalc helpers ----
@@ -1392,14 +1440,27 @@ contract OpenFLChallenge {
         if (k <= 1) {
             newMean = contribScore;
         } else {
-            newMean = ((TR_WAD - TR_ALPHA) * priorMean + TR_ALPHA * contribScore) / TR_WAD;
+            newMean =
+                ((TR_WAD - TR_ALPHA) * priorMean + TR_ALPHA * contribScore) /
+                TR_WAD;
         }
-        uint256 d1 = contribScore > priorMean ? contribScore - priorMean : priorMean - contribScore;
-        uint256 d2 = contribScore > newMean ? contribScore - newMean : newMean - contribScore;
-        newM2 = ((TR_WAD - TR_ALPHA) * priorM2) / TR_WAD + (TR_ALPHA * d1 * d2) / (TR_WAD * TR_WAD);
+        uint256 d1 = contribScore > priorMean
+            ? contribScore - priorMean
+            : priorMean - contribScore;
+        uint256 d2 = contribScore > newMean
+            ? contribScore - newMean
+            : newMean - contribScore;
+        newM2 =
+            ((TR_WAD - TR_ALPHA) * priorM2) /
+            TR_WAD +
+            (TR_ALPHA * d1 * d2) /
+            (TR_WAD * TR_WAD);
     }
 
-    function _trComputeConfidence(uint256 k, uint256 s_k) internal pure returns (uint256) {
+    function _trComputeConfidence(
+        uint256 k,
+        uint256 s_k
+    ) internal pure returns (uint256) {
         if (k == 0) return 0;
         uint256 maturity = (k * TR_WAD) / (k + TR_N_0);
         uint256 stability = (TR_WAD * TR_WAD) / (TR_WAD + TR_LAMBDA * s_k);
@@ -1412,7 +1473,9 @@ contract OpenFLChallenge {
         uint256 contribScore
     ) internal pure returns (uint256) {
         uint256 weighted = (confidence * contribScore) / TR_WAD;
-        return ((TR_WAD - TR_N_BLEND) * priorTaskRep + TR_N_BLEND * weighted) / TR_WAD;
+        return
+            ((TR_WAD - TR_N_BLEND) * priorTaskRep + TR_N_BLEND * weighted) /
+            TR_WAD;
     }
 
     function _trUpdateIntegrityRep(
@@ -1427,7 +1490,11 @@ contract OpenFLChallenge {
             uint256 ratio = (positiveVotes * TR_WAD) / totalVotes;
             V = (ratio * ratio) / TR_WAD;
         }
-        return ((TR_WAD - TR_INTEGRITY_LEARNING_RATE) * priorGIR + TR_INTEGRITY_LEARNING_RATE * V) / TR_WAD;
+        return
+            ((TR_WAD - TR_INTEGRITY_LEARNING_RATE) *
+                priorGIR +
+                TR_INTEGRITY_LEARNING_RATE *
+                V) / TR_WAD;
     }
 
     // Push this challenge's reputation deltas to the manager.

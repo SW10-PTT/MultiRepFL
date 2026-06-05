@@ -6,8 +6,11 @@ sys.path.insert(0, str(_repo_root))
 sys.path.insert(0, str(_repo_root / "src"))
 
 import gc
+import os
+import platform
 import pprint
 import socket
+import subprocess
 import threading
 
 from openfl.utils.require_env import require_env_var
@@ -37,22 +40,121 @@ API = require_env_var("API_URL")
 
 worker_id = None
 
+_RAM_THRESHOLD_GB = 10.0
+
+def _free_ram_gb() -> float:
+    try:
+        import psutil
+        return psutil.virtual_memory().available / (1024 ** 3)
+    except ImportError:
+        pass
+    with open("/proc/meminfo") as f:
+        for line in f:
+            if line.startswith("MemAvailable:"):
+                return int(line.split()[1]) / (1024 * 1024)
+    raise OSError("Cannot determine available RAM")
+
+def _check_ram_startup() -> None:
+    """Startup guard: exit immediately if free RAM < threshold. No restart."""
+    try:
+        free_gb = _free_ram_gb()
+    except Exception as e:
+        log("autorunner", f"[mem] RAM check failed: {e} — skipping")
+        return
+    if free_gb < _RAM_THRESHOLD_GB:
+        log("autorunner", f"[mem] Only {free_gb:.1f} GB free (need {_RAM_THRESHOLD_GB} GB). Exiting.")
+        sys.exit(1)
+
+def _check_ram_and_maybe_restart() -> None:
+    """Post-run check: if free RAM < threshold, clean up blockchain and restart after 30 s."""
+    try:
+        free_gb = _free_ram_gb()
+    except Exception as e:
+        log("autorunner", f"[mem] RAM check failed: {e} — skipping")
+        return
+    if free_gb >= _RAM_THRESHOLD_GB:
+        return
+    log("autorunner", f"[mem] Only {free_gb:.1f} GB free (need {_RAM_THRESHOLD_GB} GB). Restarting in 30 s...")
+    stop_heartbeat_loop()
+    try:
+        from experiment.blockchain_launcher import _cleanup as _bc_cleanup
+        _bc_cleanup()
+    except Exception:
+        pass
+    time.sleep(30)
+    os.environ["_AUTORUNNER_RESTART_REASON"] = f"low_ram:{free_gb:.1f}GB"
+    _restart()
+
+def _git_commit() -> str | None:
+    try:
+        return subprocess.check_output(
+            ["git", "rev-parse", "HEAD"],
+            cwd=str(_repo_root),
+            stderr=subprocess.DEVNULL,
+            text=True,
+        ).strip()
+    except Exception:
+        return None
+
+def _restart() -> None:
+    """Replace this process with a fresh instance. Safe to call from any thread."""
+    args = [sys.executable] + sys.argv
+    if platform.system() == "Windows":
+        subprocess.Popen(args)
+        os._exit(0)  # Hard exit — terminates all threads, safe from non-main thread
+    else:
+        os.execv(sys.executable, args)
+
+def _switch_to_commit(sha: str) -> None:
+    log("autorunner", f"[version] Server requires commit {sha[:8]}. Fetching and switching...")
+    subprocess.check_call(["git", "fetch", "origin"], cwd=str(_repo_root))
+    subprocess.check_call(["git", "checkout", "-f", sha], cwd=str(_repo_root))
+    log("autorunner", "[version] Compiling contracts...")
+    subprocess.check_call([sys.executable, "scripts/compile_contracts.py"], cwd=str(_repo_root))
+    log("autorunner", f"[version] Done. Restarting as {sha[:8]}...")
+    try:
+        from experiment.blockchain_launcher import _cleanup as _bc_cleanup
+        _bc_cleanup()
+    except Exception:
+        pass
+    os.environ["_AUTORUNNER_RESTART_REASON"] = f"version_switch:{sha[:8]}"
+    _restart()
+
 def register_worker():
     res = requests.post(f"{API}/workers/register", json={
-        "name": socket.gethostname()[:6]
+        "name": socket.gethostname()[:6],
+        "gitCommit": _git_commit(),
     })
+    if res.status_code == 409:
+        body = res.json()
+        if body.get("denied") and body.get("expectedCommit"):
+            _switch_to_commit(body["expectedCommit"])
     res.raise_for_status()
-    return res.json()["workerId"]
+    data = res.json()
+    if data.get("shutdown"):
+        log("autorunner", "Server requested shutdown. Exiting.")
+        raise SystemExit(0)
+    return data["workerId"]
 
 def claim_run(worker_id):
     res = requests.post(f"{API}/runs/claim", json={
         "workerId": worker_id
     })
 
+    if res.status_code == 409:
+        body = res.json()
+        if body.get("denied") and body.get("expectedCommit"):
+            _switch_to_commit(body["expectedCommit"])
+        return None
+
     if res.status_code != 200:
         return None
 
-    return res.json() 
+    data = res.json()
+    if data.get("shutdown"):
+        log("autorunner", "Server requested shutdown. Exiting.")
+        os._exit(0)
+    return data
 
 def get_upload_url(run_id, fingerprint):
     res = requests.post(
@@ -67,12 +169,18 @@ def get_upload_url(run_id, fingerprint):
 def heartbeat(worker_id):
     from openfl.api import globals
     try:
-        requests.post(f"{API}/workers/heartbeat", json={
+        res = requests.post(f"{API}/workers/heartbeat", json={
             "workerId": worker_id,
             "progress": globals.progress
         }, timeout=2)
+        if res.status_code == 409:
+            body = res.json()
+            if body.get("denied") and body.get("expectedCommit"):
+                _switch_to_commit(body["expectedCommit"])
+        elif res.ok and res.json().get("shutdown"):
+            log("autorunner", "Server requested shutdown. Exiting.")
+            os._exit(0)
     except Exception:
-        # ignore failures (network hiccups etc.)
         pass
 
 def create_tarball(folder_path: Path, fingerpint):
@@ -305,6 +413,8 @@ def worker_loop():
                 del experiment, writer, logger
                 gc.collect()
 
+        _check_ram_and_maybe_restart()
+
 heartbeat_stop = None
 heartbeat_thread = None
 
@@ -351,6 +461,9 @@ def main():
     log_dir.mkdir(exist_ok=True)
     session_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     set_log_file(str(log_dir / f"autorunner_{session_ts}.log"))
+    restart_reason = os.environ.pop("_AUTORUNNER_RESTART_REASON", None)
+    if restart_reason:
+        log("autorunner", f"[mem] Restarted — previous process shut down due to: {restart_reason}")
     globals.reuse_runs = globals.ReplayMode.Record
     worker_loop()
 
@@ -368,6 +481,8 @@ if __name__ == "__main__":
         help="Start a local Ganache node (30 accounts) and use it as the RPC endpoint.",
     )
     args = parser.parse_args()
+
+    _check_ram_startup()
 
     if args.anvil or args.ganache:
         from experiment.blockchain_launcher import start as _start_blockchain

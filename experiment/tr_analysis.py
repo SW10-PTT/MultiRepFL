@@ -23,7 +23,7 @@ _WAD              = 10 ** 18
 _ALPHA            = int(2e17)
 _N_BLEND          = int(2e17)
 _N_0              = 5
-_LAMBDA           = 20
+_LAMBDA           = 5
 _STAKE_WAD        = int(1e18)
 
 # Experiment defaults (from experiment_configuration.py + preset)
