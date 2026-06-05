@@ -48,6 +48,12 @@ if (-not (Test-Path ".venv")) {
 & .venv\Scripts\Activate.ps1
 
 # --------------------------------------------
+# Compile contracts
+# --------------------------------------------
+Write-Host "Compiling contracts..."
+& .venv\Scripts\python.exe scripts\compile_contracts.py
+
+# --------------------------------------------
 # Run experiments
 # --------------------------------------------
 # auto_runner starts/stops its own node for ganache/anvil; "none" relies
