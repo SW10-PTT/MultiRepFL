@@ -62,7 +62,7 @@ _INTEGRITY_LEARNING_RATE = int(2e17)  # GIR EWMA learning rate
 # Preset file — fill in before running
 # ---------------------------------------------------------------------------
 
-preset_file = "experiment/presets/fast-test-local.json"
+preset_file = "experiment/presets/fast-test-local-mnist-only.json"
 # preset_file = "experiment/presets/EXP-multirep-mixed-distribution-5-task-dataset-switch copy.json"
 
 FORCE_REMOTE = False           # if True, retry remote forever instead of falling back to local
@@ -664,6 +664,34 @@ def _upload_run(fingerprint: str, filename: Path, config: str) -> None:
         log("multirep", f"[warn] Upload failed: {e}")
 
 
+def _upload_session_tarball(tarball: Path, experiment_name: str) -> None:
+    """Upload the session tarball to the finished-experiments S3 bucket."""
+    api_url = os.environ.get("API_URL")
+    if not api_url:
+        return
+
+    s3_key = f"{experiment_name}/{tarball.name}"
+    try:
+        url_res = requests.post(
+            f"{api_url}/api/finished-experiments/upload-url",
+            json={"name": s3_key},
+            timeout=10,
+        )
+        url_res.raise_for_status()
+        upload_url = url_res.json()["uploadUrl"]
+
+        with open(tarball, "rb") as f:
+            put_res = requests.put(
+                upload_url, data=f,
+                headers={"Content-Type": "application/gzip"},
+                timeout=600,
+            )
+        put_res.raise_for_status()
+        log("multirep", f"Session tarball uploaded: {s3_key}")
+    except Exception as e:
+        log("multirep", f"[warn] Session tarball upload failed: {e}")
+
+
 # ---------------------------------------------------------------------------
 # Training-mode dispatch
 # ---------------------------------------------------------------------------
@@ -1132,11 +1160,15 @@ def main(auto_graphs: bool = False):
     multirep_logger.save(session_pkl)
     log("multirep", f"Session pickle saved: {session_pkl}")
 
+    tarball = None
     try:
         tarball = pack_session_tarball(session_dir)
         log("multirep", f"Session tarball: {tarball}")
     except Exception as e:
         log("multirep", f"[warn] Tarball creation failed: {e}")
+
+    if tarball is not None:
+        _upload_session_tarball(tarball, preset.name)
 
     log("multirep", "\n=== All tasks complete ===")
     log("multirep", f"Fall back runs: {fallback_count}")
