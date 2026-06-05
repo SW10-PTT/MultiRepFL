@@ -621,9 +621,14 @@ def _fetch_runs_by_fingerprint(fingerprint: str) -> list:
     return []
 
 
-def _register_run(api_url: str, fingerprint: str, config: str) -> str | None:
+def _register_run(api_url: str, fingerprint: str, config: str, name: str | None = None, experiment_id: str | None = None) -> str | None:
     try:
-        res = requests.post(f"{api_url}/runs/local", json={"fingerprint": fingerprint, "config": config}, timeout=10)
+        body = {"fingerprint": fingerprint, "config": config}
+        if name:
+            body["name"] = name
+        if experiment_id:
+            body["experimentId"] = experiment_id
+        res = requests.post(f"{api_url}/runs/local", json=body, timeout=10)
         if res.status_code == 200:
             return res.json().get("id")
         log("multirep", f"[warn] run registration returned {res.status_code}: {res.text[:120]}")
@@ -632,13 +637,13 @@ def _register_run(api_url: str, fingerprint: str, config: str) -> str | None:
     return None
 
 
-def _upload_run(fingerprint: str, filename: Path, config: str) -> None:
+def _upload_run(fingerprint: str, filename: Path, config: str, name: str | None = None, experiment_id: str | None = None) -> None:
     """Register a new run in the API, create a tarball of filename, and upload it."""
     api_url = os.environ.get("API_URL")
     if not api_url:
         return
 
-    run_id = _register_run(api_url, fingerprint, config)
+    run_id = _register_run(api_url, fingerprint, config, name=name, experiment_id=experiment_id)
     if run_id is None:
         log("multirep", "[warn] Could not register run — skipping upload.")
         return
@@ -1103,7 +1108,8 @@ def main(auto_graphs: bool = False):
         # Only for REMOTE-mode sessions — local-only runs stay local.
         if training_mode == TrainingMode.REMOTE and not is_replay:
             from experiment.multirep.remote_client import _config_to_json_element
-            _upload_run(fingerprint, filename, json.dumps(_config_to_json_element(exp_config)))
+            _upload_run(fingerprint, filename, json.dumps(_config_to_json_element(exp_config)),
+                        name=experiment_name, experiment_id=session_state.get("experiment_id"))
 
         # ------------------------------------------------------------------ #
         # Rep updates (chain-authoritative)                                   #
