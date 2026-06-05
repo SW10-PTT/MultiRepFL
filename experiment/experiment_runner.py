@@ -143,12 +143,16 @@ def select_participants_for_task(
     prebuilt_users: List[User] = None,
     prebuilt_manager=None,
     initial_rep_state: dict = None,
+    force_remote: bool = False,
 ) -> _SelectionState:
   """Deploy job listing, register all users, run contract selection.
 
   Returns a _SelectionState with the actual chain-selected users and all
   state needed for run_experiment_from_selection. Data loading is deferred
   so the caller can check the fingerprint cache before committing to training.
+
+  When force_remote=True, PytorchModel is not created (no GPU work). A dummy
+  model hash (32 zero bytes) is posted to the on-chain JobListing instead.
   """
   set_enabled_tags(exp_config.enabled_prints)
   dataset_name = dataset_name.replace(".", "-")
@@ -156,21 +160,26 @@ def select_participants_for_task(
   experiment_start = time.perf_counter()
   setup_connection(exp_config)
 
-  pytorch_model = PM.PytorchModel(
-      exp_config,
-      dataset_name,
-      exp_config.number_of_good_contributors,
-      exp_config.number_of_contributors,
-      exp_config.epochs,
-      exp_config.batch_size,
-      exp_config.standard_buy_in,
-      exp_config.max_buy_in,
-      exp_config.freerider_noise_scale,
-      exp_config.freerider_start_round,
-      exp_config.malicious_start_round,
-      exp_config.malicious_noise_scale,
-      exp_config.force_merge_all,
-  )
+  if force_remote:
+      pytorch_model = None
+      model_hash = b'\x00' * 32
+  else:
+      pytorch_model = PM.PytorchModel(
+          exp_config,
+          dataset_name,
+          exp_config.number_of_good_contributors,
+          exp_config.number_of_contributors,
+          exp_config.epochs,
+          exp_config.batch_size,
+          exp_config.standard_buy_in,
+          exp_config.max_buy_in,
+          exp_config.freerider_noise_scale,
+          exp_config.freerider_start_round,
+          exp_config.malicious_start_round,
+          exp_config.malicious_noise_scale,
+          exp_config.force_merge_all,
+      )
+      model_hash = pytorch_model.get_global_model_hash()
 
   if prebuilt_users is None:
       users = build_users(exp_config)
@@ -200,14 +209,15 @@ def select_participants_for_task(
       )
   else:
       manager = prebuilt_manager
-  manager.pytorch_model = pytorch_model
+  if pytorch_model is not None:
+      manager.pytorch_model = pytorch_model
 
   if initial_rep_state and prebuilt_manager is None:
       from openfl.utils.types.TrainingSpecsJobListing import TaskType as _TaskType
       _task_type = int(_TaskType.from_dataset_name(dataset_name))
       _seed_manager_rep_state(manager, initial_rep_state, _task_type)
 
-  training_specs = exp_config.get_training_specs(manager.contract.address, pytorch_model.get_global_model_hash())
+  training_specs = exp_config.get_training_specs(manager.contract.address, model_hash)
   new_job_listing: JobListing = publisher.deploy_joblisting_contract(training_specs, manager)
 
   User.batch_register_for_job(users, new_job_listing)
@@ -269,6 +279,12 @@ def run_experiment_from_selection(
   exp_config must be built from the actual selected users' partition specs.
   fingerprint must be exp_config.get_finger_print(state.selected_users).
   """
+  if state.pytorch_model is None:
+      raise RuntimeError(
+          "pytorch_model is None in run_experiment_from_selection — "
+          "select_participants_for_task was called with force_remote=True. "
+          "Use the direct TRS extraction path in _run_remote instead."
+      )
   set_enabled_tags(exp_config.enabled_prints)
   exp_config.refresh_for_dataset(state.dataset_name)
 

@@ -185,6 +185,18 @@ class Net_MNIST(nn.Module):
         # return F.log_softmax(x)
         return x
 
+def _find_participant(address_or_id, participants):
+    """Find a participant by id, address, or guid. Used by both PytorchModel and the remote-replay fast path."""
+    p = next((x for x in participants if x.id == address_or_id), None)
+    if p:
+        return p
+    p = next((x for x in participants if x.address == address_or_id), None)
+    if p:
+        return p
+    as_str = str(address_or_id)
+    return next((x for x in participants if x.guid is not None and x.guid == as_str), None)
+
+
 class PytorchModel:
     def __init__(self, config: ExperimentConfiguration, DATASET, _goodParticipants, _totalParticipants, epochs, batchsize, default_collateral, max_collateral, freerider_noise_scale: float = 1.0, freerider_start_round: int = 3, malicious_start_round: int = 3, malicious_noise_scale: float = 1.0, force_merge_all: bool = False):
         self.replaying = None
@@ -1020,17 +1032,8 @@ class PytorchModel:
         log("round_matrices", f"TOTAL evaluation time: {time.perf_counter() - start_total:.3f}s")
         return matrices
 
-    def get_participant(self, address_or_id, participants = None):
-        if participants is None:
-            participants = self.participants
-        p = next((x for x in participants if x.id == address_or_id), None)
-        if p:
-            return p
-        p = next((x for x in participants if x.address == address_or_id), None)
-        if p:
-            return p
-        as_str = str(address_or_id)
-        return next((x for x in participants if x.guid is not None and x.guid == as_str), None)
+    def get_participant(self, address_or_id, participants=None):
+        return _find_participant(address_or_id, participants if participants is not None else self.participants)
 
     @property
     def _test_data(self):

@@ -1,7 +1,7 @@
 """
 TR ceiling analysis — diagnose why TR stays in 0-0.7 range.
 
-Writes detailed output to experiment/logs/tr_analysis.log.
+Writes detailed output to experiment/data/logs/tr_analysis.log.
 Run with: python experiment/tr_analysis.py
 """
 
@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from openfl.utils.printer import log, set_log_file, set_enabled_tags
 
-LOG_FILE = Path(__file__).resolve().parent / "logs" / "tr_analysis.log"
+LOG_FILE = Path(__file__).resolve().parent / "data" / "logs" / "tr_analysis.log"
 LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
 set_log_file(str(LOG_FILE))
 set_enabled_tags({"tr_analysis"})

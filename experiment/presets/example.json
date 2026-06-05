@@ -1,9 +1,9 @@
 {
   "name": "example",
   "partition_file": "experiment/partitions/EXP-avg-distribution-30-users.json",
-  "q_weight": 0.2,
-  "tr_weight": 8,
-  "gir_weight": 2,
+  "q_weight": 0.1,
+  "tr_weight": 9,
+  "gir_weight": 1,
   "training_mode": "remote",
   "tasks": [
     {
