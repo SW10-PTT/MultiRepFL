@@ -67,7 +67,7 @@ _INTEGRITY_LEARNING_RATE = int(2e17)  # GIR EWMA learning rate
 preset_file = "experiment/presets/fast-test-local-mnist-only.json"
 # preset_file = "experiment/presets/EXP-multirep-mixed-distribution-5-task-dataset-switch copy.json"
 
-FORCE_REMOTE = False           # if True, retry remote forever instead of falling back to local
+FORCE_REMOTE = True           # if True, retry remote forever instead of falling back to local
 FORCE_REMOTE_RETRY_DELAY = 30  # seconds between retries when FORCE_REMOTE is True
 
 # ---------------------------------------------------------------------------
@@ -752,13 +752,14 @@ def _rep_internals_after_task(users: List[User], manager, task_type: int) -> tup
 
 
 def _run_preset(preset: MultirepRunConfig, exp_config, selection_state, fingerprint, experiment_name,
-                task_type=0, writer=None, logger=None, path=None, session_state=None, force_remote=False):
+                task_type=0, writer=None, logger=None, path=None, session_state=None, force_remote=False,
+                priority=None, total_expected_configs=None):
     from experiment.multirep.training_mode import TrainingMode
 
     if preset.training_mode == TrainingMode.REMOTE:
         return _run_remote(preset, exp_config, selection_state, fingerprint, experiment_name,
                            task_type=task_type, writer=writer, logger=logger, path=path, session_state=session_state,
-                           force_remote=force_remote)
+                           force_remote=force_remote, priority=priority, total_expected_configs=total_expected_configs)
 
     # LOCAL
     fl_globals.reuse_runs = ReplayMode.Record
@@ -769,7 +770,8 @@ def _run_preset(preset: MultirepRunConfig, exp_config, selection_state, fingerpr
 
 
 def _run_remote(preset: MultirepRunConfig, exp_config: ExperimentConfiguration, selection_state, fingerprint: str, experiment_name,
-                task_type=0, writer=None, logger=None, path=None, session_state=None, force_remote=False):
+                task_type=0, writer=None, logger=None, path=None, session_state=None, force_remote=False,
+                priority=None, total_expected_configs=None):
     """Download a remote run tarball and replay locally, or fall back to LOCAL (or retry if force_remote)."""
     from experiment.multirep.remote_client import (
         run_remote_and_setup_replay, fetch_run_download_url,
@@ -803,11 +805,27 @@ def _run_remote(preset: MultirepRunConfig, exp_config: ExperimentConfiguration, 
                     exp_config,
                     fingerprint=fingerprint,
                     name=experiment_name or f"multirep-{preset.dataset}",
+                    priority=priority,
+                    total_expected_configs=total_expected_configs,
                     experiment_id=session_state.get("experiment_id") if session_state else None,
                     initial_rep_state=rep_state,
                 )
                 if session_state is not None:
                     session_state["experiment_id"] = new_experiment_id
+
+            if force_remote:
+                # HardPlayBack is now set; extract TRS directly — no PytorchModel or GPU needed.
+                from openfl.utils.ITestAndTrainer import get_filename
+                from openfl.utils.RunRepo import RunRepo
+                from openfl.ml.pytorch_model import _find_participant
+                filename = get_filename(fingerprint, exp_config)
+                run_repo = RunRepo(exp_config, filename)
+                combined_users = run_repo.get_participants(list(selection_state.all_users))
+                trs = run_repo.get_task_rep_delta_and_GRS(
+                    -1, "get_task_rep_delta_and_GRS-simulate", None,
+                    lambda x: _find_participant(x, combined_users),
+                )
+                return (trs, filename)
 
             return ExperimentRunner.run_experiment_from_selection(
                 selection_state, exp_config, fingerprint,
@@ -865,7 +883,7 @@ def main(auto_graphs: bool = False):
     # ---------------------------------------------------------------------- #
     # Session setup: log file + output folder + MultirepLogger                #
     # ---------------------------------------------------------------------- #
-    log_dir = Path(__file__).resolve().parent / "logs"
+    log_dir = Path(__file__).resolve().parent / "data" / "logs"
     log_dir.mkdir(exist_ok=True)
     session_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     set_log_file(str(log_dir / f"multirep_{session_ts}.log"))
@@ -984,6 +1002,7 @@ def main(auto_graphs: bool = False):
 
         selection_state = ExperimentRunner.select_participants_for_task(
             task.dataset, boot_config, all_users, manager,
+            force_remote=FORCE_REMOTE,
         )
         selected_users = selection_state.selected_users
 
@@ -1055,6 +1074,8 @@ def main(auto_graphs: bool = False):
             writer=writer, logger=task_logger, path=task_csv_path,
             session_state=session_state,
             force_remote=FORCE_REMOTE,
+            priority=preset.priority,
+            total_expected_configs=len(tasks),
         )
         if run_result is None:
             writer.finish()

@@ -83,14 +83,16 @@ def start_remote_experiment(
     experiment_config,
     fingerprint: str,
     name: str | None = None,
-    wanted_runs: int = 1,
+    priority: int | None = None,
+    total_expected_configs: int | None = None,
     experiment_id: str | None = None,
     initial_rep_state: dict | None = None,
 ) -> tuple[str, str]:
     """POST /custom-experiments/start and return (run_id, experiment_id).
 
-    Pass experiment_id to add runs to an existing experiment instead of
-    creating a new one on every call.
+    Omit experiment_id on the first call — its absence triggers experiment creation.
+    Pass experiment_id on subsequent calls to add configs to the same experiment.
+    priority and total_expected_configs are only applied on the first call.
     """
     config_payload = _config_to_json_element(experiment_config)
     # Embed the expected fingerprint so auto_runner can validate before running.
@@ -98,13 +100,16 @@ def start_remote_experiment(
     if initial_rep_state:
         config_payload["initialRepState"] = initial_rep_state
 
-    body = {
-        "wantedRuns": wanted_runs,
-        "name": name,
-        "configJson": config_payload,
-    }
+    body: dict = {"configJson": config_payload}
     if experiment_id is not None:
         body["experimentId"] = experiment_id
+    else:
+        if name is not None:
+            body["name"] = name
+        if priority is not None:
+            body["priority"] = priority
+        if total_expected_configs is not None:
+            body["totalExpectedConfigs"] = total_expected_configs
 
     endpoint = "custom-experiments/start"
     url = f"{_api_url()}/{endpoint}"
@@ -118,7 +123,7 @@ def start_remote_experiment(
     data = res.json()
     run_id = str(data["runId"])
     returned_experiment_id = str(data["experimentId"])
-    log("remote_client", f"Remote run submitted: runId={run_id}, experimentId={returned_experiment_id}")
+    log("remote_client", f"Remote run submitted: runId={run_id}, configId={data.get('configId')}, experimentId={returned_experiment_id}")
     return run_id, returned_experiment_id
 
 
@@ -213,7 +218,8 @@ def run_remote_and_setup_replay(
     experiment_config,
     fingerprint: str,
     name: str | None = None,
-    wanted_runs: int = 1,
+    priority: int | None = None,
+    total_expected_configs: int | None = None,
     timeout: int = _POLL_TIMEOUT,
     experiment_id: str | None = None,
     initial_rep_state: dict | None = None,
@@ -226,10 +232,10 @@ def run_remote_and_setup_replay(
     training locally.  Pass experiment_id to add this run to an existing
     experiment rather than creating a new one.
     """
-    run_id, experiment_id = start_remote_experiment(
+    run_id, returned_experiment_id = start_remote_experiment(
         experiment_config, fingerprint=fingerprint, name=name,
-        wanted_runs=wanted_runs, experiment_id=experiment_id,
-        initial_rep_state=initial_rep_state,
+        priority=priority, total_expected_configs=total_expected_configs,
+        experiment_id=experiment_id, initial_rep_state=initial_rep_state,
     )
     poll_run_status(run_id, timeout=timeout)
 
@@ -240,4 +246,4 @@ def run_remote_and_setup_replay(
 
     archive = download_tarball(download_url, dest)
     extract_dir = extract_and_register_runrepo(archive, dest)
-    return extract_dir, experiment_id
+    return extract_dir, returned_experiment_id

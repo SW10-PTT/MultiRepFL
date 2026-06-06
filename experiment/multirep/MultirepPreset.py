@@ -31,11 +31,15 @@ class MultirepPreset:
     global_rep_only: bool = False           # True = one shared TR slot instead of per-task-type
     vote_baseline: str = "local_trained"    # reference for vote feedback; "local_trained" or "prev_global"
 
+    # --- Remote scheduling ---
+    priority: int | None = None             # worker claim priority; higher = claimed first
+
     @classmethod
     def from_file(cls, path: Union[str, Path]) -> "MultirepPreset":
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
         tasks = [MultirepRunConfig.from_dict(t) for t in data["tasks"]]
+        raw_priority = data.get("priority")
         return cls(
             name=             data["name"],
             partition_file=   data["partition_file"],
@@ -50,4 +54,5 @@ class MultirepPreset:
             seed=             int(data.get("seed", 123)),
             global_rep_only=  bool(data.get("global_rep_only", False)),
             vote_baseline=    str(data.get("vote_baseline", "local_trained")),
+            priority=         int(raw_priority) if raw_priority is not None else None,
         )
