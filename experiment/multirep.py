@@ -672,15 +672,20 @@ def _upload_run(fingerprint: str, filename: Path, config: str, name: str | None 
 
 
 def _upload_session_tarball(tarball: Path, experiment_name: str) -> None:
-    """Upload the session tarball to the finished-experiments S3 bucket."""
+    """Upload the session tarball to the finished-experiments bucket.
+
+    Key format: {experiment_name}/sessions/{tarball.name}
+    tarball.name already embeds the preset name + session timestamp so keys
+    are unique and human-readable without extra suffixes.
+    """
     api_url = os.environ.get("API_URL")
     if not api_url:
         return
 
-    s3_key = f"{experiment_name}/{tarball.name}"
+    s3_key = f"{experiment_name}/sessions/{tarball.name}"
     try:
         url_res = requests.post(
-            f"{api_url}/api/finished-experiments/upload-url",
+            f"{api_url}/finished-experiments/upload-url",
             json={"name": s3_key},
             timeout=10,
         )
