@@ -457,7 +457,7 @@ def stop_heartbeat_loop():
     heartbeat_thread = None
 
 def main():
-    log_dir = Path(__file__).resolve().parent / "logs"
+    log_dir = Path(__file__).resolve().parent / "data" / "logs"
     log_dir.mkdir(exist_ok=True)
     session_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     set_log_file(str(log_dir / f"autorunner_{session_ts}.log"))
