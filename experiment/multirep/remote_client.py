@@ -33,7 +33,7 @@ from openfl.utils.printer import log
 # ---------------------------------------------------------------------------
 
 _TERMINAL_OK   = {"completed"}
-_TERMINAL_FAIL = {"failed", "cancelled"}
+_TERMINAL_FAIL = {"dead", "cancelled"}
 _POLL_INTERVAL = 2   # seconds between status checks
 _POLL_TIMEOUT  = 36000 # seconds before giving up (1 h)
 
@@ -137,13 +137,14 @@ def poll_run_status(run_id: str, timeout: int = _POLL_TIMEOUT, interval: int = _
         data = res.json()
 
         status = data.get("status", "").lower()
-        log("remote_client", f"Run {run_id} — status: {status}")
+        fail_count = data.get("failCount", 0)
+        log("remote_client", f"Run {run_id} — status: {status}, failCount: {fail_count}")
 
         if status in _TERMINAL_OK:
             return data
 
         if status in _TERMINAL_FAIL:
-            raise RuntimeError(f"Remote run {run_id} ended with status '{status}'")
+            raise RuntimeError(f"Remote run {run_id} ended with status '{status}' (failCount={fail_count})")
 
         if time.monotonic() > deadline:
             raise TimeoutError(
@@ -225,13 +226,30 @@ def run_remote_and_setup_replay(
     experiment_runner.run_experiment will replay the remote result instead of
     training locally.  Pass experiment_id to add this run to an existing
     experiment rather than creating a new one.
+
+    The server tracks FailCount per run and resets Failed→Unclaimed up to 3
+    times (10 s delay each).  poll_run_status continues polling through those
+    transient failures.  Only when FailCount >= 3 does the server leave the
+    run permanently failed, at which point poll_run_status raises and this
+    function creates a new run in the same experiment.
     """
     run_id, experiment_id = start_remote_experiment(
         experiment_config, fingerprint=fingerprint, name=name,
         wanted_runs=wanted_runs, experiment_id=experiment_id,
         initial_rep_state=initial_rep_state,
     )
-    poll_run_status(run_id, timeout=timeout)
+
+    while True:
+        try:
+            poll_run_status(run_id, timeout=timeout)
+            break
+        except RuntimeError as e:
+            log("remote_client", f"Run {run_id} permanently failed — creating new run. Reason: {e}")
+            run_id, experiment_id = start_remote_experiment(
+                experiment_config, fingerprint=fingerprint, name=name,
+                wanted_runs=wanted_runs, experiment_id=experiment_id,
+                initial_rep_state=initial_rep_state,
+            )
 
     download_url = fetch_run_download_url(run_id)
 
