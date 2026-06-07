@@ -180,6 +180,78 @@ dotproduct_global = merged["global"][
 
 ---
 
+## Multirep Graphs
+
+Multirep sessions (multi-task runs driven by `experiment/multirep.py`) log a
+`session.pkl` packed inside a `*.tar.gz`. Two scripts turn those into PNGs.
+
+### Single session
+
+```bash
+python analysis/multirep_graphs.py <session.tar.gz | session-folder | session.pkl> [--out DIR]
+```
+
+Generates the per-session graphs (TR/GIR/Q per task type, balance, confidence,
+selection frequency/heatmap, accuracy curves). Default output: a `graphs/`
+folder next to the session.
+
+### Aggregate / comparison across experiments
+
+Averages every run of an experiment and compares the **global-rep** vs
+**multi-rep** variants of each experiment pair.
+
+```bash
+# default: scan experiment/data/FinishedRuns, write to figures/aggregate
+python analysis/multirep_aggregate_graphs.py
+
+# custom locations
+python analysis/multirep_aggregate_graphs.py --root <dir-of-experiments> --out <dir>
+```
+
+**Expected input layout** — each sub-folder under `--root` is one experiment;
+every `*.tar.gz` beneath it (recursively) is one run that gets averaged in:
+
+```
+experiment/data/FinishedRuns/
+  EXP-globalrep-avg-distribution-5-task-dataset-switch/
+    sessions/<run-1>.tar.gz
+    sessions/<run-2>.tar.gz
+  EXP-multirep-avg-distribution-5-task-dataset-switch/
+    sessions/<run-1>.tar.gz
+    ...
+```
+
+Pairing is by name: the `globalrep` and `multirep` variants of an otherwise
+identically-named experiment form one comparison pair (system is read from the
+folder name / `preset.global_rep_only`). The `multirep` avg-distribution and
+`multirep-noqvalue` avg-distribution experiments additionally feed a dedicated
+Q-value comparison.
+
+**Output** — `figures/aggregate/<pair>/` (gitignored), one folder per pair, with:
+
+| Group | Files |
+|-------|-------|
+| Accuracy / loss over rounds | `accuracy_<ds>_<mean\|median>_{full,thirds}.png`, `loss_<ds>_{full,thirds}.png` (CIFAR capped at 15 rounds, MNIST at 10) |
+| Final accuracy & timing | `final_accuracy.png`, `time_to_accuracy_{threshold,fraction}.png` |
+| Selection | `selection_rate_<ds>.png`, `selection_rate_over_time.png`, `split_selection_propensity.png`, `cold_start_*.png` |
+| Reputation | `tr_development.png`, `gir_development.png`, `score_decomposition.png`, `taskrep_accuracy_corr_<ds>.png` |
+| Data-split groups | `split_{selection,tr,gir}_*.png`, `split_net_earnings*.png`, `mixed_behavior_users.png` |
+| Integrity / economics | `kicked_{round,rate}.png`, `freerider_economics.png` |
+| Reproducibility | `run_variability.png`, `selection_efficiency_<ds>.png` |
+| Per-system run-averaged ports | `runavg-<globalrep\|multirep>/*.png` |
+| Q-value comparison | `figures/aggregate/qvalue-comparison/qvalue_selection_wait.png` |
+
+> **Caveat — re-run global-rep first.** A replay bug in `_apply_trs_reps`
+> (now fixed) let global-rep accrue GIR and per-task-type TR it should not have.
+> Existing global-rep tarballs are therefore contaminated; the graphs flag this
+> where they can. Re-run the global-rep experiments with the fixed harness for
+> clean comparison numbers. The multi-rep runs are unaffected.
+
+**Tests:** `pytest tests/unit/test_analysis_aggregate.py tests/unit/test_apply_trs_reps_globalrep.py`
+covers the aggregation plumbing and the harness fix.
+
+---
+
 ## Module Reference
 
 ### `analysis.loader`
