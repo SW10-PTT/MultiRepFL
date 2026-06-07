@@ -5,7 +5,7 @@
     "Reverse holds for M2/F2. Tasks run in blocks of 10: 10x MNIST, then 10x CIFAR-10, repeated for 50 total."
   ],
   "name": "EXP-multirep-task-hopper-10-task-dataset-switch-startround-5",
-  "priority": 10,
+  "priority": -1,
   "partition_file": "experiment/partitions/EXP-strong-task-hoppers-20-users-startround-5.json",
   "q_weight": 0.1,
   "tr_weight": 9,

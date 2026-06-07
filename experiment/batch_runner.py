@@ -145,6 +145,19 @@ def run_parallel(
 _TMUX_SESSION = "multirep-batch"
 
 
+def _next_tmux_session(base: str) -> str:
+    existing = subprocess.run(
+        ["tmux", "list-sessions", "-F", "#{session_name}"],
+        capture_output=True, text=True,
+    ).stdout.split()
+    if base not in existing:
+        return base
+    i = 1
+    while f"{base}-{i}" in existing:
+        i += 1
+    return f"{base}-{i}"
+
+
 def run_tmux(presets: list[str], anvil: bool, ganache: bool, graphs: bool) -> None:
     import shutil
     import time
@@ -153,7 +166,7 @@ def run_tmux(presets: list[str], anvil: bool, ganache: bool, graphs: bool) -> No
         print("ERROR: tmux not found in PATH", file=sys.stderr)
         sys.exit(1)
 
-    subprocess.run(["tmux", "kill-session", "-t", _TMUX_SESSION], capture_output=True)
+    session = _next_tmux_session(_TMUX_SESSION)
 
     for i, preset in enumerate(presets):
         name = Path(preset).stem
@@ -163,7 +176,7 @@ def run_tmux(presets: list[str], anvil: bool, ganache: bool, graphs: bool) -> No
 
         if i == 0:
             subprocess.run(
-                ["tmux", "new-session", "-d", "-s", _TMUX_SESSION, "-n", name,
+                ["tmux", "new-session", "-d", "-s", session, "-n", name,
                  "--", "bash", "-c", shell_script],
                 check=True,
             )
@@ -171,13 +184,13 @@ def run_tmux(presets: list[str], anvil: bool, ganache: bool, graphs: bool) -> No
             if anvil or ganache:
                 time.sleep(_LAUNCH_STAGGER_S)
             subprocess.run(
-                ["tmux", "new-window", "-t", f"{_TMUX_SESSION}:", "-n", name,
+                ["tmux", "new-window", "-t", f"{session}:", "-n", name,
                  "--", "bash", "-c", shell_script],
                 check=True,
             )
 
-    print(f"\nLaunched {len(presets)} runs in tmux session '{_TMUX_SESSION}'.")
-    print(f"\n  tmux attach -t {_TMUX_SESSION}\n")
+    print(f"\nLaunched {len(presets)} runs in tmux session '{session}'.")
+    print(f"\n  tmux attach -t {session}\n")
     print("Navigate windows: Ctrl-b n (next)  Ctrl-b p (prev)  Ctrl-b w (list)")
 
 
