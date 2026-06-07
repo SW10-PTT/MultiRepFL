@@ -260,3 +260,6 @@ coverage/
 # remove jupyter notebooks for graphs that we have never used anyway
 notebooks/
 ignition/
+
+# Generated analysis graphs
+figures/

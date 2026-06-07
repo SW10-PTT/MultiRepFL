@@ -14,7 +14,7 @@
   "gir_weight": 1,
   "training_mode": "remote",
   "fork": true,
-  "replication_factor": 4.0,
+  "replication_factor": 3.0,
   "allow_overlap": true,
   "seed": 123,
   "global_rep_only": true,
