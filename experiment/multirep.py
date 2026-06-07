@@ -1249,12 +1249,18 @@ if __name__ == "__main__":
         preset_file = args.preset
 
     if args.anvil or args.ganache:
-        from experiment.blockchain_launcher import start as _start_blockchain
+        from experiment.blockchain_launcher import start as _start_blockchain, _cleanup as _bc_cleanup
         _start_blockchain("anvil" if args.anvil else "ganache")
+    else:
+        _bc_cleanup = None
 
     if False:
         mp.freeze_support()
-    main(auto_graphs=args.graphs)
-    for p in mp.active_children():
-        p.terminate()
+    try:
+        main(auto_graphs=args.graphs, cleanup_session=args.anvil)
+    finally:
+        for p in mp.active_children():
+            p.terminate()
+        if _bc_cleanup is not None:
+            _bc_cleanup()
     print("Done :)")
