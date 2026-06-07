@@ -671,16 +671,18 @@ def _upload_run(fingerprint: str, filename: Path, config: str, name: str | None 
         log("multirep", f"[warn] Upload failed: {e}")
 
 
-def _upload_session_tarball(tarball: Path, experiment_name: str) -> None:
+def _upload_session_tarball(tarball: Path, experiment_name: str) -> bool:
     """Upload the session tarball to the finished-experiments bucket.
 
     Key format: {experiment_name}/sessions/{tarball.name}
     tarball.name already embeds the preset name + session timestamp so keys
     are unique and human-readable without extra suffixes.
+
+    Returns True if uploaded successfully, False otherwise.
     """
     api_url = os.environ.get("API_URL")
     if not api_url:
-        return
+        return False
 
     s3_key = f"{experiment_name}/sessions/{tarball.name}"
     try:
@@ -700,8 +702,10 @@ def _upload_session_tarball(tarball: Path, experiment_name: str) -> None:
             )
         put_res.raise_for_status()
         log("multirep", f"Session tarball uploaded: {s3_key}")
+        return True
     except Exception as e:
         log("multirep", f"[warn] Session tarball upload failed: {e}")
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -874,7 +878,7 @@ def _apply_preset_config(exp_config: ExperimentConfiguration, preset) -> None:
 # Main
 # ---------------------------------------------------------------------------
 
-def main(auto_graphs: bool = False):
+def main(auto_graphs: bool = False, cleanup_session: bool = False):
     global fallback_count
     preset = MultirepPreset.from_file(preset_file)
     tasks = preset.tasks
@@ -1201,8 +1205,9 @@ def main(auto_graphs: bool = False):
     except Exception as e:
         log("multirep", f"[warn] Tarball creation failed: {e}")
 
+    tarball_uploaded = False
     if tarball is not None:
-        _upload_session_tarball(tarball, preset.name)
+        tarball_uploaded = _upload_session_tarball(tarball, preset.name)
 
     log("multirep", "\n=== All tasks complete ===")
     log("multirep", f"Fall back runs: {fallback_count}")
@@ -1215,6 +1220,15 @@ def main(auto_graphs: bool = False):
         from analysis.multirep_graphs import generate_all
         log("multirep", "Generating graphs...")
         generate_all(session_dir)
+
+    if cleanup_session:
+        import shutil as _shutil
+        if session_dir.exists():
+            _shutil.rmtree(session_dir)
+            log("multirep", f"Removed session dir: {session_dir}")
+        if tarball is not None and tarball_uploaded and tarball.exists():
+            tarball.unlink()
+            log("multirep", f"Removed session tarball: {tarball}")
 
 
 # ---------------------------------------------------------------------------
