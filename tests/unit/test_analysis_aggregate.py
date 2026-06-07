@@ -187,3 +187,51 @@ def test_load_partition_missing_file_returns_empty():
     exp = ExperimentRuns(name="x", system="multirep", pair_key="k",
                          sessions=[_session_with_partition("nope/missing.json")])
     assert load_partition_data_percent(exp) == {}
+
+
+# ---------------------------------------------------------------------------
+# per-dataset earnings attribution (mixed-behavior users)
+# ---------------------------------------------------------------------------
+
+def _exp_from_rep(rep: pd.DataFrame) -> ExperimentRuns:
+    sess = MultirepSession(
+        session_id="s", preset_name="p", session_timestamp="t", preset={},
+        reputation_timeline=rep, global_accuracy=pd.DataFrame(), tasks=[],
+    )
+    return ExperimentRuns(name="EXP-multirep-x", system="multirep",
+                          pair_key="k", sessions=[sess])
+
+
+def _mixed_rep() -> pd.DataFrame:
+    # U1: free-rider on MNIST(tt5, +2), honest on CIFAR(tt6, +1)
+    # U2: honest on both
+    return pd.DataFrame([
+        dict(user_name="MNIST-strong 1", task_index=0, task_type=5,
+             behavior="freerider", balance_pre=0.0, balance_post=2.0),
+        dict(user_name="MNIST-strong 1", task_index=1, task_type=6,
+             behavior="honest", balance_pre=2.0, balance_post=3.0),
+        dict(user_name="Average 2", task_index=0, task_type=5,
+             behavior="honest", balance_pre=0.0, balance_post=1.0),
+        dict(user_name="Average 2", task_index=1, task_type=6,
+             behavior="honest", balance_pre=1.0, balance_post=2.5),
+    ])
+
+
+def test_per_task_delta_attribution_no_double_count():
+    rep = gp._per_task_delta(gp._with_category(_mixed_rep()))
+    # group exactly like plot_net_earnings_by_split
+    per = rep.groupby(["user_name", "behavior"])["_delta"].sum()
+    # U1's free-rider part (+2) and honest part (+1) sum to its true total (+3)
+    assert per[("MNIST-strong 1", "freerider")] == pytest.approx(2.0)
+    assert per[("MNIST-strong 1", "honest")] == pytest.approx(1.0)
+    total_u1 = rep[rep["user_name"] == "MNIST-strong 1"]["_delta"].sum()
+    assert total_u1 == pytest.approx(3.0)  # no double count
+
+
+def test_mixed_user_table_picks_only_mixed():
+    exp = _exp_from_rep(_mixed_rep())
+    t = gp._mixed_user_table(exp)
+    assert set(t["user_name"]) == {"MNIST-strong 1"}  # U2 is honest on both → excluded
+    u1 = t.set_index("task_type")
+    assert u1.loc[5, "behavior"] == "freerider" and u1.loc[5, "delta"] == pytest.approx(2.0)
+    assert u1.loc[6, "behavior"] == "honest" and u1.loc[6, "delta"] == pytest.approx(1.0)

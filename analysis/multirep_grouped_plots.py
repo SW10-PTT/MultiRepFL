@@ -211,8 +211,27 @@ def plot_selection_propensity_by_split(pair: ExperimentPair) -> plt.Figure:
 # 2. Final balance by (data-split, behavior)
 # =========================================================================
 
-def plot_final_balance_by_split(pair: ExperimentPair) -> plt.Figure:
-    """Mean final ETH balance per (data-split, behavior); one subplot per system."""
+def _per_task_delta(rep: pd.DataFrame) -> pd.DataFrame:
+    """Add ``_delta`` = net ETH change for each task (balance_post - balance_pre).
+
+    Summing deltas is additive and attributable, unlike the cumulative balance:
+    a user who free-rides on one dataset and is honest on the other has each
+    task's gain/loss credited to that task's *own* behavior and dataset, with no
+    double-counting.
+    """
+    rep = rep.copy()
+    rep["_delta"] = rep["balance_post"] - rep["balance_pre"]
+    return rep
+
+
+def plot_net_earnings_by_split(pair: ExperimentPair) -> plt.Figure:
+    """Mean net ETH earned per participant, grouped by (data-split, behavior).
+
+    Earnings are summed per-task deltas (per user, per behavior), so a
+    mixed-behavior user contributes their free-rider-dataset tasks to the
+    free-rider bar and their honest-dataset tasks to the honest bar — their two
+    parts sum to their true total with no double count.
+    """
     cats = _present_categories(pair)
     behaviors = _present_behaviors(pair)
     systems = [s for s, _ in pair.items()]
@@ -221,32 +240,152 @@ def plot_final_balance_by_split(pair: ExperimentPair) -> plt.Figure:
     axes = axes[0]
 
     for ax, (system, exp) in zip(axes, pair.items()):
-        rep = _with_category(exp.reputation_timeline())
-        # final balance per (run, user) = last task's balance_post + baseline
-        last = (rep.sort_values("task_index")
-                .groupby(["run", "user_name", "behavior", "split"], sort=False)
-                .last().reset_index())
-        last["final_balance"] = last["balance_post"] + _BALANCE_INITIAL
+        rep = _per_task_delta(_with_category(exp.reputation_timeline()))
+        # net earnings per (run, user, behavior) = sum of that behavior's task deltas
+        per_user = (rep.groupby(["run", "user_name", "split", "behavior"])["_delta"]
+                    .sum().reset_index())
         x = np.arange(len(cats))
         width = 0.8 / max(1, len(behaviors))
         for j, b in enumerate(behaviors):
             means, errs = [], []
             for c in cats:
-                v = last[(last["split"] == c) & (last["behavior"] == b)]["final_balance"]
+                v = per_user[(per_user["split"] == c) & (per_user["behavior"] == b)]["_delta"]
                 means.append(v.mean() if len(v) else np.nan)
                 errs.append(v.std() if len(v) > 1 else 0.0)
             ax.bar(x - 0.4 + j * width + width / 2, means, width, yerr=errs, capsize=3,
                    color=BEHAVIOR_COLORS.get(b, "#888"), edgecolor="black",
                    linewidth=0.6, label=BEHAVIOR_LABELS.get(b, b))
-        ax.axhline(_BALANCE_INITIAL, color="#555", ls=":", lw=1, alpha=0.6)
+        ax.axhline(0, color="#555", lw=1)
         ax.set_title(SYSTEM_LABELS[system])
         ax.set_xticks(x)
         ax.set_xticklabels(cats, rotation=15, ha="right")
         ax.grid(True, axis="y", alpha=0.3)
         ax.set_axisbelow(True)
-    axes[0].set_ylabel("Final balance (ETH)")
+    axes[0].set_ylabel("Net earnings (ETH, summed task deltas)")
     axes[-1].legend(title="Behavior", fontsize=8)
-    fig.suptitle("Final balance by data-split & behavior (dotted = 100 ETH start)")
+    fig.suptitle("Net earnings by data-split & behavior (per-dataset attributed, 0 = break-even)")
+    fig.tight_layout()
+    return fig
+
+
+def plot_net_earnings_by_split_dataset(pair: ExperimentPair) -> plt.Figure:
+    """Net ETH earned per data-split category, split by dataset (MNIST vs CIFAR).
+
+    Even all-honest users differ: a participant data-rich in one dataset should
+    earn more there.  Earnings are summed per-task deltas attributed to each
+    task's dataset, so the per-dataset asymmetry is visible.
+    """
+    cats = _present_categories(pair)
+    systems = [s for s, _ in pair.items()]
+    fig, axes = plt.subplots(1, len(systems), figsize=(7 * len(systems), 4.5),
+                             sharey=True, squeeze=False)
+    axes = axes[0]
+    ds_types = [MNIST_TT, CIFAR_TT]
+    ds_colors = {MNIST_TT: "#2196F3", CIFAR_TT: "#FF9800"}
+
+    for ax, (system, exp) in zip(axes, pair.items()):
+        rep = _per_task_delta(_with_category(exp.reputation_timeline()))
+        per_user = (rep.groupby(["run", "user_name", "split", "task_type"])["_delta"]
+                    .sum().reset_index())
+        x = np.arange(len(cats))
+        width = 0.8 / len(ds_types)
+        for j, tt in enumerate(ds_types):
+            means, errs = [], []
+            for c in cats:
+                v = per_user[(per_user["split"] == c) & (per_user["task_type"] == tt)]["_delta"]
+                means.append(v.mean() if len(v) else np.nan)
+                errs.append(v.std() if len(v) > 1 else 0.0)
+            ax.bar(x - 0.4 + j * width + width / 2, means, width, yerr=errs, capsize=3,
+                   color=ds_colors[tt], edgecolor="black", linewidth=0.6,
+                   label=TASK_TYPE_LABELS[tt])
+        for xi, c in zip(x, cats):
+            bias = split_dataset_bias(c)
+            if bias in ds_types:
+                ax.annotate("★", (xi - 0.4 + ds_types.index(bias) * width + width / 2, 0),
+                            ha="center", va="bottom", color="#444", fontsize=12)
+        ax.axhline(0, color="#555", lw=1)
+        ax.set_title(SYSTEM_LABELS[system])
+        ax.set_xticks(x)
+        ax.set_xticklabels(cats, rotation=15, ha="right")
+        ax.grid(True, axis="y", alpha=0.3)
+        ax.set_axisbelow(True)
+    axes[0].set_ylabel("Net earnings (ETH, summed task deltas)")
+    axes[-1].legend(title="Task dataset", fontsize=8)
+    fig.suptitle("Net earnings by data-split, per dataset "
+                 "(★ = category's data-rich dataset; earn more there = data-aware reward)")
+    fig.tight_layout()
+    return fig
+
+
+# =========================================================================
+# 2c. Mixed-behavior users — per-dataset profile
+# =========================================================================
+
+def _mixed_user_table(exp) -> pd.DataFrame:
+    """Per (user, task_type): mean net earnings across runs + the user's behavior
+    on that dataset. Restricted to users whose behavior differs across datasets."""
+    rep = _per_task_delta(exp.reputation_timeline())
+    per_run = (rep.groupby(["run", "user_name", "task_type"])
+               .agg(delta=("_delta", "sum"), behavior=("behavior", "first"))
+               .reset_index())
+    agg = (per_run.groupby(["user_name", "task_type"])
+           .agg(delta=("delta", "mean"), behavior=("behavior", "first"))
+           .reset_index())
+    nbeh = agg.groupby("user_name")["behavior"].nunique()
+    mixed = nbeh[nbeh > 1].index
+    return agg[agg["user_name"].isin(mixed)]
+
+
+def plot_mixed_behavior_users(pair: ExperimentPair) -> plt.Figure:
+    """Per-dataset net earnings for users whose behavior differs across datasets
+    (e.g. free-rider on MNIST, honest on CIFAR).  Each user gets one bar per
+    dataset, coloured by the behavior they hold on that dataset — showing the
+    same identity treated correctly per dataset.
+    """
+    systems = [s for s, _ in pair.items()]
+    tables = {s: _mixed_user_table(exp) for s, exp in pair.items()}
+    users = sorted(set().union(*[set(t["user_name"]) for t in tables.values()]))
+    fig, axes = plt.subplots(1, len(systems), figsize=(max(7, len(users) * 0.9) * len(systems) / 2 + 2, 4.6),
+                             sharey=True, squeeze=False)
+    axes = axes[0]
+
+    if not users:
+        for ax in axes:
+            ax.text(0.5, 0.5, "No behavior-mixed users in this experiment",
+                    ha="center", va="center", transform=ax.transAxes, color="#888")
+        fig.suptitle("Mixed-behavior users (none present)")
+        fig.tight_layout()
+        return fig
+
+    ds_types = [MNIST_TT, CIFAR_TT]
+    x = np.arange(len(users))
+    width = 0.8 / len(ds_types)
+    present_beh = set()
+    for ax, system in zip(axes, systems):
+        t = tables[system].set_index(["user_name", "task_type"])
+        for j, tt in enumerate(ds_types):
+            for xi, u in zip(x, users):
+                if (u, tt) not in t.index:
+                    continue
+                row = t.loc[(u, tt)]
+                beh = row["behavior"]
+                present_beh.add(beh)
+                ax.bar(xi - 0.4 + j * width + width / 2, row["delta"], width,
+                       color=BEHAVIOR_COLORS.get(beh, "#888"), edgecolor="black", linewidth=0.6)
+                ax.annotate(TASK_TYPE_LABELS[tt][0], (xi - 0.4 + j * width + width / 2, 0),
+                            ha="center", va="bottom", fontsize=7, color="#333")
+        ax.axhline(0, color="#555", lw=1)
+        ax.set_title(SYSTEM_LABELS[system])
+        ax.set_xticks(x)
+        ax.set_xticklabels(users, rotation=20, ha="right", fontsize=8)
+        ax.grid(True, axis="y", alpha=0.3)
+        ax.set_axisbelow(True)
+    axes[0].set_ylabel("Net earnings (ETH)")
+    handles = [Patch(facecolor=BEHAVIOR_COLORS.get(b, "#888"), edgecolor="black",
+                     label=BEHAVIOR_LABELS.get(b, b)) for b in BEHAVIOR_ORDER if b in present_beh]
+    axes[-1].legend(handles=handles, title="Behavior on dataset", fontsize=8)
+    fig.suptitle("Mixed-behavior users: per-dataset earnings (bar letter = M[NIST]/C[IFAR]; "
+                 "colour = behavior on that dataset)")
     fig.tight_layout()
     return fig
 

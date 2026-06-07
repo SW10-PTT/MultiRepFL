@@ -115,9 +115,11 @@ def _generate_pair_graphs(pair: ExperimentPair, out_dir: Path) -> int:
                     out_dir / f"split_final_accuracy_{DS_NAME[tt]}.png")
         n += 3
     save_figure(gp.plot_gir_by_split(pair), out_dir / "split_gir.png")
-    save_figure(gp.plot_final_balance_by_split(pair), out_dir / "split_final_balance.png")
+    save_figure(gp.plot_net_earnings_by_split(pair), out_dir / "split_net_earnings.png")
+    save_figure(gp.plot_net_earnings_by_split_dataset(pair), out_dir / "split_net_earnings_by_dataset.png")
     save_figure(gp.plot_selection_propensity_by_split(pair), out_dir / "split_selection_propensity.png")
-    n += 3
+    save_figure(gp.plot_mixed_behavior_users(pair), out_dir / "mixed_behavior_users.png")
+    n += 5
 
     # --- 8. proposed thesis graphs ---
     save_figure(tp.plot_score_decomposition(pair), out_dir / "score_decomposition.png")
