@@ -92,7 +92,7 @@ def _build_cmd(mode: str, port: int, tmpdir: str) -> list[str]:
             "--accounts", str(_NUM_ACCOUNTS),
             "--port", str(port),
             "--balance", str(_ACCOUNT_BALANCE_ETH),
-            "--max-persisted-states", "100",
+            "--max-persisted-states", "1000",
             "--cache-path", tmpdir,
         ]
     # ganache — try modern ganache (v7+) first, fall back to legacy ganache-cli
