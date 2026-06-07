@@ -153,6 +153,11 @@ def claim_run(worker_id):
     data = res.json()
     if data.get("shutdown"):
         log("autorunner", "Server requested shutdown. Exiting.")
+        try:
+            from experiment.blockchain_launcher import _cleanup as _bc_cleanup
+            _bc_cleanup()
+        except Exception:
+            pass
         os._exit(0)
     return data
 
@@ -179,6 +184,11 @@ def heartbeat(worker_id):
                 _switch_to_commit(body["expectedCommit"])
         elif res.ok and res.json().get("shutdown"):
             log("autorunner", "Server requested shutdown. Exiting.")
+            try:
+                from experiment.blockchain_launcher import _cleanup as _bc_cleanup
+                _bc_cleanup()
+            except Exception:
+                pass
             os._exit(0)
     except Exception:
         pass
@@ -485,7 +495,13 @@ if __name__ == "__main__":
     _check_ram_startup()
 
     if args.anvil or args.ganache:
-        from experiment.blockchain_launcher import start as _start_blockchain
+        from experiment.blockchain_launcher import start as _start_blockchain, _cleanup as _bc_cleanup
         _start_blockchain("anvil" if args.anvil else "ganache")
+    else:
+        _bc_cleanup = None
 
-    main()
+    try:
+        main()
+    finally:
+        if _bc_cleanup is not None:
+            _bc_cleanup()

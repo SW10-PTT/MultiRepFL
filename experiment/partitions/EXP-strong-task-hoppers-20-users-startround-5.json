@@ -260,13 +260,13 @@
       "datasets": {
         "MNIST": {
           "behavior": "Free-rider",
-          "noise_scale": 0.01,
+          "noise_scale": 0.1,
           "start_round": 5,
           "data_percent": 4.5
         },
         "CIFAR-10": {
           "behavior": "Free-rider",
-          "noise_scale": 0.01,
+          "noise_scale": 0.1,
           "start_round": 5,
           "data_percent": 4.5
         }
@@ -278,7 +278,7 @@
       "datasets": {
         "MNIST": {
           "behavior": "Free-rider",
-          "noise_scale": 0.01,
+          "noise_scale": 0.1,
           "start_round": 5,
           "data_percent": 4.5
         },
@@ -298,7 +298,7 @@
         },
         "CIFAR-10": {
           "behavior": "Free-rider",
-          "noise_scale": 0.01,
+          "noise_scale": 0.1,
           "start_round": 5,
           "data_percent": 4.5
         }

@@ -26,6 +26,8 @@ _PORT_START = 8545
 _PORT_MAX = 8645
 _STARTUP_TIMEOUT = 30  # seconds
 
+_ANVIL_CACHE_BASE = os.path.expanduser("~/foundry/tmp")
+
 _proc: subprocess.Popen | None = None
 _tmpdir: str | None = None
 
@@ -83,10 +85,16 @@ def _install_cleanup_handlers() -> None:
 
 _ACCOUNT_BALANCE_ETH = 100_000_000
 
-def _build_cmd(mode: str, port: int, tmpdir: str | None) -> list[str]:
+def _build_cmd(mode: str, port: int, tmpdir: str) -> list[str]:
     if mode == "anvil":
-        return ["anvil", "--accounts", str(_NUM_ACCOUNTS), "--port", str(port),
-                "--balance", str(_ACCOUNT_BALANCE_ETH)]
+        return [
+            "anvil",
+            "--accounts", str(_NUM_ACCOUNTS),
+            "--port", str(port),
+            "--balance", str(_ACCOUNT_BALANCE_ETH),
+            "--max-persisted-states", "1000",
+            "--cache-path", tmpdir,
+        ]
     # ganache — try modern ganache (v7+) first, fall back to legacy ganache-cli
     if shutil.which("ganache"):
         return [
@@ -119,7 +127,11 @@ def start(mode: str) -> str:
     if mode not in ("anvil", "ganache"):
         raise ValueError(f"Unknown blockchain mode: {mode!r}")
 
-    tmpdir = tempfile.mkdtemp(prefix=f"fl_{mode}_") if mode == "ganache" else None
+    if mode == "anvil":
+        os.makedirs(_ANVIL_CACHE_BASE, exist_ok=True)
+        tmpdir = tempfile.mkdtemp(prefix="anvil-", dir=_ANVIL_CACHE_BASE)
+    else:
+        tmpdir = tempfile.mkdtemp(prefix="fl_ganache_")
 
     for port in range(_PORT_START, _PORT_MAX + 1):
         if not _is_port_free(port):

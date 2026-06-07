@@ -232,3 +232,31 @@ The script creates a `.venv`, installs all dependencies, and compiles the smart 
 The startup script activates the virtual environment and launches the `auto_runner` worker. For `ganache`/`anvil`, `auto_runner` starts and manages its own blockchain node (scanning for a free port, setting `RPC_URL`, and shutting the node down on exit). Use `none` to skip launching a node and instead connect to an externally-provided `RPC_URL` from the active env file.
 
 `API_URL` (and, for `none` mode, `RPC_URL`) must be set in the active env file (`.env/.env.<ENV>`, default `.env/.env.ganache`).
+
+# 9. Generating Graphs
+
+Experiments log results to `.pkl` files (multirep sessions ship a `session.pkl`
+inside a `*.tar.gz`). Turn them into figures with:
+
+```bash
+# Aggregate comparison across experiments — averages every run of an experiment
+# and compares the global-rep vs multi-rep variants. Scans
+# experiment/data/FinishedRuns/ and writes PNGs to figures/aggregate/ (gitignored).
+python analysis/multirep_aggregate_graphs.py
+
+# Graphs for a single multirep session (tarball, session folder, or session.pkl):
+python analysis/multirep_graphs.py <session.tar.gz | session-folder | session.pkl>
+
+# Single-task experiment graphs (CSV/pkl pipeline):
+python analysis/run_analysis.py
+```
+
+Each experiment directory under `FinishedRuns/` holds one or more run tarballs in
+a `sessions/` subfolder; runs of the same experiment are averaged together, and
+the `globalrep`/`multirep` variants of an identically-named experiment are paired
+for comparison.
+
+See [`analysis/README.md`](analysis/README.md) for the full graph catalogue,
+expected folder layout, the data-split / free-rider / thesis graphs, and the
+global-rep re-run caveat (a fixed replay bug means existing global-rep runs need
+regenerating for clean numbers).

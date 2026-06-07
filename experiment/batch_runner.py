@@ -146,6 +146,7 @@ _TMUX_SESSION = "multirep-batch"
 
 
 def _next_tmux_session(base: str) -> str:
+    """Return base if unused, else base-1, base-2, … until a free name is found."""
     existing = subprocess.run(
         ["tmux", "list-sessions", "-F", "#{session_name}"],
         capture_output=True, text=True,

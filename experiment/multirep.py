@@ -37,6 +37,9 @@ from openfl.api.globals import ReplayMode
 from openfl.utils.types.TrainingSpecsJobListing import TaskType as _TaskType
 _task_type_enum = _TaskType  # replaced by contract version once manager is up
 _REAL_TASK_TYPES: list = [tt for tt in _TaskType if tt != _TaskType.template]
+# Sentinel TaskRep key for GlobalOnly mode — mirrors OpenFLManager.GLOBAL_KEY
+# (TaskType.template == 0), the single shared bucket all task types alias onto.
+_GLOBAL_TR_KEY: int = 0
 from analysis.ExperimentLogger import ExperimentLogger
 from openfl.utils.async_writer import AsyncWriter
 
@@ -274,6 +277,12 @@ def _apply_trs_reps(users: List[User], trs: list, task_type: int, manager, rewar
     nr_active = len(trs)
     users_by_guid = {u.guid: u for u in users if u.guid is not None}
     contrib_scores: dict = {}
+    # GlobalOnly mode: the manager contract aliases every TaskType-keyed slot
+    # onto a single sentinel bucket (OpenFLManager._repKey) and the on-chain
+    # reputation path disables GIR. The replay path must mirror both: read/write
+    # TaskRep through one shared key (so it compounds across datasets instead of
+    # resetting on each switch) and leave GIR untouched at its prior value.
+    global_only = bool(getattr(manager, "global_rep_only", False))
     log("multirep", f"{'User':<16} {'delta':>12} {'ContribScore':>14} {'confidence':>12} {'TaskRep→':>10} {'GIR→':>10} {'Balance(ETH)':>14}")
     for entry in trs:
         guid, delta, delta_balance = str(entry[0]), entry[1], entry[2]
@@ -283,9 +292,12 @@ def _apply_trs_reps(users: List[User], trs: list, task_type: int, manager, rewar
         if user is None:
             continue
 
-        prior_task_rep = user.task_rep.get(task_type, 0)
+        # In GlobalOnly the prior is the single shared bucket (key _GLOBAL_TR_KEY);
+        # in PerTask it is the per-task-type slot.
+        rep_key = _GLOBAL_TR_KEY if global_only else task_type
+        prior_task_rep = user.task_rep.get(rep_key, 0)
         prior_mean, prior_m2 = manager.get_task_rep_calc_state(user.address, task_type)
-        k = user.task_count.get(task_type, 0) + 1
+        k = user.task_count.get(rep_key, 0) + 1
 
         contrib_score = _transform_delta(delta, _STAKE_WAD, reward, nr_active)
         contrib_scores[user.address.lower()] = contrib_score
@@ -294,8 +306,9 @@ def _apply_trs_reps(users: List[User], trs: list, task_type: int, manager, rewar
         new_task_rep = _update_contrib_score(prior_task_rep, confidence, contrib_score)
 
         # GIR starts at 0 and earns upward; no WAD prior override.
+        # GlobalOnly never updates GIR (mirrors contract applyGIR=false).
         prior_gir = user.global_integrity_rep
-        new_gir = _update_integrity_rep(prior_gir, pos_votes, total_votes)
+        new_gir = prior_gir if global_only else _update_integrity_rep(prior_gir, pos_votes, total_votes)
         new_balance = user.balance + delta_balance
 
         name = user.partition_spec.name if (user.partition_spec and user.partition_spec.name) else f"User {user.number}"
@@ -304,18 +317,31 @@ def _apply_trs_reps(users: List[User], trs: list, task_type: int, manager, rewar
                         f"{prior_gir / _WAD:>6.4f}→{new_gir / _WAD:.4f} "
                         f"{user.balance / _WAD:>6.4f}→{new_balance / _WAD:.4f}")
 
+        # The contract aliases these writes onto the sentinel slot in GlobalOnly,
+        # so passing task_type through is correct in both modes.
         manager.set_user_task_rep(user.address, task_type, new_task_rep)
         manager.set_task_rep_calc_state(user.address, task_type, new_mean, new_m2)
         manager.increment_task_count(user.address, task_type)
-        manager.set_user_integrity_rep(user.address, new_gir)
+        if not global_only:
+            manager.set_user_integrity_rep(user.address, new_gir)
         manager.set_user_balance(user.address, max(0, new_balance))
 
-        # Mirror updated values back onto the Python user object so the
-        # logger reads correct values without waiting for getGrsAndTrsBatch.
-        user.task_rep[task_type] = new_task_rep
+        # Mirror updated values back onto the Python user object so the logger
+        # reads correct values without waiting for getGrsAndTrsBatch. In
+        # GlobalOnly the single global TaskRep is stored under the sentinel key
+        # and replicated to every real task-type key so per-type reads/logging
+        # all reflect the one shared bucket.
+        if global_only:
+            user.task_rep[_GLOBAL_TR_KEY] = new_task_rep
+            user.task_count[_GLOBAL_TR_KEY] = k
+            for tt in _REAL_TASK_TYPES:
+                user.task_rep[int(tt)] = new_task_rep
+                user.task_count[int(tt)] = k
+        else:
+            user.task_rep[task_type] = new_task_rep
+            user.task_count[task_type] = k
         user.global_integrity_rep = new_gir
         user.balance = new_balance
-        user.task_count[task_type] = k
 
     return contrib_scores
 
@@ -671,16 +697,18 @@ def _upload_run(fingerprint: str, filename: Path, config: str, name: str | None 
         log("multirep", f"[warn] Upload failed: {e}")
 
 
-def _upload_session_tarball(tarball: Path, experiment_name: str) -> None:
+def _upload_session_tarball(tarball: Path, experiment_name: str) -> bool:
     """Upload the session tarball to the finished-experiments bucket.
 
     Key format: {experiment_name}/sessions/{tarball.name}
     tarball.name already embeds the preset name + session timestamp so keys
     are unique and human-readable without extra suffixes.
+
+    Returns True if uploaded successfully, False otherwise.
     """
     api_url = os.environ.get("API_URL")
     if not api_url:
-        return
+        return False
 
     s3_key = f"{experiment_name}/sessions/{tarball.name}"
     try:
@@ -700,8 +728,10 @@ def _upload_session_tarball(tarball: Path, experiment_name: str) -> None:
             )
         put_res.raise_for_status()
         log("multirep", f"Session tarball uploaded: {s3_key}")
+        return True
     except Exception as e:
         log("multirep", f"[warn] Session tarball upload failed: {e}")
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -874,7 +904,7 @@ def _apply_preset_config(exp_config: ExperimentConfiguration, preset) -> None:
 # Main
 # ---------------------------------------------------------------------------
 
-def main(auto_graphs: bool = False):
+def main(auto_graphs: bool = False, cleanup_session: bool = False):
     global fallback_count
     preset = MultirepPreset.from_file(preset_file)
     tasks = preset.tasks
@@ -1201,8 +1231,9 @@ def main(auto_graphs: bool = False):
     except Exception as e:
         log("multirep", f"[warn] Tarball creation failed: {e}")
 
+    tarball_uploaded = False
     if tarball is not None:
-        _upload_session_tarball(tarball, preset.name)
+        tarball_uploaded = _upload_session_tarball(tarball, preset.name)
 
     log("multirep", "\n=== All tasks complete ===")
     log("multirep", f"Fall back runs: {fallback_count}")
@@ -1215,6 +1246,15 @@ def main(auto_graphs: bool = False):
         from analysis.multirep_graphs import generate_all
         log("multirep", "Generating graphs...")
         generate_all(session_dir)
+
+    if cleanup_session:
+        import shutil as _shutil
+        if session_dir.exists():
+            _shutil.rmtree(session_dir)
+            log("multirep", f"Removed session dir: {session_dir}")
+        if tarball is not None and tarball_uploaded and tarball.exists():
+            tarball.unlink()
+            log("multirep", f"Removed session tarball: {tarball}")
 
 
 # ---------------------------------------------------------------------------
@@ -1249,12 +1289,18 @@ if __name__ == "__main__":
         preset_file = args.preset
 
     if args.anvil or args.ganache:
-        from experiment.blockchain_launcher import start as _start_blockchain
+        from experiment.blockchain_launcher import start as _start_blockchain, _cleanup as _bc_cleanup
         _start_blockchain("anvil" if args.anvil else "ganache")
+    else:
+        _bc_cleanup = None
 
     if False:
         mp.freeze_support()
-    main(auto_graphs=args.graphs)
-    for p in mp.active_children():
-        p.terminate()
+    try:
+        main(auto_graphs=args.graphs, cleanup_session=args.anvil)
+    finally:
+        for p in mp.active_children():
+            p.terminate()
+        if _bc_cleanup is not None:
+            _bc_cleanup()
     print("Done :)")
