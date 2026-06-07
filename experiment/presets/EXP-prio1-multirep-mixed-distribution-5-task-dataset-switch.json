@@ -23,7 +23,7 @@
   "tasks": [
     {
       "dataset": "MNIST",
-      "minimum_rounds": 20,
+      "minimum_rounds": 10,
       "epochs": 3,
       "number_of_participants": 8,
       "contribution_score_strategy": "loss_tolerance_snap",
@@ -31,7 +31,7 @@
     },
     {
       "dataset": "MNIST",
-      "minimum_rounds": 20,
+      "minimum_rounds": 10,
       "epochs": 3,
       "number_of_participants": 8,
       "contribution_score_strategy": "loss_tolerance_snap",
@@ -39,7 +39,7 @@
     },
     {
       "dataset": "MNIST",
-      "minimum_rounds": 20,
+      "minimum_rounds": 10,
       "epochs": 3,
       "number_of_participants": 8,
       "contribution_score_strategy": "loss_tolerance_snap",
@@ -47,7 +47,7 @@
     },
     {
       "dataset": "MNIST",
-      "minimum_rounds": 20,
+      "minimum_rounds": 10,
       "epochs": 3,
       "number_of_participants": 8,
       "contribution_score_strategy": "loss_tolerance_snap",
@@ -55,7 +55,7 @@
     },
     {
       "dataset": "MNIST",
-      "minimum_rounds": 20,
+      "minimum_rounds": 10,
       "epochs": 3,
       "number_of_participants": 8,
       "contribution_score_strategy": "loss_tolerance_snap",
@@ -63,7 +63,7 @@
     },
     {
       "dataset": "CIFAR-10",
-      "minimum_rounds": 20,
+      "minimum_rounds": 15,
       "epochs": 3,
       "number_of_participants": 8,
       "contribution_score_strategy": "loss_tolerance_snap",
@@ -71,7 +71,7 @@
     },
     {
       "dataset": "CIFAR-10",
-      "minimum_rounds": 20,
+      "minimum_rounds": 15,
       "epochs": 3,
       "number_of_participants": 8,
       "contribution_score_strategy": "loss_tolerance_snap",
@@ -79,7 +79,7 @@
     },
     {
       "dataset": "CIFAR-10",
-      "minimum_rounds": 20,
+      "minimum_rounds": 15,
       "epochs": 3,
       "number_of_participants": 8,
       "contribution_score_strategy": "loss_tolerance_snap",
@@ -87,7 +87,7 @@
     },
     {
       "dataset": "CIFAR-10",
-      "minimum_rounds": 20,
+      "minimum_rounds": 15,
       "epochs": 3,
       "number_of_participants": 8,
       "contribution_score_strategy": "loss_tolerance_snap",
@@ -95,7 +95,7 @@
     },
     {
       "dataset": "CIFAR-10",
-      "minimum_rounds": 20,
+      "minimum_rounds": 15,
       "epochs": 3,
       "number_of_participants": 8,
       "contribution_score_strategy": "loss_tolerance_snap",
@@ -103,7 +103,7 @@
     },
     {
       "dataset": "MNIST",
-      "minimum_rounds": 20,
+      "minimum_rounds": 10,
       "epochs": 3,
       "number_of_participants": 8,
       "contribution_score_strategy": "loss_tolerance_snap",
@@ -111,7 +111,7 @@
     },
     {
       "dataset": "MNIST",
-      "minimum_rounds": 20,
+      "minimum_rounds": 10,
       "epochs": 3,
       "number_of_participants": 8,
       "contribution_score_strategy": "loss_tolerance_snap",
@@ -119,7 +119,7 @@
     },
     {
       "dataset": "MNIST",
-      "minimum_rounds": 20,
+      "minimum_rounds": 10,
       "epochs": 3,
       "number_of_participants": 8,
       "contribution_score_strategy": "loss_tolerance_snap",
@@ -127,7 +127,7 @@
     },
     {
       "dataset": "MNIST",
-      "minimum_rounds": 20,
+      "minimum_rounds": 10,
       "epochs": 3,
       "number_of_participants": 8,
       "contribution_score_strategy": "loss_tolerance_snap",
@@ -135,7 +135,7 @@
     },
     {
       "dataset": "MNIST",
-      "minimum_rounds": 20,
+      "minimum_rounds": 10,
       "epochs": 3,
       "number_of_participants": 8,
       "contribution_score_strategy": "loss_tolerance_snap",
@@ -143,7 +143,7 @@
     },
     {
       "dataset": "CIFAR-10",
-      "minimum_rounds": 20,
+      "minimum_rounds": 15,
       "epochs": 3,
       "number_of_participants": 8,
       "contribution_score_strategy": "loss_tolerance_snap",
@@ -151,7 +151,7 @@
     },
     {
       "dataset": "CIFAR-10",
-      "minimum_rounds": 20,
+      "minimum_rounds": 15,
       "epochs": 3,
       "number_of_participants": 8,
       "contribution_score_strategy": "loss_tolerance_snap",
@@ -159,7 +159,7 @@
     },
     {
       "dataset": "CIFAR-10",
-      "minimum_rounds": 20,
+      "minimum_rounds": 15,
       "epochs": 3,
       "number_of_participants": 8,
       "contribution_score_strategy": "loss_tolerance_snap",
@@ -167,7 +167,7 @@
     },
     {
       "dataset": "CIFAR-10",
-      "minimum_rounds": 20,
+      "minimum_rounds": 15,
       "epochs": 3,
       "number_of_participants": 8,
       "contribution_score_strategy": "loss_tolerance_snap",
@@ -175,7 +175,7 @@
     },
     {
       "dataset": "CIFAR-10",
-      "minimum_rounds": 20,
+      "minimum_rounds": 15,
       "epochs": 3,
       "number_of_participants": 8,
       "contribution_score_strategy": "loss_tolerance_snap",
@@ -183,7 +183,7 @@
     },
     {
       "dataset": "MNIST",
-      "minimum_rounds": 20,
+      "minimum_rounds": 10,
       "epochs": 3,
       "number_of_participants": 8,
       "contribution_score_strategy": "loss_tolerance_snap",
@@ -191,7 +191,7 @@
     },
     {
       "dataset": "MNIST",
-      "minimum_rounds": 20,
+      "minimum_rounds": 10,
       "epochs": 3,
       "number_of_participants": 8,
       "contribution_score_strategy": "loss_tolerance_snap",
@@ -199,7 +199,7 @@
     },
     {
       "dataset": "MNIST",
-      "minimum_rounds": 20,
+      "minimum_rounds": 10,
       "epochs": 3,
       "number_of_participants": 8,
       "contribution_score_strategy": "loss_tolerance_snap",
@@ -207,7 +207,7 @@
     },
     {
       "dataset": "MNIST",
-      "minimum_rounds": 20,
+      "minimum_rounds": 10,
       "epochs": 3,
       "number_of_participants": 8,
       "contribution_score_strategy": "loss_tolerance_snap",
@@ -215,7 +215,7 @@
     },
     {
       "dataset": "MNIST",
-      "minimum_rounds": 20,
+      "minimum_rounds": 10,
       "epochs": 3,
       "number_of_participants": 8,
       "contribution_score_strategy": "loss_tolerance_snap",
@@ -223,7 +223,7 @@
     },
     {
       "dataset": "CIFAR-10",
-      "minimum_rounds": 20,
+      "minimum_rounds": 15,
       "epochs": 3,
       "number_of_participants": 8,
       "contribution_score_strategy": "loss_tolerance_snap",
@@ -231,7 +231,7 @@
     },
     {
       "dataset": "CIFAR-10",
-      "minimum_rounds": 20,
+      "minimum_rounds": 15,
       "epochs": 3,
       "number_of_participants": 8,
       "contribution_score_strategy": "loss_tolerance_snap",
@@ -239,7 +239,7 @@
     },
     {
       "dataset": "CIFAR-10",
-      "minimum_rounds": 20,
+      "minimum_rounds": 15,
       "epochs": 3,
       "number_of_participants": 8,
       "contribution_score_strategy": "loss_tolerance_snap",
@@ -247,7 +247,7 @@
     },
     {
       "dataset": "CIFAR-10",
-      "minimum_rounds": 20,
+      "minimum_rounds": 15,
       "epochs": 3,
       "number_of_participants": 8,
       "contribution_score_strategy": "loss_tolerance_snap",
@@ -255,7 +255,7 @@
     },
     {
       "dataset": "CIFAR-10",
-      "minimum_rounds": 20,
+      "minimum_rounds": 15,
       "epochs": 3,
       "number_of_participants": 8,
       "contribution_score_strategy": "loss_tolerance_snap",
