@@ -48,6 +48,15 @@ class JobListing(ConnectionHelper):
 
         self.contract = contract
 
+        # Q-slot cap is opt-in and set post-deploy (it can't ride in the
+        # constructor without overflowing solc's ABI-decoder stack). When
+        # disabled, the setter is never called and selection is unchanged.
+        if getattr(training_specs, "q_slot_limit_enabled", False):
+            self.transact(
+                "setQSlotLimit", publisher, 0, [], "JobListing.SetQSlotLimit",
+                training_specs.q_slot_limit,
+            )
+
     def register_challenge_contract(self, publisher, challenge_addr):
         (receipt, events) = self.transact("registerChallenge", publisher, 0, ["ChallengeRegistered"], "JobListing.RegisterChallengeContract",
                                           challenge_addr)

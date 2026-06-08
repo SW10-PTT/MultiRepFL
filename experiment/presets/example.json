@@ -4,6 +4,8 @@
   "q_weight": 0.1,
   "tr_weight": 9,
   "gir_weight": 1,
+  "q_slot_limit_enabled": false,
+  "q_slot_limit": 2,
   "training_mode": "remote",
   "tasks": [
     {

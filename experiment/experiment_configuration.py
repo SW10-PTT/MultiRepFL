@@ -65,7 +65,9 @@ class ExperimentConfiguration:
                  global_rep_only=False, # If True, OpenFLManager is deployed in GlobalOnly mode: a single TaskRep slot per user (shared across all TaskTypes) and GIR updates are disabled. Voting still happens but does not feed GIR.
                  q_weight=0.0,   # Additive Q bonus weight: score = normalWeight + q_weight * q. WAD-converted when passed to Solidity.
                  tr_weight=6,    # taskRep multiplier in selection score (preset-level constant).
-                 gir_weight=4):  # GIR multiplier in selection score (preset-level constant).
+                 gir_weight=4,   # GIR multiplier in selection score (preset-level constant).
+                 q_slot_limit_enabled=False, # If True, cap how many slots may be won via the Q bonus; the rest go by base TR/GIR score only.
+                 q_slot_limit=0):            # Max slots fillable using the Q bonus when q_slot_limit_enabled.
 
         self.name = name
         self.dataset = dataset
@@ -105,6 +107,10 @@ class ExperimentConfiguration:
         self.q_weight = float(q_weight)
         self.tr_weight = int(tr_weight)
         self.gir_weight = int(gir_weight)
+        self.q_slot_limit_enabled = bool(q_slot_limit_enabled)
+        self.q_slot_limit = int(q_slot_limit)
+        if self.q_slot_limit < 0:
+            raise ValueError("q_slot_limit must be >= 0")
         self.enabled_prints = (
             set(enabled_prints) if enabled_prints is not None
             else set(DEFAULT_ENABLED_PRINTS_CONFIG)
@@ -187,6 +193,8 @@ class ExperimentConfiguration:
             q_weight=int(self.q_weight * 1e18),
             tr_weight=self.tr_weight,
             gir_weight=self.gir_weight,
+            q_slot_limit_enabled=self.q_slot_limit_enabled,
+            q_slot_limit=self.q_slot_limit,
         )
 
     @property
@@ -400,6 +408,13 @@ class ExperimentConfiguration:
                 for dataset_key, specs in sorted(self.per_user_partitions.items())
             },
         }
+
+        # Only fold the Q-slot cap into the fingerprint when it is active, so
+        # configs with the feature off keep the exact same hash as before
+        # (preserving existing RunRepo cache hits).
+        if self.q_slot_limit_enabled:
+            data["q_slot_limit_enabled"] = True
+            data["q_slot_limit"] = self.q_slot_limit
 
         blob = json.dumps(data, sort_keys=True, separators=(",", ":"))
         hash = hashlib.sha256(blob.encode()).hexdigest()

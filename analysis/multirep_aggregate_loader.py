@@ -56,10 +56,18 @@ class ExperimentRuns:
     # --- combined tables across runs (each tagged with a 0-based ``run`` id) ---
 
     def global_accuracy(self) -> pd.DataFrame:
-        """Concatenated per-round accuracy/loss across runs, tagged with ``run``."""
+        """Concatenated per-round accuracy/loss across runs, tagged with ``run``.
+
+        Tasks whose result was reused from the fingerprint cache embed empty
+        run_data, so only the first task per fingerprint carries an accuracy
+        curve.  We back-fill the others: a cache-hit task is, by construction,
+        an identical run, so it inherits the curve of the computed task sharing
+        its fingerprint.  This recovers every task slot (e.g. all 50 task-hopper
+        tasks instead of the 10 distinct fingerprints).
+        """
         frames = []
         for r, s in enumerate(self.sessions):
-            ga = s.global_accuracy
+            ga = _session_global_accuracy_backfilled(s)
             if ga is None or ga.empty:
                 continue
             ga = ga.copy()
@@ -113,6 +121,45 @@ class ExperimentPair:
             yield "globalrep", self.globalrep
         if self.multirep is not None:
             yield "multirep", self.multirep
+
+
+_GA_WANT = ["round", "round_time", "objective_global_accuracy",
+            "objective_global_loss", "reward_pool", "punishment_pool"]
+
+
+def _session_global_accuracy_backfilled(session: MultirepSession) -> pd.DataFrame:
+    """Per-round accuracy for *every* task in the session, back-filling
+    fingerprint cache-hits (empty run_data) from the computed task that shares
+    their fingerprint. Columns: task_index, dataset, round, objective_*."""
+    # fingerprint -> accuracy curve (from tasks whose run_data has a real global table)
+    by_fp: dict = {}
+    for t in session.tasks:
+        rd = t.get("run_data")
+        gdf = rd.get("global") if rd else None
+        if gdf is None or not hasattr(gdf, "empty") or gdf.empty:
+            continue
+        if "objective_global_accuracy" not in gdf.columns:
+            continue
+        fp = str(t.get("fingerprint"))
+        if fp not in by_fp:
+            cols = [c for c in _GA_WANT if c in gdf.columns]
+            by_fp[fp] = gdf[cols].copy()
+
+    frames = []
+    for t in session.tasks:
+        fp = str(t.get("fingerprint"))
+        curve = by_fp.get(fp)
+        if curve is None:
+            continue
+        frame = curve.copy()
+        frame["task_index"] = t["task_index"]
+        frame["dataset"] = t["dataset"]
+        frame["fingerprint"] = fp  # carried so aggregate stats can dedupe cache-hit clones
+        frames.append(frame)
+    if frames:
+        return pd.concat(frames, ignore_index=True)
+    # fall back to the precomputed table if fingerprint reconstruction found nothing
+    return session.global_accuracy if session.global_accuracy is not None else pd.DataFrame()
 
 
 def _detect_system(folder_name: str, session: MultirepSession | None) -> str:

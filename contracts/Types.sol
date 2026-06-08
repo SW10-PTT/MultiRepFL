@@ -40,6 +40,8 @@ struct TrainingSpecifications {
     uint256 qWeight;   // WAD-scaled additive Q bonus: score = normalWeight + qWeight * q / WAD
     uint256 trWeight;  // taskRep multiplier in selection score (default 6)
     uint256 girWeight; // GIR multiplier in selection score (default 4)
+    bool qSlotLimitEnabled; // when true, cap how many slots may be won via the Q bonus
+    uint256 qSlotLimit;     // max slots fillable using Q; the rest go by base score only
 }
 
 // Per-user computed TaskRep outputs from one challenge. Stored on-chain by

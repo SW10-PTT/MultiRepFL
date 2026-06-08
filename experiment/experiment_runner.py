@@ -103,20 +103,28 @@ def _log_chain_applicant_scores(users: List[User], job_listing, experiment_confi
       tr_w  = getattr(experiment_config, "tr_weight",  6)
       gir_w = getattr(experiment_config, "gir_weight", 4)
       q_w   = getattr(experiment_config, "q_weight",   0)
+      cap_on  = getattr(experiment_config, "q_slot_limit_enabled", False)
+      q_slots = getattr(experiment_config, "q_slot_limit", 0)
       denom = tr_w + gir_w
-      log("replay", f"  Chain applicant scores (tr={tr_w}, gir={gir_w}, q={q_w/_WAD:.4f}):")
-      log("replay", f"    {'Name':<16} {'TR':>8} {'GIR':>8} {'Q':>8} {'Score':>10}  fp[:8]")
+      cap_note = (f", q_slot_limit ON (limit={q_slots}: {q_slots} slots may use Q, "
+                  f"rest by base score)" if cap_on else "")
+      log("replay", f"  Chain applicant scores (tr={tr_w}, gir={gir_w}, q={q_w/_WAD:.4f}{cap_note}):")
+      # Base = score with no Q bonus; Score = with Q. When the cap is on, base
+      # decides the rep slots and Score only matters for the Q slots.
+      log("replay", f"    {'Name':<16} {'TR':>8} {'GIR':>8} {'Q':>8} {'Base':>10} {'Score':>10}  {'sel':>3}  fp[:8]")
       for u in users:
           try:
               chain = job_listing.contract.functions.applicants(u.address).call()
               # struct: (globalTaskRep, globalIntegrity, qValue, tiebreaker, addr, isSelected)
               tr, gir, q_val = chain[0], chain[1], chain[2]
-              normal = (tr * tr_w + gir * gir_w) // denom
+              is_selected = chain[5]
+              base = (tr * tr_w + gir * gir_w) // denom
               q_bonus = (q_w * q_val) // _WAD
-              score = normal + q_bonus
+              score = base + q_bonus
               tb_hex = chain[3].hex()[:8] if isinstance(chain[3], (bytes, bytearray)) else str(chain[3])[:8]
               name = u.partition_spec.name if (u.partition_spec and u.partition_spec.name) else f"User {u.number}"
-              log("replay", f"    {name:<16} {tr/_WAD:>8.4f} {gir/_WAD:>8.4f} {q_val/_WAD:>8.4f} {score/_WAD:>10.4f}  {tb_hex}")
+              marker = "YES" if is_selected else "no"
+              log("replay", f"    {name:<16} {tr/_WAD:>8.4f} {gir/_WAD:>8.4f} {q_val/_WAD:>8.4f} {base/_WAD:>10.4f} {score/_WAD:>10.4f}  {marker:>3}  {tb_hex}")
           except Exception:
               pass
   except Exception:
@@ -198,7 +206,7 @@ def select_participants_for_task(
   PRIVKEYS = get_PRIVKEYS(exp_config)
 
   if prebuilt_manager is None:
-      manager = Manager(publisher, True).init(
+      manager = Manager(publisher, True, global_rep_only=exp_config.global_rep_only).init(
           exp_config.number_of_good_contributors,
           exp_config.number_of_bad_contributors,
           exp_config.number_of_freerider_contributors,
@@ -207,6 +215,7 @@ def select_participants_for_task(
           RPC_ENDPOINT,
           PRIVKEYS,
       )
+      manager.assert_reputation_mode()
   else:
       manager = prebuilt_manager
   if pytorch_model is not None:

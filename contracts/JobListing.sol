@@ -78,8 +78,22 @@ contract JobListing {
         trainingSpecs.qWeight = _qWeight;
         trainingSpecs.trWeight = _trWeight;
         trainingSpecs.girWeight = _girWeight;
+        // Q-slot cap defaults off (qSlotLimitEnabled = false). It is opt-in via
+        // setQSlotLimit, called post-deploy only when the preset enables it —
+        // see the constructor stack-depth note on setQSlotLimit.
 
         challengeCodeHash = manager.getChallengeCodeHash();
+    }
+
+    // Enable the Q-slot cap with `limit` Q-eligible slots. Set post-deploy
+    // rather than via the constructor because adding constructor params
+    // overflows solc's ABI-decoder stack (Stack too deep). Publisher-only and
+    // must be set before participant selection so getTopN sees it.
+    function setQSlotLimit(uint256 limit) external {
+        require(msg.sender == publisher, "ONP");
+        require(selectedParticipants.length == 0, "ASD");
+        trainingSpecs.qSlotLimitEnabled = true;
+        trainingSpecs.qSlotLimit = limit;
     }
     function debugTimes() external view returns (uint nowTs, uint closeTs) {
         return (block.timestamp, applicationWindowCloseTime);
@@ -181,13 +195,18 @@ contract JobListing {
         emit SelectionComplete(selected);
     }
 
-    function _selectionScore(User storage u) internal view returns (uint) {
-        // score = (taskRep * trWeight + gir * girWeight) / (trWeight + girWeight) + qWeight * q / WAD
+    // base = (taskRep * trWeight + gir * girWeight) / (trWeight + girWeight).
+    // When includeQ is true the WAD-scaled Q bonus (qWeight * q / WAD) is added.
+    function _selectionScore(
+        User storage u,
+        bool includeQ
+    ) internal view returns (uint) {
         uint denom = trainingSpecs.trWeight + trainingSpecs.girWeight;
         uint normalWeight = (u.globalTaskRep *
             trainingSpecs.trWeight +
             u.globalIntegrity *
             trainingSpecs.girWeight) / denom;
+        if (!includeQ) return normalWeight;
         uint qBonus = (trainingSpecs.qWeight * u.qValue) / WAD;
         return normalWeight + qBonus;
     }
@@ -205,6 +224,12 @@ contract JobListing {
     }
 
     function getTopN(uint N) public view returns (address[] memory) {
+        // When the Q-slot cap is on, only a limited number of slots may be won
+        // with the Q bonus; the rest go to the highest base (TR/GIR) scores.
+        if (trainingSpecs.qSlotLimitEnabled) {
+            return _getTopNCapped(N);
+        }
+
         address[] memory heapUsers = new address[](N);
         uint[] memory heapScores = new uint[](N);
         bytes32[] memory heapTBs = new bytes32[](N);
@@ -213,7 +238,7 @@ contract JobListing {
 
         for (uint i = 0; i < applicantAddresses.length; i++) {
             address addr = applicantAddresses[i];
-            uint score = _selectionScore(applicants[addr]);
+            uint score = _selectionScore(applicants[addr], true);
             bytes32 tb = applicants[addr].tiebreaker;
 
             if (size < N) {
@@ -306,6 +331,69 @@ contract JobListing {
         }
 
         return heapUsers;
+    }
+
+    // Capped selection: fill (N - qSlots) slots by base score (no Q bonus),
+    // then fill the remaining qSlots from the leftover applicants by full score
+    // (Q bonus included). qSlots is clamped to N. Applicant counts are small
+    // (bounded by MAX_BIDS), so a simple O(N*M) selection is used over a heap.
+    function _getTopNCapped(uint N) internal view returns (address[] memory) {
+        uint M = applicantAddresses.length;
+        bool[] memory chosen = new bool[](M);
+
+        uint qSlots = trainingSpecs.qSlotLimit;
+        if (qSlots > N) qSlots = N;
+        uint repSlots = N - qSlots;
+
+        // Highest base scores take the rep slots — Q gives no help here.
+        _pickTopK(chosen, repSlots, false);
+        // Remaining slots may be won via the Q bonus (full score).
+        _pickTopK(chosen, N - repSlots, true);
+
+        address[] memory result = new address[](N);
+        uint count = 0;
+        for (uint i = 0; i < M && count < N; i++) {
+            if (chosen[i]) {
+                result[count] = applicantAddresses[i];
+                count++;
+            }
+        }
+        return result;
+    }
+
+    // Marks the strongest k not-yet-chosen applicants in `chosen`. Strongest =
+    // highest score (with Q bonus iff includeQ), ties broken by lower tiebreaker
+    // — same ordering as the heap path via _isWeaker. Stops early if fewer than
+    // k applicants remain.
+    function _pickTopK(
+        bool[] memory chosen,
+        uint k,
+        bool includeQ
+    ) internal view {
+        for (uint c = 0; c < k; c++) {
+            bool found = false;
+            uint bestIdx = 0;
+            uint bestScore = 0;
+            bytes32 bestTb = 0;
+
+            for (uint i = 0; i < applicantAddresses.length; i++) {
+                if (chosen[i]) continue;
+                User storage u = applicants[applicantAddresses[i]];
+                uint score = _selectionScore(u, includeQ);
+                bytes32 tb = u.tiebreaker;
+                // Replace best when candidate is not weaker (stronger, or equal
+                // score with a lower tiebreaker).
+                if (!found || !_isWeaker(score, tb, bestScore, bestTb)) {
+                    found = true;
+                    bestIdx = i;
+                    bestScore = score;
+                    bestTb = tb;
+                }
+            }
+
+            if (!found) break;
+            chosen[bestIdx] = true;
+        }
     }
 
     // Returns the TaskType (= dataset) bound to this JobListing — convenience
