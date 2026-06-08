@@ -6,6 +6,7 @@ PRINTS_EVEN_LESSER = {
 }
 
 PRINTS_LESS = {
+    "setup_env",
     "round_boundary",
     "round_models",
     "round_rewards",
@@ -38,8 +39,8 @@ PRINTS_ALL = {
 # PRINTS_NORMAL = PRINTS_LESS
 # PRINTS_DEBUG = PRINTS_ALL
 
-DEFAULT_ENABLED_PRINTS_CONFIG = PRINTS_ALL
+DEFAULT_ENABLED_PRINTS_CONFIG = PRINTS_LESS
 
 # Set True to aggressively reclaim memory between runs (prevents FD/RAM leaks on long sweeps).
 # Set False for maximum throughput (may cause instability on very long auto-runner sweeps).
-AGGRESSIVE_GC = False
+AGGRESSIVE_GC = True
