@@ -35,7 +35,7 @@ from openfl.utils.printer import log
 _TERMINAL_OK   = {"completed"}
 _TERMINAL_FAIL = {"dead", "cancelled"}
 _POLL_INTERVAL = 2   # seconds between status checks
-_POLL_TIMEOUT  = 36000 # seconds before giving up (1 h)
+_POLL_TIMEOUT  = 0 # 0 = no timeout; >0 = seconds before giving up
 
 
 # ---------------------------------------------------------------------------
@@ -134,7 +134,7 @@ def poll_run_status(run_id: str, timeout: int = _POLL_TIMEOUT, interval: int = _
     Raises RuntimeError if the run enters a failed/cancelled state.
     """
     url = f"{_api_url()}/runs/{run_id}"
-    deadline = time.monotonic() + timeout
+    deadline = None if timeout == 0 else time.monotonic() + timeout
 
     while True:
         res = requests.get(url, timeout=15)
@@ -151,7 +151,7 @@ def poll_run_status(run_id: str, timeout: int = _POLL_TIMEOUT, interval: int = _
         if status in _TERMINAL_FAIL:
             raise RuntimeError(f"Remote run {run_id} ended with status '{status}' (failCount={fail_count})")
 
-        if time.monotonic() > deadline:
+        if deadline is not None and time.monotonic() > deadline:
             raise TimeoutError(
                 f"Remote run {run_id} did not complete within {timeout}s (last status: {status})"
             )
