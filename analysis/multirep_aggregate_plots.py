@@ -63,12 +63,35 @@ _EPS = 1e-6
 # small aggregation helpers
 # =========================================================================
 
+def _distinct_curves(df: pd.DataFrame) -> pd.DataFrame:
+    """Drop fingerprint cache-hit clones so variance bands reflect real spread.
+
+    The loader back-fills every task slot from the one computed curve sharing its
+    fingerprint, so identical (run, fingerprint, round) rows repeat.  Collapsing
+    them to one row per (run, fingerprint, round) keeps the mean unchanged but
+    stops the duplicated curves from artificially shrinking std/IQR.
+    """
+    if {"run", "fingerprint", "round"} <= set(df.columns):
+        return df.drop_duplicates(["run", "fingerprint", "round"])
+    return df
+
+
+def _n_curves(df: pd.DataFrame) -> int:
+    """Number of distinct (run, fingerprint) experimental curves in *df*."""
+    if {"run", "fingerprint"} <= set(df.columns):
+        return int(df.drop_duplicates(["run", "fingerprint"]).shape[0])
+    if {"run", "task_index"} <= set(df.columns):
+        return int(df.drop_duplicates(["run", "task_index"]).shape[0])
+    return len(df)
+
+
 def _curve(df: pd.DataFrame, col: str, method: str):
     """Aggregate *col* over 'round'. Returns (x, center, lo, hi).
 
     method='mean'   → center=mean, band=±1 std
     method='median' → center=median, band=[Q1, Q3]
     """
+    df = _distinct_curves(df)
     g = df.groupby("round")[col]
     if method == "median":
         center = g.median()
@@ -193,7 +216,7 @@ def plot_metric_over_rounds(pair: ExperimentPair, task_type: int, col: str,
         x, center, lo, hi = _curve(sub, col, method)
         color = SYSTEM_COLORS[system]
         ax.plot(x, center, color=color, ls=SYSTEM_LS[system], lw=_LW,
-                label=f"{SYSTEM_LABELS[system]} ({exp.n_runs} run·{sub['task_index'].nunique()} task)")
+                label=f"{SYSTEM_LABELS[system]} ({_n_curves(sub)} distinct curves)")
         ax.fill_between(x, lo, hi, color=color, alpha=_FILL_ALPHA)
         plotted = True
 
@@ -262,9 +285,11 @@ def _final_accuracy(exp: ExperimentRuns) -> pd.DataFrame:
     ga = exp.global_accuracy()
     if ga.empty:
         return pd.DataFrame(columns=["dataset", "accuracy"])
+    # one row per distinct experimental curve (collapse fingerprint cache clones)
+    key = ["run", "fingerprint", "dataset"] if "fingerprint" in ga.columns else ["run", "task_index", "dataset"]
     last = (
         ga.sort_values("round")
-        .groupby(["run", "task_index", "dataset"], sort=False)
+        .groupby(key, sort=False)
         .last()
         .reset_index()
     )
@@ -313,7 +338,9 @@ def _time_to_accuracy(exp: ExperimentRuns, mode: str) -> pd.DataFrame:
     if ga.empty:
         return pd.DataFrame(columns=["dataset", "rounds"])
     rows = []
-    for (_, _, ds), g in ga.groupby(["run", "task_index", "dataset"], sort=False):
+    key = ["run", "fingerprint", "dataset"] if "fingerprint" in ga.columns else ["run", "task_index", "dataset"]
+    for _, g in ga.groupby(key, sort=False):
+        ds = g["dataset"].iloc[0]
         g = g.sort_values("round")
         acc = g["objective_global_accuracy"]
         if mode == "fraction":
@@ -472,7 +499,7 @@ def plot_tr_development(pair: ExperimentPair) -> plt.Figure:
         ax.xaxis.set_major_locator(MaxNLocator(integer=True))
         ax.grid(True, alpha=0.3)
     axes[0].set_ylabel("Task Reputation (TR)")
-    _add_behavior_system_legend(axes[-1], pair)
+    _add_behavior_system_legend(axes[-1], pair, ds_handles)
     fig.suptitle("Task-reputation development  (colour=behavior, style=system; "
                  "global-rep = one shared bucket shown in both panels)")
     fig.tight_layout()
@@ -489,7 +516,7 @@ def plot_gir_development(pair: ExperimentPair) -> plt.Figure:
     re-run will clear.
     """
     fig, ax = plt.subplots(figsize=(11, 4.5))
-    _mark_dataset_switches(ax, pair)
+    ds_handles = _mark_dataset_switches(ax, pair)
     globalrep_nonzero = False
     for system, exp in pair.items():
         rep = exp.reputation_timeline()
@@ -512,7 +539,7 @@ def plot_gir_development(pair: ExperimentPair) -> plt.Figure:
     if globalrep_nonzero:
         ax.text(0.5, 0.94, "⚠ global-rep GIR ≠ 0 → pre-fix data; re-run to clear",
                 ha="center", va="top", transform=ax.transAxes, fontsize=8, color="#b00")
-    _add_behavior_system_legend(ax, pair)
+    _add_behavior_system_legend(ax, pair, ds_handles)
     fig.tight_layout()
     return fig
 
@@ -520,7 +547,7 @@ def plot_gir_development(pair: ExperimentPair) -> plt.Figure:
 def plot_selection_rate_over_time(pair: ExperimentPair) -> plt.Figure:
     """Mean selection rate per behavior over task index. Behaviour→colour, system→style."""
     fig, ax = plt.subplots(figsize=(11, 4.5))
-    _mark_dataset_switches(ax, pair)
+    ds_handles = _mark_dataset_switches(ax, pair)
     for system, exp in pair.items():
         rep = exp.reputation_timeline()
         if rep.empty:
@@ -537,7 +564,7 @@ def plot_selection_rate_over_time(pair: ExperimentPair) -> plt.Figure:
     ax.xaxis.set_major_locator(MaxNLocator(integer=True))
     ax.grid(True, alpha=0.3)
     ax.set_title("Selection rate over tasks (colour=behavior, style=system)")
-    _add_behavior_system_legend(ax, pair)
+    _add_behavior_system_legend(ax, pair, ds_handles)
     fig.tight_layout()
     return fig
 
@@ -905,8 +932,12 @@ def plot_qvalue_selection_wait(with_q: ExperimentRuns, without_q: ExperimentRuns
 # internal
 # =========================================================================
 
-def _add_behavior_system_legend(ax, pair: ExperimentPair) -> None:
-    """Two-part legend: behaviour colours + system line styles."""
+def _add_behavior_system_legend(ax, pair: ExperimentPair, ds_handles: list | None = None) -> None:
+    """Behaviour colours + system line styles, plus an optional dataset-tint key.
+
+    *ds_handles* are the dataset Patch handles returned by ``_mark_dataset_switches``;
+    pass them so the background tint (which dataset each task ran) is explained.
+    """
     present = set()
     for _, exp in pair.items():
         rep = exp.reputation_timeline()
@@ -919,4 +950,7 @@ def _add_behavior_system_legend(ax, pair: ExperimentPair) -> None:
                           label=SYSTEM_LABELS[s]) for s, _ in pair.items()]
     leg1 = ax.legend(handles=beh_handles, title="Behavior", loc="upper left", fontsize=8)
     ax.add_artist(leg1)
-    ax.legend(handles=sys_handles, title="System", loc="lower right", fontsize=8)
+    leg2 = ax.legend(handles=sys_handles, title="System", loc="lower right", fontsize=8)
+    if ds_handles:
+        ax.add_artist(leg2)
+        ax.legend(handles=ds_handles, title="Dataset (tint)", loc="lower left", fontsize=7)

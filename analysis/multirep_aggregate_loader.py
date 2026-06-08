@@ -147,12 +147,14 @@ def _session_global_accuracy_backfilled(session: MultirepSession) -> pd.DataFram
 
     frames = []
     for t in session.tasks:
-        curve = by_fp.get(str(t.get("fingerprint")))
+        fp = str(t.get("fingerprint"))
+        curve = by_fp.get(fp)
         if curve is None:
             continue
         frame = curve.copy()
         frame["task_index"] = t["task_index"]
         frame["dataset"] = t["dataset"]
+        frame["fingerprint"] = fp  # carried so aggregate stats can dedupe cache-hit clones
         frames.append(frame)
     if frames:
         return pd.concat(frames, ignore_index=True)

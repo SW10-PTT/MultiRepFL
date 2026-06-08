@@ -142,7 +142,18 @@ def _generate_pair_graphs(pair: ExperimentPair, out_dir: Path) -> int:
                     out_dir / f"taskrep_accuracy_corr_{DS_NAME[tt]}.png")
         save_figure(tp.plot_selection_efficiency(pair, tt),
                     out_dir / f"selection_efficiency_{DS_NAME[tt]}.png")
-        n += 2
+        save_figure(tp.plot_contrib_vs_data_richness(pair, tt),
+                    out_dir / f"contrib_vs_data_richness_{DS_NAME[tt]}.png")
+        n += 3
+
+    # --- 8b. new thesis graphs (specialisation, significance, adversarial) ---
+    save_figure(tp.plot_tr_cross_task_transfer(pair), out_dir / "tr_cross_task_transfer.png")
+    save_figure(tp.plot_specialization_heatmap(pair), out_dir / "specialization_heatmap.png")
+    save_figure(tp.plot_final_accuracy_ci(pair), out_dir / "final_accuracy_ci.png")
+    save_figure(tp.plot_selection_merit_spearman(pair), out_dir / "selection_merit_spearman.png")
+    save_figure(tp.plot_cumulative_earnings_by_behavior(pair), out_dir / "cumulative_earnings_by_behavior.png")
+    save_figure(tp.plot_detection_rate_over_time(pair), out_dir / "detection_rate_over_time.png")
+    n += 6
 
     # --- 9. run-averaged ports of the single-run graphs, per system ---
     for system, exp in pair.items():
@@ -154,8 +165,15 @@ def _generate_pair_graphs(pair: ExperimentPair, out_dir: Path) -> int:
 def _generate_runavg_graphs(exp, out_dir: Path) -> int:
     """Run-averaged versions of the original single-session multirep graphs."""
     rep, ga = averaged_views(exp)
+    raw = exp.reputation_timeline()  # run-tagged, for selected-only progression
     out_dir.mkdir(parents=True, exist_ok=True)
     n = 0
+    if not raw.empty:
+        # progression where the line advances only on tasks the user was selected for
+        save_figure(mrp.plot_tr_selected_progression(raw), out_dir / "tr_selected_progression.png")
+        save_figure(mrp.plot_gir_selected_progression(raw), out_dir / "gir_selected_progression.png")
+        save_figure(mrp.plot_balance_selected_progression(raw), out_dir / "balance_selected_progression.png")
+        n += 3
     if not rep.empty:
         for fn, name in [
             (mrp.plot_tr_per_task_type, "tr_per_task_type"),

@@ -401,8 +401,9 @@ def _facet_development(pair: ExperimentPair, value_fn, ylabel: str, title: str,
     fig, axes = plt.subplots(1, len(cats), figsize=(5.2 * len(cats), 4.2),
                              sharey=True, squeeze=False)
     axes = axes[0]
+    ds_handles = None
     for ax, cat in zip(axes, cats):
-        _mark_dataset_switches(ax, pair)
+        ds_handles = _mark_dataset_switches(ax, pair)
         for system, exp in pair.items():
             rep = _with_category(exp.reputation_timeline())
             rep = rep[rep["split"] == cat]
@@ -421,7 +422,7 @@ def _facet_development(pair: ExperimentPair, value_fn, ylabel: str, title: str,
         ax.xaxis.set_major_locator(MaxNLocator(integer=True))
         ax.grid(True, alpha=0.3)
     axes[0].set_ylabel(ylabel)
-    _split_legend(axes[-1], pair)
+    _split_legend(axes[-1], pair, ds_handles)
     fig.suptitle(title)
     fig.tight_layout()
     return fig
@@ -546,7 +547,7 @@ def plot_final_accuracy_by_dominant_split(pair: ExperimentPair, task_type: int) 
 # internal
 # =========================================================================
 
-def _split_legend(ax, pair: ExperimentPair) -> None:
+def _split_legend(ax, pair: ExperimentPair, ds_handles: list | None = None) -> None:
     behaviors = _present_behaviors(pair)
     beh_handles = [Line2D([0], [0], color=BEHAVIOR_COLORS.get(b, "#888"), lw=_LW,
                           label=BEHAVIOR_LABELS.get(b, b)) for b in behaviors]
@@ -554,4 +555,7 @@ def _split_legend(ax, pair: ExperimentPair) -> None:
                           label=SYSTEM_LABELS[s]) for s, _ in pair.items()]
     leg1 = ax.legend(handles=beh_handles, title="Behavior", loc="upper left", fontsize=8)
     ax.add_artist(leg1)
-    ax.legend(handles=sys_handles, title="System", loc="lower right", fontsize=8)
+    leg2 = ax.legend(handles=sys_handles, title="System", loc="lower right", fontsize=8)
+    if ds_handles:
+        ax.add_artist(leg2)
+        ax.legend(handles=ds_handles, title="Dataset (tint)", loc="lower left", fontsize=7)
