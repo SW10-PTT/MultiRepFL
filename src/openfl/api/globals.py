@@ -12,6 +12,7 @@ reuse_runs: ReplayMode = ReplayMode.Record# | ReplayMode.PlayBack | ReplayMode.H
 gas_used = {}
 repo_dir = "runs"
 progress = 0
+min_free_ram_gb: float | None = None  # lowest free RAM seen during current task
 fp_data_cache: dict = {}   # fingerprint hash → raw data dict used to compute it
 fp_user_labels: dict = {}  # participant finger_print → display name
 

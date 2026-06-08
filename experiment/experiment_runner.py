@@ -154,7 +154,7 @@ def select_participants_for_task(
   When force_remote=True, PytorchModel is not created (no GPU work). A dummy
   model hash (32 zero bytes) is posted to the on-chain JobListing instead.
   """
-  set_enabled_tags(exp_config.enabled_prints)
+  #set_enabled_tags(exp_config.enabled_prints)
   dataset_name = dataset_name.replace(".", "-")
   exp_config.refresh_for_dataset(dataset_name)
   experiment_start = time.perf_counter()
@@ -285,7 +285,7 @@ def run_experiment_from_selection(
           "select_participants_for_task was called with force_remote=True. "
           "Use the direct TRS extraction path in _run_remote instead."
       )
-  set_enabled_tags(exp_config.enabled_prints)
+  #set_enabled_tags(exp_config.enabled_prints)
   exp_config.refresh_for_dataset(state.dataset_name)
 
   pytorch_model = state.pytorch_model

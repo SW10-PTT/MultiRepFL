@@ -953,7 +953,7 @@ def main(auto_graphs: bool = False, cleanup_session: bool = False):
     # Enable print tags immediately so log() calls are visible on the terminal
     # throughout the full session (setup, remote polling, replay, etc.) rather
     # than only after the first run_experiment call activates them.
-    set_enabled_tags(full_config.enabled_prints)
+    #set_enabled_tags(full_config.enabled_prints)
     log("multirep", f"=== MultiRep session started {session_ts} — {preset.name} ===")
     all_users = ExperimentRunner.build_users(full_config)
     # Address maps are scoped to THIS blockchain instance.

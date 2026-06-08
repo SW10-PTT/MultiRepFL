@@ -18,7 +18,7 @@ for _stream in (sys.stdout, sys.stderr):
 config = get_print_config()
 
 # PRITNS ONLY IF IT IS IN ENBALED_TAGES
-ENABLED_TAGS = set(["autorunner", "setup_env"])
+ENABLED_TAGS = set(["setup_env"])
 
 _log_file = None  # file handle set by set_log_file()
 

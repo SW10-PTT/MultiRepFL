@@ -76,6 +76,10 @@ def _check_ram_and_maybe_restart() -> None:
         return
     margin = free_gb - _RAM_THRESHOLD_GB
     log("autorunner", f"[mem] free={free_gb:.2f} GB  threshold={_RAM_THRESHOLD_GB} GB  margin={margin:+.2f} GB")
+    from openfl.api import globals as _globals
+    if _globals.min_free_ram_gb is not None:
+        _peak_margin = _globals.min_free_ram_gb - _RAM_THRESHOLD_GB
+        log("autorunner", f"[mem] task peak: min_free={_globals.min_free_ram_gb:.2f} GB  threshold={_RAM_THRESHOLD_GB} GB  margin={_peak_margin:+.2f} GB")
     if free_gb >= _RAM_THRESHOLD_GB:
         return
     log("autorunner", f"[mem] Only {free_gb:.1f} GB free (need {_RAM_THRESHOLD_GB} GB). Restarting in 30 s...")
@@ -100,8 +104,17 @@ def _git_commit() -> str | None:
     except Exception:
         return None
 
+def unregister_worker():
+    if worker_id is None:
+        return
+    try:
+        requests.post(f"{API}/workers/{worker_id}/unregister", timeout=5)
+    except Exception:
+        pass
+
 def _restart() -> None:
     """Replace this process with a fresh instance. Safe to call from any thread."""
+    unregister_worker()
     args = [sys.executable] + sys.argv
     if platform.system() == "Windows":
         subprocess.Popen(args)
@@ -157,6 +170,7 @@ def claim_run(worker_id):
     data = res.json()
     if data.get("shutdown"):
         log("autorunner", "Server requested shutdown. Exiting.")
+        unregister_worker()
         try:
             from experiment.blockchain_launcher import _cleanup as _bc_cleanup
             _bc_cleanup()
@@ -188,6 +202,7 @@ def heartbeat(worker_id):
                 _switch_to_commit(body["expectedCommit"])
         elif res.ok and res.json().get("shutdown"):
             log("autorunner", "Server requested shutdown. Exiting.")
+            unregister_worker()
             try:
                 from experiment.blockchain_launcher import _cleanup as _bc_cleanup
                 _bc_cleanup()
@@ -507,5 +522,6 @@ if __name__ == "__main__":
     try:
         main()
     finally:
+        unregister_worker()
         if _bc_cleanup is not None:
             _bc_cleanup()

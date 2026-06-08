@@ -1517,6 +1517,23 @@ class FLChallenge(ConnectionHelper):
 
         self._log_round_zero()
 
+        def _sample_free_ram_gb():
+            try:
+                import psutil
+                return psutil.virtual_memory().available / (1024 ** 3)
+            except Exception:
+                try:
+                    with open("/proc/meminfo") as _f:
+                        for _line in _f:
+                            if _line.startswith("MemAvailable:"):
+                                return int(_line.split()[1]) / (1024 * 1024)
+                except Exception:
+                    pass
+            return None
+
+        globals.min_free_ram_gb = None
+        _min_free_gb = float('inf')
+
         for roundnr in range(rounds):
             log("round_boundary", b(f"Round {self.pytorch_model.round} starts..."))
             _round_start = time.perf_counter()
@@ -1596,6 +1613,11 @@ class FLChallenge(ConnectionHelper):
             )
             log("round_scoring",f"round progress: {globals.progress}")
 
+            _free = _sample_free_ram_gb()
+            if _free is not None:
+                _min_free_gb = min(_min_free_gb, _free)
+                globals.min_free_ram_gb = _min_free_gb
+                log("round_boundary", f"[mem] round {self.pytorch_model.round - 1}: free={_free:.2f} GB  peak_min_free={_min_free_gb:.2f} GB")
 
         log("round_scoring", f"Number of Shapley Axioms violated: {len(runtime_warnings)}\n")
         if runtime_warnings:
