@@ -96,6 +96,16 @@ def _generate_pair_graphs(pair: ExperimentPair, out_dir: Path) -> int:
     save_figure(ap.plot_selection_rate_over_time(pair), out_dir / "selection_rate_over_time.png")
     n += 3
 
+    # --- 4b. single-dataset progression variants (no flat gaps) ---
+    for tt in TASK_TYPES:
+        ds = DS_NAME[tt]
+        save_figure(ap.plot_metric_progression(pair, tt, "tr"), out_dir / f"tr_progression_{ds}.png")
+        save_figure(ap.plot_metric_progression(pair, tt, "gir"), out_dir / f"gir_progression_{ds}.png")
+        save_figure(ap.plot_metric_progression(pair, tt, "selection"),
+                    out_dir / f"selection_progression_{ds}.png")
+        save_figure(gp.plot_tr_by_split_progression(pair, tt), out_dir / f"split_tr_{ds}_only.png")
+        n += 4
+
     # --- 5. cold-start selection on CIFAR ---
     save_figure(ap.plot_cold_start_selection(pair), out_dir / "cold_start_cifar_selection.png")
     n += 1
@@ -166,6 +176,14 @@ def _generate_runavg_graphs(exp, out_dir: Path) -> int:
         ]:
             save_figure(fn(rep), out_dir / f"{name}.png")
             n += 1
+        # per-dataset selection frequency (MNIST tasks only / CIFAR tasks only)
+        if "task_type" in rep.columns:
+            for tt, ds in [(5, "mnist"), (6, "cifar10")]:
+                sub = rep[rep["task_type"] == tt]
+                if not sub.empty:
+                    save_figure(mrp.plot_selection_frequency(sub),
+                                out_dir / f"selection_frequency_{ds}.png")
+                    n += 1
     if not ga.empty:
         fig = mrp.plot_accuracy_per_round_per_task(ga)
         if fig.axes:
@@ -190,6 +208,8 @@ def _generate_qvalue_graphs(experiments: list[ExperimentRuns], out_dir: Path) ->
         print("  [info] q-value comparison skipped (need both multirep avg & noqvalue-avg).")
         return 0
     out_dir.mkdir(parents=True, exist_ok=True)
+    save_figure(ap.plot_qvalue_effect(with_q, without_q),
+                out_dir / "qvalue_effect.png")
     save_figure(ap.plot_qvalue_selection_wait(with_q, without_q),
                 out_dir / "qvalue_selection_wait.png")
     print(f"  q-value comparison: {with_q.name}  vs  {without_q.name}")

@@ -263,7 +263,8 @@ def plot_net_earnings_by_split(pair: ExperimentPair) -> plt.Figure:
         ax.set_axisbelow(True)
     axes[0].set_ylabel("Net earnings (ETH, summed task deltas)")
     axes[-1].legend(title="Behavior", fontsize=8)
-    fig.suptitle("Net earnings by data-split & behavior (per-dataset attributed, 0 = break-even)")
+    fig.suptitle("Net earnings by data-split & behavior — both datasets combined "
+                 "(0 = break-even; see *_by_dataset for the MNIST/CIFAR split)")
     fig.tight_layout()
     return fig
 
@@ -448,6 +449,45 @@ def plot_gir_by_split(pair: ExperimentPair) -> plt.Figure:
         pair, lambda rep, exp, tt: rep["gir_post"], "Global Integrity Reputation (GIR)",
         "GIR by data-split (multi-rep only; global-rep has no GIR by design)",
     )
+
+
+def plot_tr_by_split_progression(pair: ExperimentPair, task_type: int) -> plt.Figure:
+    """split_tr restricted to one dataset's tasks, x compressed to consecutive
+    dataset-task number (no flat gaps), faceted by data-split category."""
+    from analysis.multirep_aggregate_plots import _dataset_task_order, _add_behavior_system_legend
+    order = _dataset_task_order(pair, task_type)
+    cats = _present_categories(pair)
+    fig, axes = plt.subplots(1, len(cats), figsize=(5.2 * len(cats), 4.2),
+                             sharey=True, squeeze=False)
+    axes = axes[0]
+    for ax, cat in zip(axes, cats):
+        for system, exp in pair.items():
+            rep = _with_category(exp.reputation_timeline())
+            rep = rep[(rep["split"] == cat) & (rep["task_index"].isin(order))].copy()
+            if rep.empty:
+                continue
+            if exp.system == "globalrep":
+                rep["_v"] = rep["tr_post"]
+            else:
+                rep["_v"] = rep["tr_all_post"].apply(
+                    lambda d: d.get(task_type) if isinstance(d, dict) else None)
+            rep["_x"] = rep["task_index"].map(order)
+            agg = rep.dropna(subset=["_v"]).groupby(["behavior", "_x"])["_v"].mean().reset_index()
+            for behavior, grp in agg.groupby("behavior"):
+                grp = grp.sort_values("_x")
+                ax.plot(grp["_x"], grp["_v"], color=BEHAVIOR_COLORS.get(behavior, "#888"),
+                        ls=SYSTEM_LS[system], lw=_LW, alpha=0.9)
+        ax.set_title(cat)
+        ax.set_xlabel(f"{TASK_TYPE_LABELS[task_type]} task #")
+        ax.set_ylim(0, 1.05)
+        ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+        ax.grid(True, alpha=0.3)
+    axes[0].set_ylabel("Task Reputation (TR)")
+    _add_behavior_system_legend(axes[-1], pair)
+    fig.suptitle(f"{TASK_TYPE_LABELS[task_type]}-only task-reputation by data-split "
+                 "(consecutive dataset tasks; colour=behavior, style=system)")
+    fig.tight_layout()
+    return fig
 
 
 # =========================================================================

@@ -41,6 +41,76 @@ def _user_color(name: str, behavior: str) -> str:
     return base
 
 
+# Colour for a participant's *data-split* leaning, used to tint name labels so
+# users are distinguishable even when many lines overlap.
+_SPLIT_LABEL_COLORS = {"mnist": "#1565C0", "cifar": "#E65100", "balanced": "#555555"}
+
+
+def _split_label_color(name: str) -> str:
+    nl = (name or "").lower()
+    mnist = ("mnist-heavy" in nl or "mnist-strong" in nl
+             or nl.split(" ", 1)[-1].startswith("mnist"))
+    cifar = ("cifar-heavy" in nl or "cifar-strong" in nl
+             or nl.split(" ", 1)[-1].startswith("cifar"))
+    if mnist and not cifar:
+        return _SPLIT_LABEL_COLORS["mnist"]
+    if cifar and not mnist:
+        return _SPLIT_LABEL_COLORS["cifar"]
+    return _SPLIT_LABEL_COLORS["balanced"]
+
+
+_DATASET_TINT = {5: "#2196F3", 6: "#FF9800"}  # MNIST, CIFAR-10
+
+
+def _shade_datasets(ax, rep: pd.DataFrame) -> None:
+    """Tint the background per dataset run + dashed lines at switches, so flat
+    stretches (e.g. CIFAR TR during a run of MNIST tasks) are legible."""
+    if "task_type" not in rep.columns:
+        return
+    mp = (rep[["task_index", "task_type"]].dropna().drop_duplicates()
+          .sort_values("task_index"))
+    items = list(mp.itertuples(index=False))
+    if not items:
+        return
+    start = prev = items[0].task_index
+    cur = items[0].task_type
+    segs = []
+    for row in items[1:]:
+        if row.task_type != cur:
+            segs.append((start, prev, cur))
+            start, cur = row.task_index, row.task_type
+        prev = row.task_index
+    segs.append((start, prev, cur))
+    for i, (s, e, tt) in enumerate(segs):
+        ax.axvspan(s - 0.5, e + 0.5, color=_DATASET_TINT.get(int(tt), "#999"),
+                   alpha=0.06, zorder=0)
+        if i > 0:
+            ax.axvline(s - 0.5, color="#555", ls=":", lw=1, alpha=0.5, zorder=1)
+
+
+def _annotate_end(ax, grp: pd.DataFrame, col: str, name: str) -> None:
+    """Label a user's line at its last point; text colour = data-split leaning."""
+    grp = grp.dropna(subset=[col])
+    if grp.empty:
+        return
+    last = grp.sort_values("task_index").iloc[-1]
+    short = name if len(name) <= 16 else name[:15] + "…"
+    ax.annotate(short, (last["task_index"], last[col]),
+                xytext=(3, 0), textcoords="offset points",
+                fontsize=6, va="center", color=_split_label_color(name),
+                clip_on=False)
+
+
+def _split_label_legend(ax) -> None:
+    """Add a small legend explaining the name-label colour scheme."""
+    handles = [
+        Line2D([0], [0], color=_SPLIT_LABEL_COLORS["mnist"], lw=0, marker="$A$", label="MNIST-leaning name"),
+        Line2D([0], [0], color=_SPLIT_LABEL_COLORS["cifar"], lw=0, marker="$A$", label="CIFAR-leaning name"),
+        Line2D([0], [0], color=_SPLIT_LABEL_COLORS["balanced"], lw=0, marker="$A$", label="balanced name"),
+    ]
+    ax.add_artist(ax.legend(handles=handles, title="Name colour", loc="lower right", fontsize=6))
+
+
 def _drop_inactive(rep: pd.DataFrame) -> pd.DataFrame:
     return rep[rep["behavior"] != "inactive"]
 
@@ -85,6 +155,7 @@ def plot_tr_over_tasks(rep: pd.DataFrame) -> plt.Figure:
         color = BEHAVIOR_COLORS.get(behavior, "#888")
         ax.plot(grp["task_index"], grp["tr_post"], color=color, linewidth=_LW, alpha=0.7,
                 label=f"{name} ({BEHAVIOR_LABELS.get(behavior, behavior)})")
+        _annotate_end(ax, grp, "tr_post", name)
 
     ax.set_xlabel("Task")
     ax.set_ylabel("Task Reputation (TR)")
@@ -104,6 +175,7 @@ def plot_gir_over_tasks(rep: pd.DataFrame) -> plt.Figure:
         grp = grp.sort_values("task_index")
         color = BEHAVIOR_COLORS.get(behavior, "#888")
         ax.plot(grp["task_index"], grp["gir_post"], color=color, linewidth=_LW, alpha=0.7)
+        _annotate_end(ax, grp, "gir_post", name)
 
     ax.set_xlabel("Task")
     ax.set_ylabel("Global Integrity Reputation (GIR)")
@@ -149,6 +221,7 @@ def plot_balance_over_tasks(rep: pd.DataFrame) -> plt.Figure:
         grp = grp.sort_values("task_index")
         color = BEHAVIOR_COLORS.get(behavior, "#888")
         ax.plot(grp["task_index"], grp["balance_post"], color=color, linewidth=_LW, alpha=0.7)
+        _annotate_end(ax, grp, "balance_post", name)
 
     ax.set_xlabel("Task")
     ax.set_ylabel("Balance (ETH)")
@@ -174,6 +247,7 @@ def plot_confidence_over_tasks(rep: pd.DataFrame) -> plt.Figure:
         grp = grp.sort_values("task_index")
         color = BEHAVIOR_COLORS.get(behavior, "#888")
         ax.plot(grp["task_index"], grp["confidence"], color=color, linewidth=_LW, alpha=0.7)
+        _annotate_end(ax, grp, "confidence", name)
 
     ax.set_xlabel("Task index")
     ax.set_ylabel("Confidence")
@@ -220,6 +294,7 @@ def _plot_metric_by_behavior(rep: pd.DataFrame, col: str, ylabel: str, initial_v
     if add_zero_row:
         rep = _with_round_zero(rep, {col: initial_val})
     fig, ax = plt.subplots(figsize=(9, 4))
+    _shade_datasets(ax, rep)
     agg = (
         rep.groupby(["behavior", "task_index"])[col]
         .agg(["mean", "std"])
@@ -320,6 +395,7 @@ def plot_selection_score_over_tasks(rep: pd.DataFrame) -> plt.Figure:
         ax.plot(grp["task_index"], grp["selection_score"], color=color, linewidth=_LW, alpha=0.5)
         sel = grp[grp["was_selected"]]
         ax.scatter(sel["task_index"], sel["selection_score"], color=color, s=25, zorder=5)
+        _annotate_end(ax, grp, "selection_score", name)
 
     ax.set_xlabel("Task")
     ax.set_ylabel("Selection score")

@@ -543,6 +543,68 @@ def plot_selection_rate_over_time(pair: ExperimentPair) -> plt.Figure:
 
 
 # =========================================================================
+# 4b. Single-dataset progression (only MNIST tasks, or only CIFAR tasks)
+# =========================================================================
+
+def _dataset_task_order(pair: ExperimentPair, task_type: int) -> dict[int, int]:
+    """task_index -> consecutive 0-based position among tasks of *task_type*."""
+    mp = _task_dataset_map(pair)
+    tis = sorted(ti for ti, tt in mp.items() if tt == task_type)
+    return {ti: i for i, ti in enumerate(tis)}
+
+
+def _progression_value(sub: pd.DataFrame, exp: ExperimentRuns, metric: str, task_type: int):
+    if metric == "tr":
+        if exp.system == "globalrep":
+            return sub["tr_post"]
+        return sub["tr_all_post"].apply(lambda d: d.get(task_type) if isinstance(d, dict) else None)
+    if metric == "gir":
+        return sub["gir_post"]
+    return sub["was_selected"].astype(float)
+
+
+def plot_metric_progression(pair: ExperimentPair, task_type: int, metric: str) -> plt.Figure:
+    """A metric over *only* the tasks of one dataset, x compressed to consecutive
+    dataset-task number — no flat gaps from the other dataset.
+
+    multi-rep shows that dataset's per-task reputation building continuously;
+    global-rep shows its single global bucket sampled at those tasks (so it keeps
+    rising across both datasets — the same global line appears in both variants).
+    """
+    order = _dataset_task_order(pair, task_type)
+    ylabel = {"tr": "Task Reputation (TR)", "gir": "Global Integrity Reputation (GIR)",
+              "selection": "Selection rate"}[metric]
+    fig, ax = plt.subplots(figsize=(9, 4.5))
+    for system, exp in pair.items():
+        rep = exp.reputation_timeline()
+        if rep.empty:
+            continue
+        sub = rep[rep["task_index"].isin(order)].copy()
+        if sub.empty:
+            continue
+        sub["_v"] = _progression_value(sub, exp, metric, task_type)
+        sub["_x"] = sub["task_index"].map(order)
+        agg = sub.dropna(subset=["_v"]).groupby(["behavior", "_x"])["_v"].mean().reset_index()
+        for behavior, grp in agg.groupby("behavior"):
+            grp = grp.sort_values("_x")
+            ax.plot(grp["_x"], grp["_v"], color=BEHAVIOR_COLORS.get(behavior, "#888"),
+                    ls=SYSTEM_LS[system], lw=_LW, alpha=0.9)
+    ax.set_xlabel(f"{TASK_TYPE_LABELS[task_type]} task # (consecutive, other dataset removed)")
+    ax.set_ylabel(ylabel)
+    if metric != "selection":
+        ax.set_ylim(0, 1.05)
+    else:
+        ax.set_ylim(-0.02, 1.02)
+    ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+    ax.grid(True, alpha=0.3)
+    ax.set_title(f"{TASK_TYPE_LABELS[task_type]}-only {ylabel} progression "
+                 "(colour=behavior, style=system)")
+    _add_behavior_system_legend(ax, pair)
+    fig.tight_layout()
+    return fig
+
+
+# =========================================================================
 # 5. Cold-start: do GIR-only users get picked for CIFAR before no-rep users?
 # =========================================================================
 
@@ -725,6 +787,84 @@ def _selection_waits(exp: ExperimentRuns) -> pd.DataFrame:
         mean_gap = float(np.mean(np.diff(sel_pos))) if len(sel_pos) >= 2 else np.nan
         rows.append({"max_wait": max_wait, "mean_gap": mean_gap})
     return pd.DataFrame(rows)
+
+
+def _qvalue_user_stats(exp: ExperimentRuns) -> pd.DataFrame:
+    """Per (run, user): selection count, longest idle streak, mean TR."""
+    rep = exp.reputation_timeline()
+    rows = []
+    if rep.empty:
+        return pd.DataFrame(columns=["n_sel", "max_idle", "mean_tr"])
+    for (_run, _guid), g in rep.groupby(["run", "guid"]):
+        g = g.sort_values("task_index")
+        sel = g["was_selected"].to_numpy().astype(bool)
+        mw = cur = 0
+        for s in sel:
+            cur = 0 if s else cur + 1
+            mw = max(mw, cur)
+        rows.append({"n_sel": int(sel.sum()), "max_idle": mw,
+                     "mean_tr": float(g["tr_post"].mean())})
+    return pd.DataFrame(rows)
+
+
+def _gini(x: np.ndarray) -> float:
+    x = np.sort(np.asarray(x, dtype=float))
+    n = len(x)
+    if n == 0 or x.sum() == 0:
+        return 0.0
+    idx = np.arange(1, n + 1)
+    return float((2 * (idx * x).sum() - (n + 1) * x.sum()) / (n * x.sum()))
+
+
+def plot_qvalue_effect(with_q: ExperimentRuns, without_q: ExperimentRuns) -> plt.Figure:
+    """Three clear views of what the Q-value (long-unselected bonus) does to
+    selection fairness:
+
+      (a) Lorenz curve of selection counts — how (un)equally picks are shared.
+      (b) Per-user selection count, ranked — flat = everyone gets turns.
+      (c) Selection count vs mean TR — without Q, picks track TR (rich-get-richer);
+          the Q-value decouples them so idle good users still get in.
+    """
+    variants = [("With Q-value", "#1b9e77", _qvalue_user_stats(with_q)),
+                ("Without Q-value", "#d95f02", _qvalue_user_stats(without_q))]
+    fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(16, 4.6))
+
+    for label, color, st in variants:
+        if st.empty:
+            continue
+        # (a) Lorenz curve
+        x = np.sort(st["n_sel"].to_numpy(dtype=float))
+        cum = np.cumsum(x)
+        cum = np.insert(cum / cum[-1], 0, 0) if cum[-1] > 0 else np.linspace(0, 1, len(x) + 1)
+        frac = np.linspace(0, 1, len(cum))
+        ax1.plot(frac, cum, color=color, lw=_LW, label=f"{label} (Gini={_gini(x):.2f})")
+        # (b) ranked selection counts
+        ranked = np.sort(st["n_sel"].to_numpy())[::-1]
+        ax2.plot(range(1, len(ranked) + 1), ranked, color=color, lw=_LW, marker="o",
+                 ms=3, label=label)
+        # (c) selection count vs mean TR
+        ax3.scatter(st["mean_tr"], st["n_sel"], color=color, alpha=0.6, s=24, label=label)
+
+    ax1.plot([0, 1], [0, 1], color="#999", ls="--", lw=1, label="perfect equality")
+    ax1.set_xlabel("Cumulative share of users (poorest→richest)")
+    ax1.set_ylabel("Cumulative share of selections")
+    ax1.set_title("(a) Selection inequality (Lorenz)")
+    ax1.legend(fontsize=8); ax1.grid(True, alpha=0.3)
+
+    ax2.set_xlabel("User rank")
+    ax2.set_ylabel("Times selected")
+    ax2.set_title("(b) Selection count per user, ranked")
+    ax2.legend(fontsize=8); ax2.grid(True, alpha=0.3)
+
+    ax3.set_xlabel("User mean TR")
+    ax3.set_ylabel("Times selected")
+    ax3.set_title("(c) Selection vs reputation")
+    ax3.legend(fontsize=8); ax3.grid(True, alpha=0.3)
+
+    fig.suptitle("Effect of the Q-value on selection fairness "
+                 "(flatter Lorenz / lower Gini / flatter rank = more rotation)")
+    fig.tight_layout()
+    return fig
 
 
 def plot_qvalue_selection_wait(with_q: ExperimentRuns, without_q: ExperimentRuns) -> plt.Figure:
