@@ -453,3 +453,123 @@ def test_selection_parity_with_nonzero_q_weight():
     py  = _py_get_top_n(users, task_type, 4, q_weight, 6, 4)
     sol = _sol_get_top_n(users, task_type, 4, q_weight, 6, 4)
     _assert_same_selection(py, sol)
+
+
+# ===========================================================================
+# Q-slot cap parity tests (JobListing._getTopNCapped + _pickTopK)
+# ===========================================================================
+
+def _sol_pick_top_k(users, chosen, task_type, k, include_q, q_weight, tr_weight, gir_weight):
+    """Mirror Solidity _pickTopK: mark the k strongest not-yet-chosen users.
+
+    Strongest = higher score (Q bonus iff include_q), ties broken by lower
+    tiebreaker (lower fingerprint), exactly as _isWeaker orders them.
+    """
+    for _ in range(k):
+        best = None
+        best_score = 0
+        best_tb = b''
+        for u in users:
+            if u in chosen:
+                continue
+            qw = q_weight if include_q else 0
+            score = _sol_score(
+                u.task_rep.get(task_type, 0), u.global_integrity_rep,
+                u.q_value.get(task_type, 0), qw, tr_weight, gir_weight,
+            )
+            tb = bytes.fromhex(u.finger_print)
+            if best is None or not _sol_is_weaker(score, tb, best_score, best_tb):
+                best, best_score, best_tb = u, score, tb
+        if best is None:
+            break
+        chosen.add(best)
+
+
+def _sol_get_top_n_capped(users, task_type, n, q_slot_limit, q_weight, tr_weight, gir_weight):
+    """Mirror Solidity _getTopNCapped: rep slots by base score, q slots by full score."""
+    q_slots = min(q_slot_limit, n)
+    rep_slots = n - q_slots
+    chosen = set()
+    _sol_pick_top_k(users, chosen, task_type, rep_slots, False, q_weight, tr_weight, gir_weight)
+    _sol_pick_top_k(users, chosen, task_type, n - rep_slots, True, q_weight, tr_weight, gir_weight)
+    return list(chosen)
+
+
+def _py_get_top_n_capped(users, task_type, n, q_slot_limit, q_weight, tr_weight, gir_weight):
+    """Mirror multirep.getTopN capped branch."""
+    fps = {u: u.finger_print for u in users}
+
+    def score(u, qw):
+        return _sol_score(
+            u.task_rep.get(task_type, 0), u.global_integrity_rep,
+            u.q_value.get(task_type, 0), qw, tr_weight, gir_weight,
+        )
+
+    q_slots = min(max(q_slot_limit, 0), n)
+    rep_slots = n - q_slots
+    by_base = sorted(users, key=lambda u: (-score(u, 0), fps[u]))
+    rep_selected = by_base[:rep_slots]
+    rep_ids = {id(u) for u in rep_selected}
+    pool = [u for u in users if id(u) not in rep_ids]
+    pool.sort(key=lambda u: (-score(u, q_weight), fps[u]))
+    return rep_selected + pool[:q_slots]
+
+
+def test_capped_python_solidity_parity():
+    """Capped Python and Solidity mirrors must select the same set."""
+    task_type = 6
+    users = _make_users(10, task_type, task_rep=0, gir=_WAD, q=0)
+    for i, u in enumerate(users):
+        u.set_rep(task_type, (i % 4) * _WAD // 2, q=((9 - i) % 5) * _WAD // 3)
+        u.global_integrity_rep = (i % 3) * _WAD // 2
+
+    q_weight = int(0.5 * _WAD)
+    for q_limit in (0, 1, 2, 4):
+        py  = _py_get_top_n_capped(users, task_type, 6, q_limit, q_weight, 6, 4)
+        sol = _sol_get_top_n_capped(users, task_type, 6, q_limit, q_weight, 6, 4)
+        _assert_same_selection(py, sol)
+
+
+def test_capped_zero_q_slots_ignores_q():
+    """q_slot_limit=0 → all slots by base score; a huge-Q low-rep user is excluded."""
+    task_type = 6
+    # High-rep users 0..5, plus a low-rep but huge-Q user that would win uncapped.
+    users = _make_users(6, task_type, task_rep=2 * _WAD, gir=_WAD, q=0)
+    sneaker = _User(seed=999, task_rep=0, gir=0, q=0)
+    sneaker.set_rep(task_type, 0, 100 * _WAD)  # massive Q
+    users.append(sneaker)
+
+    q_weight = _WAD
+    capped = _py_get_top_n_capped(users, task_type, 6, 0, q_weight, 6, 4)
+    sol = _sol_get_top_n_capped(users, task_type, 6, 0, q_weight, 6, 4)
+    _assert_same_selection(capped, sol)
+    assert sneaker.address not in {u.address for u in capped}, "Q got a slot despite limit=0"
+
+
+def test_capped_q_slot_admits_high_q_user_within_limit():
+    """With one q slot, the huge-Q user takes exactly that slot, not a rep slot."""
+    task_type = 6
+    users = _make_users(6, task_type, task_rep=2 * _WAD, gir=_WAD, q=0)
+    sneaker = _User(seed=999, task_rep=0, gir=0, q=0)
+    sneaker.set_rep(task_type, 0, 100 * _WAD)
+    users.append(sneaker)
+
+    q_weight = _WAD
+    py  = _py_get_top_n_capped(users, task_type, 6, 1, q_weight, 6, 4)
+    sol = _sol_get_top_n_capped(users, task_type, 6, 1, q_weight, 6, 4)
+    _assert_same_selection(py, sol)
+    assert sneaker.address in {u.address for u in py}, "high-Q user missed its q slot"
+
+
+def test_capped_full_limit_equals_uncapped():
+    """q_slot_limit >= N degrades to the uncapped full-score selection."""
+    task_type = 6
+    users = _make_users(8, task_type, task_rep=0, gir=_WAD, q=0)
+    for i, u in enumerate(users):
+        u.set_rep(task_type, (i % 3) * _WAD, q=(i % 4) * _WAD // 2)
+        u.global_integrity_rep = (i % 2) * _WAD
+
+    q_weight = int(0.3 * _WAD)
+    capped   = _py_get_top_n_capped(users, task_type, 4, 4, q_weight, 6, 4)
+    uncapped = _py_get_top_n(users, task_type, 4, q_weight, 6, 4)
+    _assert_same_selection(capped, uncapped)

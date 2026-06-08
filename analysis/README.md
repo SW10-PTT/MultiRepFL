@@ -235,11 +235,21 @@ Q-value comparison.
 | Final accuracy & timing | `final_accuracy.png`, `time_to_accuracy_{threshold,fraction}.png` |
 | Selection | `selection_rate_<ds>.png`, `selection_rate_over_time.png`, `split_selection_propensity.png`, `cold_start_*.png` |
 | Reputation | `tr_development.png`, `gir_development.png`, `score_decomposition.png`, `taskrep_accuracy_corr_<ds>.png` |
-| Data-split groups | `split_{selection,tr,gir}_*.png`, `split_net_earnings*.png`, `mixed_behavior_users.png` |
-| Integrity / economics | `kicked_{round,rate}.png`, `freerider_economics.png` |
-| Reproducibility | `run_variability.png`, `selection_efficiency_<ds>.png` |
-| Per-system run-averaged ports | `runavg-<globalrep\|multirep>/*.png` |
+| Specialisation (two-layer signature) | `tr_cross_task_transfer.png` (MNIST-TR vs CIFAR-TR per user; global-rep on y=x, multi-rep spreads), `specialization_heatmap.png` (user × dataset TR) |
+| Data-split groups | `split_{selection,tr,gir}_*.png`, `split_net_earnings*.png`, `mixed_behavior_users.png`, `contrib_vs_data_richness_<ds>.png`, `selection_merit_spearman.png` |
+| Integrity / economics | `kicked_{round,rate}.png`, `freerider_economics.png`, `cumulative_earnings_by_behavior.png`, `detection_rate_over_time.png` (adversarial — populated for the task-hopper experiments) |
+| Reproducibility / significance | `run_variability.png`, `selection_efficiency_<ds>.png`, `final_accuracy_ci.png` (95% CI over *distinct* curves + Welch p) |
+| Per-system run-averaged ports | `runavg-<globalrep\|multirep>/*.png`, incl. `*_selected_progression.png` (TR/GIR/balance plotted only at the tasks each user was selected for, x = n-th selection) |
 | Q-value comparison | `figures/aggregate/qvalue-comparison/qvalue_selection_wait.png` |
+
+> **Variance honesty.** Fingerprint cache-hits do not re-log results — the loader
+> back-fills each cached task slot from the one computed curve sharing its
+> fingerprint. Aggregate statistics (curves, final accuracy, time-to-accuracy,
+> run variability) collapse those clones to one row per `(run, fingerprint)` so
+> the bands/CIs reflect genuinely distinct runs, not duplicated curves.
+> Behaviour-split graphs (`freerider_economics`, adversarial graphs) are
+> meaningful only where adversaries exist (task-hopper); they self-skip with a
+> note on the adversary-free data-split experiments.
 
 > **Caveat — re-run global-rep first.** A replay bug in `_apply_trs_reps`
 > (now fixed) let global-rep accrue GIR and per-task-type TR it should not have.
