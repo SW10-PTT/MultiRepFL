@@ -25,6 +25,8 @@ from analysis.multirep_aggregate_loader import (  # noqa: E402
 from analysis import multirep_aggregate_plots as ap  # noqa: E402
 from analysis import multirep_grouped_plots as gp  # noqa: E402
 from analysis import multirep_runavg as ra  # noqa: E402
+from analysis import multirep_plots as mrp  # noqa: E402
+from analysis import multirep_thesis_plots as tp  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -235,3 +237,98 @@ def test_mixed_user_table_picks_only_mixed():
     u1 = t.set_index("task_type")
     assert u1.loc[5, "behavior"] == "freerider" and u1.loc[5, "delta"] == pytest.approx(2.0)
     assert u1.loc[6, "behavior"] == "honest" and u1.loc[6, "delta"] == pytest.approx(1.0)
+
+
+# ---------------------------------------------------------------------------
+# variance honesty: fingerprint cache-clone dedupe
+# ---------------------------------------------------------------------------
+
+def test_distinct_curves_collapses_fingerprint_clones():
+    # two task slots share fingerprint "a" (a cache clone) + one distinct "b"
+    df = pd.DataFrame({
+        "run": [0, 0, 0, 0],
+        "fingerprint": ["a", "a", "b", "b"],
+        "round": [0, 0, 0, 0],
+        "task_index": [0, 1, 2, 2],
+        "v": [0.5, 0.5, 0.9, 0.9],
+    })
+    out = ap._distinct_curves(df)
+    assert len(out) == 2                      # one row per (run, fingerprint, round)
+    assert ap._n_curves(df) == 2              # 2 distinct (run, fingerprint) curves
+
+
+def test_curve_ignores_duplicated_fingerprint_for_std():
+    # without dedupe the clone would shrink std toward 0; with dedupe std reflects
+    # the two genuinely-distinct curves only.
+    df = pd.DataFrame({
+        "run": [0, 0, 0],
+        "fingerprint": ["a", "a", "b"],   # 'a' duplicated
+        "round": [0, 0, 0],
+        "v": [0.2, 0.2, 0.8],
+    })
+    _x, c, _lo, _hi = ap._curve(df, "v", "mean")
+    assert c[0] == pytest.approx(0.5)         # mean of the two distinct curves (0.2, 0.8)
+
+
+# ---------------------------------------------------------------------------
+# selected-only progression (x = n-th selection)
+# ---------------------------------------------------------------------------
+
+def test_selected_reindex_drops_unselected_and_renumbers():
+    rep = pd.DataFrame([
+        dict(run=0, user_name="U", behavior="honest", task_index=0, was_selected=True, tr_post=0.1),
+        dict(run=0, user_name="U", behavior="honest", task_index=1, was_selected=False, tr_post=0.1),
+        dict(run=0, user_name="U", behavior="honest", task_index=2, was_selected=True, tr_post=0.3),
+    ])
+    out = mrp._selected_reindex(rep, "tr_post")
+    assert list(out["nth"]) == [1, 2]                 # only the two selected tasks
+    assert out.loc[out["nth"] == 2, "tr_post"].iloc[0] == pytest.approx(0.3)
+
+
+def test_selected_reindex_averages_across_runs():
+    rep = pd.DataFrame([
+        dict(run=0, user_name="U", behavior="honest", task_index=0, was_selected=True, tr_post=0.2),
+        dict(run=1, user_name="U", behavior="honest", task_index=0, was_selected=True, tr_post=0.4),
+    ])
+    out = mrp._selected_reindex(rep, "tr_post")
+    assert out.loc[out["nth"] == 1, "tr_post"].iloc[0] == pytest.approx(0.3)  # mean(0.2,0.4)
+
+
+# ---------------------------------------------------------------------------
+# thesis helpers: spearman, welch, cross-task TR
+# ---------------------------------------------------------------------------
+
+def test_spearman_monotonic_and_degenerate():
+    assert tp._spearman(np.array([1, 2, 3, 4]), np.array([2, 4, 6, 8])) == pytest.approx(1.0)
+    assert tp._spearman(np.array([1, 2, 3, 4]), np.array([8, 6, 4, 2])) == pytest.approx(-1.0)
+    assert np.isnan(tp._spearman(np.array([1, 1, 1]), np.array([1, 2, 3])))  # no spread
+
+
+def test_welch_p_separated_vs_identical():
+    near0 = tp._welch_p(np.array([10.0, 10.1, 9.9]), np.array([0.0, 0.1, -0.1]))
+    assert near0 < 0.05                       # clearly separated means
+    high = tp._welch_p(np.array([1.0, 2.0, 3.0]), np.array([1.0, 2.0, 3.0]))
+    assert high == pytest.approx(1.0, abs=1e-6)  # identical → no difference
+
+
+def test_final_tr_per_user_globalrep_on_diagonal():
+    rep = pd.DataFrame([
+        dict(run=0, user_name="U", behavior="honest", task_index=0, tr_post=0.6,
+             tr_all_post={5: 0.6, 6: 0.6}),
+    ])
+    exp = ExperimentRuns(name="EXP-globalrep-x", system="globalrep", pair_key="k",
+                         sessions=[MultirepSession(session_id="s", preset_name="p",
+                         session_timestamp="t", preset={}, reputation_timeline=rep,
+                         global_accuracy=pd.DataFrame(), tasks=[])])
+    df = tp._final_tr_per_user(exp)
+    assert df["tr_mnist"].iloc[0] == df["tr_cifar"].iloc[0] == pytest.approx(0.6)
+
+
+def test_final_tr_per_user_multirep_splits_task_types():
+    rep = pd.DataFrame([
+        dict(run=0, user_name="U", behavior="honest", task_index=0, tr_post=0.0,
+             tr_all_post={5: 0.5, 6: 0.1}),
+    ])
+    df = tp._final_tr_per_user(_exp_from_rep(rep))
+    assert df["tr_mnist"].iloc[0] == pytest.approx(0.5)
+    assert df["tr_cifar"].iloc[0] == pytest.approx(0.1)

@@ -17,6 +17,11 @@ class MultirepPreset:
     q_weight: float = 0.0
     tr_weight: int = 6
     gir_weight: int = 4
+    # Cap on how many slots may be won via the Q bonus. Off by default; when off
+    # selection is unchanged. When on, only q_slot_limit slots use the Q bonus —
+    # the rest go to the highest base TR/GIR scores with no Q help.
+    q_slot_limit_enabled: bool = False
+    q_slot_limit: int = 0
 
     # --- Infrastructure ---
     training_mode: TrainingMode = TrainingMode.REMOTE
@@ -47,6 +52,8 @@ class MultirepPreset:
             q_weight=         float(data.get("q_weight", 0.0)),
             tr_weight=        int(data.get("tr_weight", 6)),
             gir_weight=       int(data.get("gir_weight", 4)),
+            q_slot_limit_enabled= bool(data.get("q_slot_limit_enabled", False)),
+            q_slot_limit=     int(data.get("q_slot_limit", 0)),
             training_mode=    TrainingMode.from_string(data.get("training_mode", "remote")),
             fork=             bool(data.get("fork", True)),
             replication_factor= float(data.get("replication_factor", 1.0)),

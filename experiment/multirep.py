@@ -104,19 +104,39 @@ def compute_user_score(user: User, task_type: int, q_weight: int = 0, tr_weight:
     return normal_weight + (q_weight * q) // _WAD
 
 
-def getTopN(users: List[User], n: int, task_type: int, q_weight: int = 0, tr_weight: int = 6, gir_weight: int = 4) -> List[User]:
+def getTopN(users: List[User], n: int, task_type: int, q_weight: int = 0, tr_weight: int = 6, gir_weight: int = 4,
+            q_slot_limit_enabled: bool = False, q_slot_limit: int = 0) -> List[User]:
     """Mirror the smart contract's participant selection (retained for debugging/analysis)."""
     fps = {u: u.finger_print for u in users}
+    if q_slot_limit_enabled:
+        # Mirror JobListing._getTopNCapped: fill (n - q_slots) by base score
+        # (no Q bonus), then the remaining q_slots by full score from the rest.
+        q_slots = min(max(q_slot_limit, 0), n)
+        rep_slots = n - q_slots
+        by_base = sorted(users, key=lambda u: (-compute_user_score(u, task_type, 0, tr_weight, gir_weight), fps[u]))
+        rep_selected = by_base[:rep_slots]
+        rep_ids = {id(u) for u in rep_selected}
+        pool = [u for u in users if id(u) not in rep_ids]
+        pool.sort(key=lambda u: (-compute_user_score(u, task_type, q_weight, tr_weight, gir_weight), fps[u]))
+        selected = rep_selected + pool[:q_slots]
+    else:
+        selected = None  # computed from scores below
+    selected_set = {u.address for u in selected} if selected is not None else None
+
+    # Full-score ranking, used for the logging table (and as the selection in the
+    # uncapped path).
     scores = [(compute_user_score(u, task_type, q_weight, tr_weight, gir_weight), u) for u in users]
     scores.sort(key=lambda x: (-x[0], fps[x[1]]))
-    selected = [u for _, u in scores[:n]]
-    selected_set = {u.address for u in selected}
+    if selected is None:
+        selected = [u for _, u in scores[:n]]
+        selected_set = {u.address for u in selected}
 
     for _, u in scores:
         label = u.partition_spec.name if (u.partition_spec and u.partition_spec.name) else f"User {u.number}"
         fl_globals.fp_user_labels[fps[u]] = label
 
-    log("multirep", f"Selection (top {n} of {len(users)}, task_type={task_type}, q_weight={q_weight / _WAD:.4f}, tr={tr_weight}, gir={gir_weight}):")
+    cap_note = f", q_slot_limit={q_slot_limit}" if q_slot_limit_enabled else ""
+    log("multirep", f"Selection (top {n} of {len(users)}, task_type={task_type}, q_weight={q_weight / _WAD:.4f}, tr={tr_weight}, gir={gir_weight}{cap_note}):")
     log("multirep", f"  {'Name':<16} {'TR':>8} {'GIR':>8} {'Q':>8} {'Score':>10}  fp[:8]  sel")
     for score, u in scores:
         marker = "YES" if u.address in selected_set else "no"
@@ -898,6 +918,8 @@ def _apply_preset_config(exp_config: ExperimentConfiguration, preset) -> None:
     exp_config.global_rep_only    = preset.global_rep_only
     exp_config.vote_baseline      = preset.vote_baseline
     exp_config.fork               = preset.fork
+    exp_config.q_slot_limit_enabled = preset.q_slot_limit_enabled
+    exp_config.q_slot_limit       = preset.q_slot_limit
 
 
 # ---------------------------------------------------------------------------
@@ -967,7 +989,7 @@ def main(auto_graphs: bool = False, cleanup_session: bool = False):
     publisher = all_users[0]
     rpc = get_RPC_Endpoint()
     privkeys = get_PRIVKEYS(full_config)
-    manager = Manager(publisher, True).init(
+    manager = Manager(publisher, True, global_rep_only=preset.global_rep_only).init(
         full_config.number_of_good_contributors,
         full_config.number_of_bad_contributors,
         full_config.number_of_freerider_contributors,
@@ -976,6 +998,7 @@ def main(auto_graphs: bool = False, cleanup_session: bool = False):
         rpc,
         privkeys,
     )
+    manager.assert_reputation_mode()
 
     # Replace the static fallback enum with the authoritative definition from the contract.
     global _task_type_enum, _REAL_TASK_TYPES
@@ -993,6 +1016,16 @@ def main(auto_graphs: bool = False, cleanup_session: bool = False):
     tr_weight = preset.tr_weight
     gir_weight = preset.gir_weight
     experiment_name = preset.name
+
+    # Session config summary — surfaces selection knobs in one place so a
+    # misconfigured/missing toggle is caught up front (cf. the global_rep_only
+    # regression that slipped through in one path).
+    _cap_desc = (f"ON (limit={preset.q_slot_limit}: {preset.q_slot_limit} of "
+                 f"N slots may use Q, rest by base TR/GIR)"
+                 if preset.q_slot_limit_enabled else "OFF")
+    log("multirep", f"Selection config: q_weight={preset.q_weight}, tr_weight={tr_weight}, "
+                    f"gir_weight={gir_weight}, global_rep_only={preset.global_rep_only}, "
+                    f"q_slot_limit={_cap_desc}")
     session_state: dict = {"experiment_id": None}  # persists experiment_id across tasks for REMOTE mode
 
     for i, task in enumerate(tasks):

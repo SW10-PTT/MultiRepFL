@@ -46,6 +46,8 @@ class TrainingSpecsJobListing:
     q_weight: int = 0   # WAD-scaled (1e18); mirrors trainingSpecs.qWeight in Solidity
     tr_weight: int = 6  # taskRep multiplier; mirrors trainingSpecs.trWeight in Solidity
     gir_weight: int = 4 # GIR multiplier; mirrors trainingSpecs.girWeight in Solidity
+    q_slot_limit_enabled: bool = False # mirrors trainingSpecs.qSlotLimitEnabled
+    q_slot_limit: int = 0              # mirrors trainingSpecs.qSlotLimit
 
     def to_solidity_job(self):
         return (
@@ -76,6 +78,8 @@ class TrainingSpecsJobListing:
             q_weight=self.q_weight,
             tr_weight=self.tr_weight,
             gir_weight=self.gir_weight,
+            q_slot_limit_enabled=self.q_slot_limit_enabled,
+            q_slot_limit=self.q_slot_limit,
             contribution_score_strategy=contribution_score_strategy,
             joblisting_address=joblisting_address,
             outlier_detection=outlier_detection,

@@ -41,6 +41,112 @@ def _user_color(name: str, behavior: str) -> str:
     return base
 
 
+# Colour for a participant's *data-split* leaning, used to tint name labels so
+# users are distinguishable even when many lines overlap.
+_SPLIT_LABEL_COLORS = {"mnist": "#1565C0", "cifar": "#E65100", "balanced": "#555555"}
+
+
+def _split_label_color(name: str) -> str:
+    nl = (name or "").lower()
+    mnist = ("mnist-heavy" in nl or "mnist-strong" in nl
+             or nl.split(" ", 1)[-1].startswith("mnist"))
+    cifar = ("cifar-heavy" in nl or "cifar-strong" in nl
+             or nl.split(" ", 1)[-1].startswith("cifar"))
+    if mnist and not cifar:
+        return _SPLIT_LABEL_COLORS["mnist"]
+    if cifar and not mnist:
+        return _SPLIT_LABEL_COLORS["cifar"]
+    return _SPLIT_LABEL_COLORS["balanced"]
+
+
+_DATASET_TINT = {5: "#2196F3", 6: "#FF9800"}  # MNIST, CIFAR-10
+
+
+_DATASET_TINT_LABELS = {5: "MNIST", 6: "CIFAR-10"}
+
+
+def _shade_datasets(ax, rep: pd.DataFrame) -> list:
+    """Tint the background per dataset run + dashed lines at switches, so flat
+    stretches (e.g. CIFAR TR during a run of MNIST tasks) are legible.
+
+    Returns dataset-tint legend handles for the caller to display.
+    """
+    if "task_type" not in rep.columns:
+        return []
+    mp = (rep[["task_index", "task_type"]].dropna().drop_duplicates()
+          .sort_values("task_index"))
+    items = list(mp.itertuples(index=False))
+    if not items:
+        return []
+    start = prev = items[0].task_index
+    cur = items[0].task_type
+    segs = []
+    for row in items[1:]:
+        if row.task_type != cur:
+            segs.append((start, prev, cur))
+            start, cur = row.task_index, row.task_type
+        prev = row.task_index
+    segs.append((start, prev, cur))
+    for i, (s, e, tt) in enumerate(segs):
+        ax.axvspan(s - 0.5, e + 0.5, color=_DATASET_TINT.get(int(tt), "#999"),
+                   alpha=0.06, zorder=0)
+        if i > 0:
+            ax.axvline(s - 0.5, color="#555", ls=":", lw=1, alpha=0.5, zorder=1)
+    return [matplotlib.patches.Patch(facecolor=_DATASET_TINT.get(int(tt), "#999"), alpha=0.25,
+                                     label=_DATASET_TINT_LABELS.get(int(tt), str(tt)))
+            for tt in dict.fromkeys(tt for _, _, tt in segs)]
+
+
+def _annotate_end(ax, grp: pd.DataFrame, col: str, name: str) -> None:
+    """Queue an end-of-line label for *name*; positions are de-collided later by
+    :func:`_flush_end_labels` (call it once after all lines are drawn)."""
+    grp = grp.dropna(subset=[col])
+    if grp.empty:
+        return
+    last = grp.sort_values("task_index").iloc[-1]
+    short = name if len(name) <= 16 else name[:15] + "…"
+    if not hasattr(ax, "_end_labels"):
+        ax._end_labels = []
+    ax._end_labels.append((float(last["task_index"]), float(last[col]),
+                           short, _split_label_color(name)))
+
+
+def _flush_end_labels(ax) -> None:
+    """Render queued end-of-line labels, spreading them vertically so they don't
+    overlap.  Labels sit just right of the axis with a faint leader line."""
+    labels = getattr(ax, "_end_labels", None)
+    if not labels:
+        return
+    ymin, ymax = ax.get_ylim()
+    gap = (ymax - ymin) * 0.038
+    labels = sorted(labels, key=lambda e: e[1])
+    ys = [e[1] for e in labels]
+    for i in range(1, len(ys)):
+        if ys[i] < ys[i - 1] + gap:
+            ys[i] = ys[i - 1] + gap
+    overflow = ys[-1] - ymax
+    if overflow > 0:
+        ys = [y - overflow for y in ys]
+    x0, x1 = ax.get_xlim()
+    xl = x1 + (x1 - x0) * 0.012
+    for (xpt, yorig, name, color), ynew in zip(labels, ys):
+        ax.plot([xpt, xl], [yorig, ynew], color=color, lw=0.4, alpha=0.35, clip_on=False)
+        ax.annotate(name, (xl, ynew), xytext=(2, 0), textcoords="offset points",
+                    fontsize=6, va="center", ha="left", color=color, clip_on=False)
+    ax.figure.subplots_adjust(right=0.84)
+    ax._end_labels = []
+
+
+def _split_label_legend(ax) -> None:
+    """Add a small legend explaining the name-label colour scheme."""
+    handles = [
+        Line2D([0], [0], color=_SPLIT_LABEL_COLORS["mnist"], lw=0, marker="$A$", label="MNIST-leaning name"),
+        Line2D([0], [0], color=_SPLIT_LABEL_COLORS["cifar"], lw=0, marker="$A$", label="CIFAR-leaning name"),
+        Line2D([0], [0], color=_SPLIT_LABEL_COLORS["balanced"], lw=0, marker="$A$", label="balanced name"),
+    ]
+    ax.add_artist(ax.legend(handles=handles, title="Name colour", loc="lower right", fontsize=6))
+
+
 def _drop_inactive(rep: pd.DataFrame) -> pd.DataFrame:
     return rep[rep["behavior"] != "inactive"]
 
@@ -85,6 +191,7 @@ def plot_tr_over_tasks(rep: pd.DataFrame) -> plt.Figure:
         color = BEHAVIOR_COLORS.get(behavior, "#888")
         ax.plot(grp["task_index"], grp["tr_post"], color=color, linewidth=_LW, alpha=0.7,
                 label=f"{name} ({BEHAVIOR_LABELS.get(behavior, behavior)})")
+        _annotate_end(ax, grp, "tr_post", name)
 
     ax.set_xlabel("Task")
     ax.set_ylabel("Task Reputation (TR)")
@@ -92,6 +199,7 @@ def plot_tr_over_tasks(rep: pd.DataFrame) -> plt.Figure:
     _add_behavior_legend(ax)
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
+    _flush_end_labels(ax)
     return fig
 
 
@@ -104,6 +212,7 @@ def plot_gir_over_tasks(rep: pd.DataFrame) -> plt.Figure:
         grp = grp.sort_values("task_index")
         color = BEHAVIOR_COLORS.get(behavior, "#888")
         ax.plot(grp["task_index"], grp["gir_post"], color=color, linewidth=_LW, alpha=0.7)
+        _annotate_end(ax, grp, "gir_post", name)
 
     ax.set_xlabel("Task")
     ax.set_ylabel("Global Integrity Reputation (GIR)")
@@ -111,6 +220,7 @@ def plot_gir_over_tasks(rep: pd.DataFrame) -> plt.Figure:
     _add_behavior_legend(ax)
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
+    _flush_end_labels(ax)
     return fig
 
 
@@ -149,6 +259,7 @@ def plot_balance_over_tasks(rep: pd.DataFrame) -> plt.Figure:
         grp = grp.sort_values("task_index")
         color = BEHAVIOR_COLORS.get(behavior, "#888")
         ax.plot(grp["task_index"], grp["balance_post"], color=color, linewidth=_LW, alpha=0.7)
+        _annotate_end(ax, grp, "balance_post", name)
 
     ax.set_xlabel("Task")
     ax.set_ylabel("Balance (ETH)")
@@ -156,6 +267,7 @@ def plot_balance_over_tasks(rep: pd.DataFrame) -> plt.Figure:
     _add_behavior_legend(ax)
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
+    _flush_end_labels(ax)
     return fig
 
 
@@ -174,6 +286,7 @@ def plot_confidence_over_tasks(rep: pd.DataFrame) -> plt.Figure:
         grp = grp.sort_values("task_index")
         color = BEHAVIOR_COLORS.get(behavior, "#888")
         ax.plot(grp["task_index"], grp["confidence"], color=color, linewidth=_LW, alpha=0.7)
+        _annotate_end(ax, grp, "confidence", name)
 
     ax.set_xlabel("Task index")
     ax.set_ylabel("Confidence")
@@ -182,6 +295,7 @@ def plot_confidence_over_tasks(rep: pd.DataFrame) -> plt.Figure:
     _add_behavior_legend(ax)
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
+    _flush_end_labels(ax)
     return fig
 
 
@@ -220,6 +334,7 @@ def _plot_metric_by_behavior(rep: pd.DataFrame, col: str, ylabel: str, initial_v
     if add_zero_row:
         rep = _with_round_zero(rep, {col: initial_val})
     fig, ax = plt.subplots(figsize=(9, 4))
+    ds_handles = _shade_datasets(ax, rep)
     agg = (
         rep.groupby(["behavior", "task_index"])[col]
         .agg(["mean", "std"])
@@ -243,10 +358,81 @@ def _plot_metric_by_behavior(rep: pd.DataFrame, col: str, ylabel: str, initial_v
     ax.set_xlabel("Task")
     ax.set_ylabel(ylabel)
     ax.xaxis.set_major_locator(MaxNLocator(integer=True))
-    ax.legend(title="Behavior")
+    leg = ax.legend(title="Behavior", loc="upper left")
+    if ds_handles:
+        ax.add_artist(leg)
+        ax.legend(handles=ds_handles, title="Dataset (tint)", loc="lower right", fontsize=7)
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
     return fig
+
+
+# ---------------------------------------------------------------------------
+# Selected-only progression: x = n-th time the user was actually selected
+# ---------------------------------------------------------------------------
+
+def _selected_reindex(rep: pd.DataFrame, col: str) -> pd.DataFrame:
+    """Re-index each user's selected tasks to 1,2,3… (their n-th selection) and
+    average *col* across runs at each ordinal.
+
+    Expects the raw run-tagged timeline (a ``run`` column).  Only tasks the user
+    was actually selected for advance the x-axis, so flat unselected plateaus are
+    removed.  Returns columns: user_name, behavior, nth, value.
+    """
+    if rep.empty or "was_selected" not in rep.columns:
+        return pd.DataFrame(columns=["user_name", "behavior", "nth", col])
+    sel = rep[rep["was_selected"].astype(bool)].copy()
+    if sel.empty:
+        return pd.DataFrame(columns=["user_name", "behavior", "nth", col])
+    grp_keys = ["run", "user_name"] if "run" in sel.columns else ["user_name"]
+    sel = sel.sort_values(grp_keys + ["task_index"])
+    sel["nth"] = sel.groupby(grp_keys).cumcount() + 1
+    return (sel.groupby(["user_name", "behavior", "nth"])[col]
+            .mean().reset_index())
+
+
+def _plot_selected_progression(rep: pd.DataFrame, col: str, ylabel: str,
+                               y01: bool, shift: float = 0.0) -> plt.Figure:
+    rep = _drop_inactive(rep)
+    agg = _selected_reindex(rep, col)
+    fig, ax = plt.subplots(figsize=(10, 4.5))
+    if agg.empty:
+        ax.text(0.5, 0.5, "No selection events", ha="center", va="center",
+                transform=ax.transAxes, color="#888")
+        return fig
+    for (name, behavior), g in agg.groupby(["user_name", "behavior"]):
+        g = g.sort_values("nth")
+        color = BEHAVIOR_COLORS.get(behavior, "#888")
+        yvals = g[col] + shift
+        ax.plot(g["nth"], yvals, color=color, lw=_LW, alpha=0.7, marker="o", ms=3)
+        end = pd.DataFrame({"task_index": g["nth"], col: yvals})
+        _annotate_end(ax, end, col, name)
+    ax.set_xlabel("n-th selection (unselected tasks removed)")
+    ax.set_ylabel(ylabel)
+    if y01:
+        ax.set_ylim(0, 1.05)
+    ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+    _add_behavior_legend(ax)
+    ax.grid(True, alpha=0.3)
+    fig.tight_layout()
+    _flush_end_labels(ax)
+    return fig
+
+
+def plot_tr_selected_progression(rep: pd.DataFrame) -> plt.Figure:
+    """Per-user TR plotted only at the tasks each user was selected for."""
+    return _plot_selected_progression(rep, "tr_post", "Task Reputation (TR)", y01=True)
+
+
+def plot_gir_selected_progression(rep: pd.DataFrame) -> plt.Figure:
+    """Per-user GIR plotted only at the tasks each user was selected for."""
+    return _plot_selected_progression(rep, "gir_post", "Global Integrity Reputation (GIR)", y01=True)
+
+
+def plot_balance_selected_progression(rep: pd.DataFrame) -> plt.Figure:
+    """Per-user balance plotted only at the tasks each user was selected for."""
+    return _plot_selected_progression(rep, "balance_post", "Balance (ETH)",
+                                      y01=False, shift=_BALANCE_INITIAL)
 
 
 # ---------------------------------------------------------------------------
@@ -320,6 +506,7 @@ def plot_selection_score_over_tasks(rep: pd.DataFrame) -> plt.Figure:
         ax.plot(grp["task_index"], grp["selection_score"], color=color, linewidth=_LW, alpha=0.5)
         sel = grp[grp["was_selected"]]
         ax.scatter(sel["task_index"], sel["selection_score"], color=color, s=25, zorder=5)
+        _annotate_end(ax, grp, "selection_score", name)
 
     ax.set_xlabel("Task")
     ax.set_ylabel("Selection score")
@@ -327,6 +514,7 @@ def plot_selection_score_over_tasks(rep: pd.DataFrame) -> plt.Figure:
     _add_behavior_legend(ax)
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
+    _flush_end_labels(ax)
     return fig
 
 
