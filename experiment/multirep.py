@@ -50,7 +50,7 @@ from openfl.utils.async_writer import AsyncWriter
 # ---------------------------------------------------------------------------
 
 SKIP_RUN_CACHE = True  # set True to always run fresh (ignore fingerprint cache)
-
+SESSION_CLEANUP = False
 _WAD = 10 ** 18  # all on-chain rep values are WAD-scaled
 
 # EWMA constants — mirror JobListing.sol exactly.
@@ -67,7 +67,7 @@ _INTEGRITY_LEARNING_RATE = int(2e17)  # GIR EWMA learning rate
 # Preset file — fill in before running
 # ---------------------------------------------------------------------------
 
-preset_file = "experiment/presets/fast-test-local-mnist-only.json"
+preset_file = "experiment/presets/fast-test-skip-cache.json"
 # preset_file = "experiment/presets/EXP-multirep-mixed-distribution-5-task-dataset-switch copy.json"
 
 FORCE_REMOTE = True           # if True, retry remote forever instead of falling back to local
@@ -818,7 +818,7 @@ def _run_remote(preset: MultirepRunConfig, exp_config: ExperimentConfiguration, 
             pool_size = preset.remote_pool_size
             use_existing_run = None
 
-            if pool_size > 0:
+            if pool_size > 0 and not SKIP_RUN_CACHE:
                 pool = [None] * pool_size
                 runs = _fetch_runs_by_fingerprint(fingerprint)
                 for i, run in enumerate(runs[:pool_size]):
@@ -1058,7 +1058,7 @@ def main(auto_graphs: bool = False, cleanup_session: bool = False):
         task_dir = tasks_dir / f"task_{i+1:03d}_{safe_dataset}_{fingerprint[:8]}"
         task_dir.mkdir(parents=True, exist_ok=True)
 
-        cached_run = None if SKIP_RUN_CACHE else _fetch_cached_run(fingerprint)
+        cached_run = None if (SKIP_RUN_CACHE or FORCE_REMOTE) else _fetch_cached_run(fingerprint)
         if cached_run is not None:
             log("multirep", f"Fingerprint {fingerprint[:8]}... found in RunRepo — skipping experiment.")
             _apply_cached_reps(all_users, cached_run, task_type)
@@ -1252,7 +1252,7 @@ def main(auto_graphs: bool = False, cleanup_session: bool = False):
         if session_dir.exists():
             _shutil.rmtree(session_dir)
             log("multirep", f"Removed session dir: {session_dir}")
-        if tarball is not None and tarball_uploaded and tarball.exists():
+        if tarball is not None and tarball_uploaded and tarball.exists() and SESSION_CLEANUP:
             tarball.unlink()
             log("multirep", f"Removed session tarball: {tarball}")
 
