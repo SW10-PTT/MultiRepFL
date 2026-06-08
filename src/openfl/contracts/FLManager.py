@@ -103,8 +103,26 @@ class FLManager(ConnectionHelper):
         ))
         log("setup_contracts", "-----------------------------------------------------------------------------------")
         return self
-    
-    
+
+    # Verify the deployed contract's immutable ReputationMode matches this run's
+    # global_rep_only setting. Catches a missing global_rep_only wire at any
+    # deploy site (the regression that silently ran globalrep presets in PerTask).
+    def assert_reputation_mode(self):
+        on_chain_mode = self.contract.functions.reputationMode().call()
+        want_mode = (
+            self.REPUTATION_MODE_GLOBAL_ONLY
+            if self.global_rep_only
+            else self.REPUTATION_MODE_PER_TASK
+        )
+        if on_chain_mode != want_mode:
+            raise ValueError(
+                "OpenFLManager ReputationMode mismatch: "
+                f"on-chain={on_chain_mode}, requested global_rep_only={self.global_rep_only} "
+                f"(expected mode {want_mode}). global_rep_only was not threaded into the deploy."
+            )
+        return self
+
+
     # Deploy contract and initiate proxy
     def build_contract(self):
         factory = self.initialize_manager()

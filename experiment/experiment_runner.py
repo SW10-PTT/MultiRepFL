@@ -206,7 +206,7 @@ def select_participants_for_task(
   PRIVKEYS = get_PRIVKEYS(exp_config)
 
   if prebuilt_manager is None:
-      manager = Manager(publisher, True).init(
+      manager = Manager(publisher, True, global_rep_only=exp_config.global_rep_only).init(
           exp_config.number_of_good_contributors,
           exp_config.number_of_bad_contributors,
           exp_config.number_of_freerider_contributors,
@@ -215,6 +215,7 @@ def select_participants_for_task(
           RPC_ENDPOINT,
           PRIVKEYS,
       )
+      manager.assert_reputation_mode()
   else:
       manager = prebuilt_manager
   if pytorch_model is not None:

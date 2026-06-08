@@ -989,7 +989,7 @@ def main(auto_graphs: bool = False, cleanup_session: bool = False):
     publisher = all_users[0]
     rpc = get_RPC_Endpoint()
     privkeys = get_PRIVKEYS(full_config)
-    manager = Manager(publisher, True).init(
+    manager = Manager(publisher, True, global_rep_only=preset.global_rep_only).init(
         full_config.number_of_good_contributors,
         full_config.number_of_bad_contributors,
         full_config.number_of_freerider_contributors,
@@ -998,6 +998,7 @@ def main(auto_graphs: bool = False, cleanup_session: bool = False):
         rpc,
         privkeys,
     )
+    manager.assert_reputation_mode()
 
     # Replace the static fallback enum with the authoritative definition from the contract.
     global _task_type_enum, _REAL_TASK_TYPES
