@@ -61,6 +61,8 @@ def _check_ram_startup() -> None:
     except Exception as e:
         log("autorunner", f"[mem] RAM check failed: {e} — skipping")
         return
+    margin = free_gb - _RAM_THRESHOLD_GB
+    log("autorunner", f"[mem] free={free_gb:.2f} GB  threshold={_RAM_THRESHOLD_GB} GB  margin={margin:+.2f} GB")
     if free_gb < _RAM_THRESHOLD_GB:
         log("autorunner", f"[mem] Only {free_gb:.1f} GB free (need {_RAM_THRESHOLD_GB} GB). Exiting.")
         sys.exit(1)
@@ -72,6 +74,8 @@ def _check_ram_and_maybe_restart() -> None:
     except Exception as e:
         log("autorunner", f"[mem] RAM check failed: {e} — skipping")
         return
+    margin = free_gb - _RAM_THRESHOLD_GB
+    log("autorunner", f"[mem] free={free_gb:.2f} GB  threshold={_RAM_THRESHOLD_GB} GB  margin={margin:+.2f} GB")
     if free_gb >= _RAM_THRESHOLD_GB:
         return
     log("autorunner", f"[mem] Only {free_gb:.1f} GB free (need {_RAM_THRESHOLD_GB} GB). Restarting in 30 s...")
