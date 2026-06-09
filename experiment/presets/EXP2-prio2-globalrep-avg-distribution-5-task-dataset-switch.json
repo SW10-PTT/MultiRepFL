@@ -10,7 +10,7 @@
   "name": "EXP-globalrep-avg-distribution-5-task-dataset-switch",
   "priority": 10,
   "partition_file": "experiment/partitions/EXP-avg-distribution-20-users.json",
-  "q_weight": 0.05,
+  "q_weight": 0.1,
   "q_hard_reset": true,
   "tr_weight": 19,
   "gir_weight": 1,
