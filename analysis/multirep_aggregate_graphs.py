@@ -24,6 +24,7 @@ from analysis import multirep_aggregate_plots as ap
 from analysis import multirep_grouped_plots as gp
 from analysis import multirep_plots as mrp
 from analysis import multirep_thesis_plots as tp
+from analysis import multirep_variant_compare as vc
 from analysis.multirep_runavg import averaged_views
 from analysis.multirep_aggregate_loader import (
     CIFAR_TT,
@@ -131,6 +132,13 @@ def _generate_pair_graphs(pair: ExperimentPair, out_dir: Path) -> int:
     save_figure(gp.plot_mixed_behavior_users(pair), out_dir / "mixed_behavior_users.png")
     n += 5
 
+    # --- 7b. task-hopper development (self-skips unless mixed-behaviour users exist) ---
+    save_figure(gp.plot_taskhopper_reputation_development(pair),
+                out_dir / "taskhopper_reputation_development.png")
+    save_figure(gp.plot_taskhopper_selection_development(pair),
+                out_dir / "taskhopper_selection_development.png")
+    n += 2
+
     # --- 8. proposed thesis graphs ---
     save_figure(tp.plot_score_decomposition(pair), out_dir / "score_decomposition.png")
     save_figure(tp.plot_cold_start_latency(pair, CIFAR_TT), out_dir / "cold_start_latency_cifar.png")
@@ -230,7 +238,49 @@ def _generate_qvalue_graphs(experiments: list[ExperimentRuns], out_dir: Path) ->
                 out_dir / "qvalue_effect.png")
     save_figure(ap.plot_qvalue_selection_wait(with_q, without_q),
                 out_dir / "qvalue_selection_wait.png")
+    save_figure(ap.plot_qvalue_coverage(with_q, without_q),
+                out_dir / "qvalue_coverage.png")
+    save_figure(ap.plot_qvalue_mechanism(with_q, without_q),
+                out_dir / "qvalue_mechanism.png")
     print(f"  q-value comparison: {with_q.name}  vs  {without_q.name}")
+    return 1
+
+
+def _generate_qslot_graphs(experiments: list[ExperimentRuns], out_dir: Path) -> int:
+    """Special comparison: multirep task-hopper with the Q-slot cap (qslot2) vs
+    the uncapped baseline.  Both are multi-rep, so the globalrep/multirep pairing
+    does not pair them."""
+    capped = find_experiment(experiments, "multirep", "task-hopper", "qslot2")
+    baseline = None
+    for exp in experiments:
+        low = exp.name.lower()
+        if "multirep" in low and "task-hopper" in low and "qslot" not in low:
+            baseline = exp
+            break
+    if capped is None or baseline is None:
+        print("  [info] q-slot comparison skipped (need both multirep task-hopper qslot2 & baseline).")
+        return 0
+    out_dir.mkdir(parents=True, exist_ok=True)
+    variants = [
+        {"exp": baseline, "label": "Q on all slots", "color": "#1b9e77", "ls": "-"},
+        {"exp": capped, "label": "Q-slot cap = 2", "color": "#d95f02", "ls": "--"},
+    ]
+    save_figure(vc.plot_selection_rate_by_behavior(variants), out_dir / "selection_rate_by_behavior.png")
+    save_figure(vc.plot_selection_rate_individual(variants), out_dir / "selection_rate_individual.png")
+    save_figure(vc.plot_gir_development_by_behavior(variants), out_dir / "gir_development_by_behavior.png")
+    save_figure(vc.plot_net_earnings_by_behavior(variants), out_dir / "net_earnings_by_behavior.png")
+    save_figure(vc.plot_selection_fairness(variants), out_dir / "selection_fairness.png")
+    save_figure(vc.plot_idle_streak(variants), out_dir / "idle_streak.png")
+    save_figure(vc.plot_final_accuracy_per_task(variants), out_dir / "final_accuracy_per_task.png")
+    for tt in TASK_TYPES:
+        ds = DS_NAME[tt]
+        save_figure(vc.plot_selection_rate_by_behavior(variants, tt),
+                    out_dir / f"selection_rate_by_behavior_{ds}.png")
+        save_figure(vc.plot_tr_development_by_behavior(variants, tt),
+                    out_dir / f"tr_development_by_behavior_{ds}.png")
+        save_figure(vc.plot_tr_development_individual(variants, tt),
+                    out_dir / f"tr_development_individual_{ds}.png")
+    print(f"  q-slot comparison: {baseline.name}  vs  {capped.name}")
     return 1
 
 
@@ -254,6 +304,9 @@ def main(root: Path, out: Path) -> None:
 
     # Special q-value experiment comparison
     total += _generate_qvalue_graphs(experiments, out / "qvalue-comparison")
+
+    # Special Q-slot-cap comparison (task-hopper qslot2 vs uncapped baseline)
+    total += _generate_qslot_graphs(experiments, out / "qslot-comparison")
 
     print(f"\nDone. {total} graphs written under {out}")
 

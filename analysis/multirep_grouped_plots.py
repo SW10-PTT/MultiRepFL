@@ -28,6 +28,7 @@ from analysis.multirep_aggregate_plots import (
     BEHAVIOR_COLORS,
     BEHAVIOR_LABELS,
     BEHAVIOR_ORDER,
+    SYSTEM_COLORS,
     SYSTEM_LABELS,
     SYSTEM_LS,
     _mark_dataset_switches,
@@ -387,6 +388,183 @@ def plot_mixed_behavior_users(pair: ExperimentPair) -> plt.Figure:
     axes[-1].legend(handles=handles, title="Behavior on dataset", fontsize=8)
     fig.suptitle("Mixed-behavior users: per-dataset earnings (bar letter = M[NIST]/C[IFAR]; "
                  "colour = behavior on that dataset)")
+    fig.tight_layout()
+    return fig
+
+
+# =========================================================================
+# 2d. Task-hoppers — reputation & selection development over the session
+#     (only meaningful for the task-hopper presets, where the same identity is
+#      honest on one dataset and an adversary on the other)
+# =========================================================================
+
+def _taskhopper_sides(exp) -> dict:
+    """Map each task-hopper to its honest/adversary datasets.
+
+    A task-hopper is a user_name whose behaviour differs across task types and
+    that is honest on exactly one dataset and an adversary on the other(s).
+    Returns {user_name: {"honest_tt": int, "adv_tt": int, "adv_behavior": str}}.
+    """
+    rep = exp.reputation_timeline()
+    if rep.empty:
+        return {}
+    beh = (rep.groupby(["user_name", "task_type"])["behavior"]
+           .agg(lambda s: s.mode().iat[0] if not s.mode().empty else s.iat[0])
+           .reset_index())
+    nbeh = beh.groupby("user_name")["behavior"].nunique()
+    sides = {}
+    for u in nbeh[nbeh > 1].index:
+        sub = beh[beh["user_name"] == u]
+        honest = sub[sub["behavior"] == "honest"]["task_type"].tolist()
+        adv = sub[sub["behavior"] != "honest"]["task_type"].tolist()
+        if len(honest) == 1 and len(adv) >= 1:
+            adv_tt = int(adv[0])
+            sides[u] = {
+                "honest_tt": int(honest[0]),
+                "adv_tt": adv_tt,
+                "adv_behavior": sub[sub["task_type"] == adv_tt]["behavior"].iat[0],
+            }
+    return sides
+
+
+def _taskhoppers_present(pair: ExperimentPair) -> bool:
+    return any(_taskhopper_sides(exp) for _, exp in pair.items())
+
+
+def _side_tr(rep: pd.DataFrame, exp, sides: dict, which: str) -> pd.Series:
+    """Per-row TR on the user's honest- or adversary-side dataset.
+
+    global-rep has one shared bucket (tr_post); multi-rep reads the per-task-type
+    value for the side's task type — carried on every row via tr_all_post."""
+    def _one(row):
+        tt = sides[row["user_name"]][which]
+        if exp.system == "globalrep":
+            return row["tr_post"]
+        d = row["tr_all_post"]
+        return d.get(tt) if isinstance(d, dict) else None
+    return rep.apply(_one, axis=1)
+
+
+def plot_taskhopper_reputation_development(pair: ExperimentPair) -> plt.Figure:
+    """How a task-hopper's reputation evolves over the session: honest-side TR,
+    adversary-side TR, and GIR.  Multi-rep should keep honest-side TR high while
+    adversary-side TR decays; global-rep blends both into one polluted bucket
+    (its honest- and adversary-side lines are identical by construction)."""
+    fig, axes = plt.subplots(1, 3, figsize=(16, 4.4), sharey=True)
+    if not _taskhoppers_present(pair):
+        for ax in axes:
+            ax.text(0.5, 0.5, "No task-hoppers in this experiment",
+                    ha="center", va="center", transform=ax.transAxes, color="#888")
+        fig.suptitle("Task-hopper reputation development (none present)")
+        fig.tight_layout()
+        return fig
+
+    panels = [("honest_tt", "Honest-side Task Reputation"),
+              ("adv_tt", "Adversary-side Task Reputation")]
+    ds_handles = None
+    for ax, (which, title) in zip(axes[:2], panels):
+        ds_handles = _mark_dataset_switches(ax, pair)
+        for system, exp in pair.items():
+            sides = _taskhopper_sides(exp)
+            rep = exp.reputation_timeline()
+            rep = rep[rep["user_name"].isin(sides)].copy()
+            if rep.empty:
+                continue
+            rep["_v"] = _side_tr(rep, exp, sides, which)
+            agg = (rep.dropna(subset=["_v"]).groupby("task_index")["_v"]
+                   .agg(["mean", "std"]).reset_index().sort_values("task_index"))
+            ax.plot(agg["task_index"], agg["mean"], color=SYSTEM_COLORS[system],
+                    ls=SYSTEM_LS[system], lw=_LW, label=SYSTEM_LABELS[system])
+            ax.fill_between(agg["task_index"], agg["mean"] - agg["std"].fillna(0),
+                            agg["mean"] + agg["std"].fillna(0),
+                            color=SYSTEM_COLORS[system], alpha=0.12)
+        ax.set_title(title)
+        ax.set_xlabel("Task index")
+        ax.set_ylim(0, 1.05)
+        ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+        ax.grid(True, alpha=0.3)
+
+    # GIR panel
+    ax = axes[2]
+    _mark_dataset_switches(ax, pair)
+    for system, exp in pair.items():
+        sides = _taskhopper_sides(exp)
+        rep = exp.reputation_timeline()
+        rep = rep[rep["user_name"].isin(sides)]
+        if rep.empty:
+            continue
+        agg = (rep.groupby("task_index")["gir_post"]
+               .agg(["mean", "std"]).reset_index().sort_values("task_index"))
+        ax.plot(agg["task_index"], agg["mean"], color=SYSTEM_COLORS[system],
+                ls=SYSTEM_LS[system], lw=_LW, label=SYSTEM_LABELS[system])
+        ax.fill_between(agg["task_index"], agg["mean"] - agg["std"].fillna(0),
+                        agg["mean"] + agg["std"].fillna(0),
+                        color=SYSTEM_COLORS[system], alpha=0.12)
+    ax.set_title("Global Integrity Reputation")
+    ax.set_xlabel("Task index")
+    ax.set_ylim(0, 1.05)
+    ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+    ax.grid(True, alpha=0.3)
+
+    axes[0].set_ylabel("Reputation")
+    sys_handles = [Line2D([0], [0], color=SYSTEM_COLORS[s], ls=SYSTEM_LS[s], lw=_LW,
+                          label=SYSTEM_LABELS[s]) for s, _ in pair.items()]
+    leg = axes[-1].legend(handles=sys_handles, title="System", loc="upper right", fontsize=8)
+    if ds_handles:
+        axes[-1].add_artist(leg)
+        axes[-1].legend(handles=ds_handles, title="Dataset (tint)", loc="lower right", fontsize=7)
+    fig.suptitle("Task-hopper reputation development "
+                 "(mean over mixed-behaviour users ±1σ; style=system)")
+    fig.tight_layout()
+    return fig
+
+
+def plot_taskhopper_selection_development(pair: ExperimentPair) -> plt.Figure:
+    """Cumulative selection rate of task-hoppers over the session, split by
+    whether the running task is on their honest-side or adversary-side dataset.
+
+    Multi-rep should keep picking them for their honest dataset while dropping
+    them on their adversary dataset; global-rep cannot separate the two."""
+    systems = [s for s, _ in pair.items()]
+    fig, axes = plt.subplots(1, len(systems), figsize=(7 * len(systems), 4.5),
+                             sharey=True, squeeze=False)
+    axes = axes[0]
+    if not _taskhoppers_present(pair):
+        for ax in axes:
+            ax.text(0.5, 0.5, "No task-hoppers in this experiment",
+                    ha="center", va="center", transform=ax.transAxes, color="#888")
+        fig.suptitle("Task-hopper selection development (none present)")
+        fig.tight_layout()
+        return fig
+
+    side_colors = {"honest-side": BEHAVIOR_COLORS["honest"], "adversary-side": BEHAVIOR_COLORS["malicious"]}
+    for ax, (system, exp) in zip(axes, pair.items()):
+        _mark_dataset_switches(ax, pair)
+        sides = _taskhopper_sides(exp)
+        rep = exp.reputation_timeline()
+        rep = rep[rep["user_name"].isin(sides)].copy()
+        if not rep.empty:
+            rep["_side"] = rep.apply(
+                lambda r: "honest-side" if r["task_type"] == sides[r["user_name"]]["honest_tt"]
+                else "adversary-side", axis=1)
+            for side, grp in rep.groupby("_side"):
+                # cumulative selection rate over task_index (selections / opportunities)
+                per_task = (grp.groupby("task_index")["was_selected"]
+                            .agg(["sum", "count"]).reset_index().sort_values("task_index"))
+                cum_rate = per_task["sum"].cumsum() / per_task["count"].cumsum()
+                ax.plot(per_task["task_index"], cum_rate, color=side_colors[side],
+                        lw=_LW, marker="o", ms=3, label=side)
+        ax.set_title(SYSTEM_LABELS[system])
+        ax.set_xlabel("Task index")
+        ax.set_ylim(0, 1.05)
+        ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+        ax.grid(True, alpha=0.3)
+    axes[0].set_ylabel("Cumulative selection rate")
+    handles = [Line2D([0], [0], color=c, lw=_LW, marker="o", ms=4, label=s)
+               for s, c in side_colors.items()]
+    axes[-1].legend(handles=handles, title="Dataset side", fontsize=8)
+    fig.suptitle("Task-hopper selection development "
+                 "(cumulative pick rate on their honest vs adversary dataset)")
     fig.tight_layout()
     return fig
 
