@@ -125,10 +125,10 @@ contract GlobalRepOnlyTest is Test {
     // TaskType it is read under (one shared sentinel slot). With n=2, k=1 the
     // per-round increment is 0.5 WAD.
     function testQValue_accumulatesAndAliasesAcrossTaskTypes() public {
-        // Round 1 on MNIST: select USER2, so USER is idle.
-        manager.updateQValuesAfterSelection(_pair(USER, USER2), _one(USER2), TaskType.MNIST);
+        // Round 1 on MNIST: select USER2, so USER is idle. (hardReset irrelevant for idle users.)
+        manager.updateQValuesAfterSelection(_pair(USER, USER2), _one(USER2), TaskType.MNIST, false);
         // Round 2 on CIFAR10: select USER2 again, USER still idle.
-        manager.updateQValuesAfterSelection(_pair(USER, USER2), _one(USER2), TaskType.CIFAR10);
+        manager.updateQValuesAfterSelection(_pair(USER, USER2), _one(USER2), TaskType.CIFAR10, false);
 
         (, , uint256 qMnist) = manager.getUserRep(USER, TaskType.MNIST);
         (, , uint256 qCifar) = manager.getUserRep(USER, TaskType.CIFAR10);
@@ -137,20 +137,40 @@ contract GlobalRepOnlyTest is Test {
         assertEq(qMnist, 1e18, "idle Q must accumulate across datasets (0.5 + 0.5 WAD)");
     }
 
-    // Selection on ANY TaskType must reset the single user-bound Q.
-    function testQValue_resetsOnSelectionAnyTaskType() public {
+    // Soft reset (hardReset=false): selection on ANY TaskType subtracts one WAD
+    // from the single user-bound Q.
+    function testQValue_softResetsOnSelectionAnyTaskType() public {
         // Build USER's Q up to 1.0 WAD while idle (two idle rounds).
-        manager.updateQValuesAfterSelection(_pair(USER, USER2), _one(USER2), TaskType.MNIST);
-        manager.updateQValuesAfterSelection(_pair(USER, USER2), _one(USER2), TaskType.MNIST);
+        manager.updateQValuesAfterSelection(_pair(USER, USER2), _one(USER2), TaskType.MNIST, false);
+        manager.updateQValuesAfterSelection(_pair(USER, USER2), _one(USER2), TaskType.MNIST, false);
         (, , uint256 qBefore) = manager.getUserRep(USER, TaskType.MNIST);
         assertEq(qBefore, 1e18, "precondition: Q built to 1.0 WAD");
 
-        // Now select USER on a DIFFERENT TaskType (CIFAR10): newQ = 1.0 + 0.5 - 1.0 = 0.5 WAD.
-        manager.updateQValuesAfterSelection(_pair(USER, USER2), _one(USER), TaskType.CIFAR10);
+        // Select USER on a DIFFERENT TaskType (CIFAR10): newQ = 1.0 + 0.5 - 1.0 = 0.5 WAD.
+        manager.updateQValuesAfterSelection(_pair(USER, USER2), _one(USER), TaskType.CIFAR10, false);
         (, , uint256 qAfter) = manager.getUserRep(USER, TaskType.MNIST);
 
         assertLt(qAfter, qBefore, "selection on any task must reduce the shared Q");
-        assertEq(qAfter, 0.5e18, "reset subtracts exactly Q_WAD from the post-increment value");
+        assertEq(qAfter, 0.5e18, "soft reset subtracts exactly Q_WAD from the post-increment value");
+    }
+
+    // Hard reset (hardReset=true): selection on ANY TaskType zeroes the single
+    // user-bound Q outright — must apply to the shared GlobalOnly slot.
+    function testQValue_hardResetZeroesOnSelectionAnyTaskType() public {
+        // Build USER's Q up to 1.0 WAD while idle.
+        manager.updateQValuesAfterSelection(_pair(USER, USER2), _one(USER2), TaskType.MNIST, true);
+        manager.updateQValuesAfterSelection(_pair(USER, USER2), _one(USER2), TaskType.MNIST, true);
+        (, , uint256 qBefore) = manager.getUserRep(USER, TaskType.MNIST);
+        assertEq(qBefore, 1e18, "precondition: Q built to 1.0 WAD");
+
+        // Select USER on a DIFFERENT TaskType with hard reset: Q must drop to 0
+        // (not 0.5), proving the hard reset hits the shared sentinel slot.
+        manager.updateQValuesAfterSelection(_pair(USER, USER2), _one(USER), TaskType.CIFAR10, true);
+        (, , uint256 qMnist) = manager.getUserRep(USER, TaskType.MNIST);
+        (, , uint256 qCifar) = manager.getUserRep(USER, TaskType.CIFAR10);
+
+        assertEq(qMnist, 0, "hard reset must zero the shared Q");
+        assertEq(qCifar, 0, "hard reset is visible under any TaskType (single bucket)");
     }
 }
 
@@ -180,12 +200,27 @@ contract PerTaskQValueTest is Test {
 
     function testQValue_isolatedPerTaskType() public {
         // USER idle on MNIST only.
-        manager.updateQValuesAfterSelection(_pair(USER, USER2), _one(USER2), TaskType.MNIST);
+        manager.updateQValuesAfterSelection(_pair(USER, USER2), _one(USER2), TaskType.MNIST, false);
 
         (, , uint256 qMnist) = manager.getUserRep(USER, TaskType.MNIST);
         (, , uint256 qCifar) = manager.getUserRep(USER, TaskType.CIFAR10);
 
         assertEq(qMnist, 0.5e18, "MNIST Q accrues");
         assertEq(qCifar, 0, "CIFAR Q must stay isolated in PerTask mode");
+    }
+
+    // Hard reset in PerTask must zero only the selected task's Q slot.
+    function testQValue_hardResetIsolatedPerTaskType() public {
+        // Build MNIST Q to 1.0 while idle, leave CIFAR untouched.
+        manager.updateQValuesAfterSelection(_pair(USER, USER2), _one(USER2), TaskType.MNIST, true);
+        manager.updateQValuesAfterSelection(_pair(USER, USER2), _one(USER2), TaskType.MNIST, true);
+        // Hard-reset USER on MNIST (select USER). MNIST Q -> 0; CIFAR Q stays 0.
+        manager.updateQValuesAfterSelection(_pair(USER, USER2), _one(USER), TaskType.MNIST, true);
+
+        (, , uint256 qMnist) = manager.getUserRep(USER, TaskType.MNIST);
+        (, , uint256 qCifar) = manager.getUserRep(USER, TaskType.CIFAR10);
+
+        assertEq(qMnist, 0, "MNIST Q hard-reset to 0");
+        assertEq(qCifar, 0, "CIFAR slot never touched (per-task isolation holds)");
     }
 }
