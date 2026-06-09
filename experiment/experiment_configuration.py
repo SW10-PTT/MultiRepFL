@@ -67,7 +67,8 @@ class ExperimentConfiguration:
                  tr_weight=6,    # taskRep multiplier in selection score (preset-level constant).
                  gir_weight=4,   # GIR multiplier in selection score (preset-level constant).
                  q_slot_limit_enabled=False, # If True, cap how many slots may be won via the Q bonus; the rest go by base TR/GIR score only.
-                 q_slot_limit=0):            # Max slots fillable using the Q bonus when q_slot_limit_enabled.
+                 q_slot_limit=0,             # Max slots fillable using the Q bonus when q_slot_limit_enabled.
+                 q_hard_reset=False):        # If True, selected users' Q resets to 0; otherwise Q is reduced by WAD.
 
         self.name = name
         self.dataset = dataset
@@ -111,6 +112,7 @@ class ExperimentConfiguration:
         self.q_slot_limit = int(q_slot_limit)
         if self.q_slot_limit < 0:
             raise ValueError("q_slot_limit must be >= 0")
+        self.q_hard_reset = bool(q_hard_reset)
         self.enabled_prints = (
             set(enabled_prints) if enabled_prints is not None
             else set(DEFAULT_ENABLED_PRINTS_CONFIG)
@@ -195,6 +197,7 @@ class ExperimentConfiguration:
             gir_weight=self.gir_weight,
             q_slot_limit_enabled=self.q_slot_limit_enabled,
             q_slot_limit=self.q_slot_limit,
+            q_hard_reset=self.q_hard_reset,
         )
 
     @property
@@ -415,6 +418,8 @@ class ExperimentConfiguration:
         if self.q_slot_limit_enabled:
             data["q_slot_limit_enabled"] = True
             data["q_slot_limit"] = self.q_slot_limit
+        if self.q_hard_reset:
+            data["q_hard_reset"] = True
 
         blob = json.dumps(data, sort_keys=True, separators=(",", ":"))
         hash = hashlib.sha256(blob.encode()).hexdigest()

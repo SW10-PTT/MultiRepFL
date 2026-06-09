@@ -9,6 +9,8 @@ Usage:
     --anvil         Start an Anvil node for each run.
     --ganache       Start a Ganache node for each run.
     --graphs        Generate graphs after each run completes.
+    --seed N        Override the RNG seed for every preset in this batch (fresh
+                    seed per batch = independent runs for honest variance bands).
 
 Examples:
     # Sequential (default)
@@ -42,7 +44,8 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 _PYTHON = str(_REPO_ROOT / ".venv" / "bin" / "python")
 
 
-def _build_cmd(preset_file: str, anvil: bool, ganache: bool, graphs: bool) -> list[str]:
+def _build_cmd(preset_file: str, anvil: bool, ganache: bool, graphs: bool,
+               seed: int | None = None) -> list[str]:
     script = str(_REPO_ROOT / "experiment" / "multirep.py")
     cmd = [_PYTHON, script, "--preset", preset_file]
     if anvil:
@@ -51,6 +54,8 @@ def _build_cmd(preset_file: str, anvil: bool, ganache: bool, graphs: bool) -> li
         cmd.append("--ganache")
     if graphs:
         cmd.append("--graphs")
+    if seed is not None:
+        cmd += ["--seed", str(seed)]
     return cmd
 
 
@@ -65,6 +70,7 @@ def run_sequential(
     anvil: bool,
     ganache: bool,
     graphs: bool,
+    seed: int | None = None,
 ) -> dict[str, int]:
     results: dict[str, int] = {}
     for preset in presets:
@@ -72,7 +78,7 @@ def run_sequential(
         print(f"\n{'='*60}")
         print(f"Starting: {name}")
         print(f"{'='*60}\n")
-        cmd = _build_cmd(preset, anvil, ganache, graphs)
+        cmd = _build_cmd(preset, anvil, ganache, graphs, seed)
         proc = subprocess.run(cmd, cwd=_REPO_ROOT)
         results[name] = proc.returncode
         status = "OK" if proc.returncode == 0 else f"FAILED (exit {proc.returncode})"
@@ -88,6 +94,7 @@ def run_parallel(
     anvil: bool,
     ganache: bool,
     graphs: bool,
+    seed: int | None = None,
 ) -> dict[str, int]:
     import time
 
@@ -99,7 +106,7 @@ def run_parallel(
     try:
         for i, preset in enumerate(presets):
             name = Path(preset).stem
-            cmd = _build_cmd(preset, anvil, ganache, graphs)
+            cmd = _build_cmd(preset, anvil, ganache, graphs, seed)
             print(f"Launching: {name}")
             proc = subprocess.Popen(
                 cmd,
@@ -159,7 +166,8 @@ def _next_tmux_session(base: str) -> str:
     return f"{base}-{i}"
 
 
-def run_tmux(presets: list[str], anvil: bool, ganache: bool, graphs: bool) -> None:
+def run_tmux(presets: list[str], anvil: bool, ganache: bool, graphs: bool,
+             seed: int | None = None) -> None:
     import shutil
     import time
 
@@ -171,7 +179,7 @@ def run_tmux(presets: list[str], anvil: bool, ganache: bool, graphs: bool) -> No
 
     for i, preset in enumerate(presets):
         name = Path(preset).stem
-        cmd = _build_cmd(preset, anvil, ganache, graphs)
+        cmd = _build_cmd(preset, anvil, ganache, graphs, seed)
         shell_cmd = " ".join(shlex.quote(c) for c in cmd)
         shell_script = f"{shell_cmd}; echo; echo '=== DONE (exit $?) ==='; exec bash"
 
@@ -243,6 +251,13 @@ def main() -> None:
         action="store_true",
         help="Generate graphs after each run completes.",
     )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Override the RNG seed for every preset in this batch (passed to each "
+             "multirep run as --seed). Use a fresh seed per batch for independent runs.",
+    )
     args = parser.parse_args()
 
     missing = [p for p in args.presets if not Path(p).exists()]
@@ -252,13 +267,13 @@ def main() -> None:
         sys.exit(1)
 
     if args.tmux:
-        run_tmux(args.presets, args.anvil, args.ganache, args.graphs)
+        run_tmux(args.presets, args.anvil, args.ganache, args.graphs, args.seed)
         return
 
     if args.parallel:
-        results = run_parallel(args.presets, args.anvil, args.ganache, args.graphs)
+        results = run_parallel(args.presets, args.anvil, args.ganache, args.graphs, args.seed)
     else:
-        results = run_sequential(args.presets, args.anvil, args.ganache, args.graphs)
+        results = run_sequential(args.presets, args.anvil, args.ganache, args.graphs, args.seed)
 
     _print_summary(results)
 

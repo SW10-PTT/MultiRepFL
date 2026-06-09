@@ -470,6 +470,9 @@ def main():
     restart_reason = os.environ.pop("_AUTORUNNER_RESTART_REASON", None)
     if restart_reason:
         log("autorunner", f"[mem] Restarted — previous process shut down due to: {restart_reason}")
+    log("autorunner", "Compiling contracts...")
+    subprocess.check_call([sys.executable, "scripts/compile_contracts.py"], cwd=str(_repo_root))
+    log("autorunner", "Contracts compiled.")
     globals.reuse_runs = globals.ReplayMode.Record
     worker_loop()
 

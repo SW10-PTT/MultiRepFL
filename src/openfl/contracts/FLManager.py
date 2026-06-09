@@ -331,8 +331,12 @@ class FLManager(ConnectionHelper):
         ).call()
 
     def update_q_values_after_selection(
-        self, all_addresses: list[str], selected_addresses: list[str], task_type: int
+        self, all_addresses: list[str], selected_addresses: list[str], task_type: int,
+        hard_reset: bool = False,
     ) -> None:
+        # hard_reset mirrors trainingSpecs.qHardReset: True zeroes a selected
+        # user's Q, False subtracts one WAD. In GlobalOnly the contract routes
+        # the write through _repKey, so this updates the single shared bucket.
         self.transact(
             "updateQValuesAfterSelection",
             self.publisher,
@@ -342,6 +346,7 @@ class FLManager(ConnectionHelper):
             [Web3.to_checksum_address(a) for a in all_addresses],
             [Web3.to_checksum_address(a) for a in selected_addresses],
             task_type,
+            bool(hard_reset),
         )
 
     def get_task_rep_calc_state(self, user_address: str, task_type: int) -> tuple[int, int]:
