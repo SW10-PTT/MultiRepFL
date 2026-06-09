@@ -926,9 +926,12 @@ def _apply_preset_config(exp_config: ExperimentConfiguration, preset) -> None:
 # Main
 # ---------------------------------------------------------------------------
 
-def main(auto_graphs: bool = False, cleanup_session: bool = False):
+def main(auto_graphs: bool = False, cleanup_session: bool = False, seed_override: int | None = None):
     global fallback_count
     preset = MultirepPreset.from_file(preset_file)
+    if seed_override is not None:
+        log("multirep", f"[seed] overriding preset seed {preset.seed} -> {seed_override}")
+        preset.seed = seed_override
     tasks = preset.tasks
     partition_file = preset.partition_file
     training_mode = preset.training_mode
@@ -1316,6 +1319,11 @@ if __name__ == "__main__":
         "--preset",
         help="Path to preset JSON file (overrides the hardcoded preset_file at the top of this module).",
     )
+    parser.add_argument(
+        "--seed", type=int, default=None,
+        help="Override the preset's RNG seed for this run (data partitioning / user seeds). "
+             "Leave unset to use the seed declared in the preset JSON.",
+    )
     args = parser.parse_args()
 
     if args.preset:
@@ -1330,7 +1338,7 @@ if __name__ == "__main__":
     if False:
         mp.freeze_support()
     try:
-        main(auto_graphs=args.graphs, cleanup_session=args.anvil)
+        main(auto_graphs=args.graphs, cleanup_session=args.anvil, seed_override=args.seed)
     finally:
         for p in mp.active_children():
             p.terminate()
