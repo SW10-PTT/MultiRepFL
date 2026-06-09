@@ -1,20 +1,16 @@
 import matplotlib.pyplot as plt
 import matplotlib as mpl
-from matplotlib.lines import Line2D
 from pathlib import Path
 
-# Match LaTeX document typography as closely as possible without requiring a
-# full TeX installation.
 mpl.rcParams.update({
     "font.family":       "serif",
     "font.serif":        ["DejaVu Serif", "Palatino", "Times New Roman", "serif"],
     "mathtext.fontset":  "dejavuserif",
-    "font.size":         12,
-    "axes.titlesize":    12,
-    "axes.labelsize":    12,
-    "xtick.labelsize":   11,
-    "ytick.labelsize":   11,
-    "legend.fontsize":   11,
+    "font.size":         9.5,
+    "axes.titlesize":    9.5,
+    "axes.labelsize":    9.5,
+    "xtick.labelsize":   8.5,
+    "ytick.labelsize":   8.5,
     "axes.spines.top":   False,
     "axes.spines.right": False,
     "axes.linewidth":    0.8,
@@ -22,102 +18,97 @@ mpl.rcParams.update({
     "ytick.major.width": 0.8,
 })
 
-# Data
-tasks = [1, 2, 3, 4, 5]
+# --- Contract constants (from OpenFLChallenge.sol) ---
+TR_ALPHA   = 0.2
+TR_N_BLEND = 0.2
+TR_N_0     = 5   # use 5 here so maturity grows more gradually in the illustration
+TR_LAMBDA  = 20
+TR_GIR_LR  = 0.2
 
-# Wong (2011) colorblind-safe palette
-_COLORS = ["#0072B2", "#D55E00", "#009E73", "#CC79A7"]
+def simulate(C_list, V_ratio_list, tr_init=0.0, gir_init=0.0, mean_init=0.0, m2_init=0.0, k_offset=0):
+    conf_list, tr_list, gir_list = [], [], []
+    mean, m2, tr, gir = mean_init, m2_init, tr_init, gir_init
+    for k_idx, (c, v) in enumerate(zip(C_list, V_ratio_list)):
+        k  = k_idx + 1 + k_offset
+        d1 = abs(c - mean)
+        new_mean = c if k == 1 else (1 - TR_ALPHA) * mean + TR_ALPHA * c
+        d2   = abs(c - new_mean)
+        new_m2 = (1 - TR_ALPHA) * m2 + TR_ALPHA * d1 * d2
+        mean, m2 = new_mean, new_m2
+        conf = (k / (k + TR_N_0)) * (1.0 / (1.0 + TR_LAMBDA * m2))
+        conf_list.append(conf)
+        tr = (1 - TR_N_BLEND) * tr + TR_N_BLEND * conf * c
+        tr_list.append(tr)
+        gir = (1 - TR_GIR_LR) * gir + TR_GIR_LR * v ** 2
+        gir_list.append(gir)
+    return conf_list, tr_list, gir_list
 
-data = {
-    "C": {
-        "P1": [0.80, 0.82, 0.79, 0.81, 0.80],
-        "P2": [0.80, 0.84, 0.10, 0.90, 0.85],
-        "label": r"Contribution score $C$",
-        "marker": "o",
-    },
-    "Conf": {
-        "P1": [0.167, 0.285, 0.374, 0.444, 0.499],
-        "P2": [0.167, 0.284, 0.144, 0.181, 0.224],
-        "label": r"Confidence $\mathit{Conf}$",
-        "marker": "s",
-    },
-    "TaskRep": {
-        "P1": [0.027, 0.068, 0.114, 0.163, 0.210],
-        "P2": [0.027, 0.069, 0.058, 0.079, 0.101],
-        "label": r"Task reputation $\mathit{TR}$",
-        "marker": "^",
-    },
-    "I": {
-        "P1": [0.200, 0.360, 0.488, 0.590, 0.672],
-        "P2": [0.200, 0.360, 0.338, 0.470, 0.576],
-        "label": r"Integrity reputation $\mathit{GIR}$",
-        "marker": "D",
-    },
-}
+tasks = list(range(1, 11))
+
+C_P1       = [0.80, 0.82, 0.79, 0.81, 0.80, 0.82, 0.81, 0.79, 0.80, 0.81]
+V_ratio_P1 = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+
+C_P2       = [0.80, 0.82, 0.10, 0.66, 0.67, 0.68, 0.52, 0.74, 0.58, 0.75]
+V_ratio_P2 = [1, 1, 0.25, 1, 1, 1, 0.5, 1, 0.5, 1]
+
+INIT = dict(tr_init=0.30, gir_init=0.60, mean_init=0.80, m2_init=0.0)
+K_OFFSET = 5  # represents ~5 prior tasks already completed
+
+conf_p1, tr_p1, gir_p1 = simulate(C_P1, V_ratio_P1, **INIT, k_offset=K_OFFSET)
+conf_p2, tr_p2, gir_p2 = simulate(C_P2, V_ratio_P2, **INIT, k_offset=K_OFFSET)
+
+# Wong (2011) colorblind-safe — no purple
+metrics = [
+    {"label": r"Contribution score $C$",     "color": "#E69F00", "marker": "o", "P1": C_P1,    "P2": C_P2    },
+    {"label": r"Confidence $\mathit{Conf}$",  "color": "#0072B2", "marker": "s", "P1": conf_p1, "P2": conf_p2 },
+    {"label": r"Task rep. $\mathit{TR}$",     "color": "#009E73", "marker": "^", "P1": tr_p1,   "P2": tr_p2   },
+    {"label": r"Integrity rep. $\mathit{GIR}$","color": "#D55E00", "marker": "D", "P1": gir_p1,  "P2": gir_p2  },
+]
 
 out_dir = Path("figures")
 out_dir.mkdir(exist_ok=True)
 
-fig, ax = plt.subplots(figsize=(6.5, 4.6))
+fig, (ax_l, ax_r) = plt.subplots(1, 2, figsize=(9.0, 3.4), sharey=True)
+fig.subplots_adjust(wspace=0.08, bottom=0.22)
 
-metric_handles = []
+panels = [(ax_l, "P1", r"$P_1$ — stable"), (ax_r, "P2", r"$P_2$ — unstable")]
 
-for (metric, values), color in zip(data.items(), _COLORS):
-    line_p1, = ax.plot(
-        tasks, values["P1"],
-        linestyle="-",
-        marker=values["marker"],
-        linewidth=1.6,
-        markersize=5,
-        color=color,
-        label=values["label"],
-    )
-    ax.plot(
-        tasks, values["P2"],
-        linestyle="--",
-        marker=values["marker"],
-        linewidth=1.6,
-        markersize=5,
-        color=color,
-    )
-    metric_handles.append(line_p1)
+legend_handles = []
 
-ax.set_xlabel("Completed tasks", labelpad=6)
-ax.set_ylabel("Value", labelpad=6)
-ax.set_xticks(tasks)
-ax.set_ylim(0, 1.05)
-ax.grid(True, linestyle=":", linewidth=0.5, color="grey", alpha=0.4)
+for ax, participant, title in panels:
+    ax.set_title(title, pad=6)
+    ax.set_xlabel(r"Completed tasks of type $t$", labelpad=4)
+    ax.set_xticks(tasks)
+    ax.set_xlim(0.5, 10.5)
+    ax.set_ylim(0, 1.05)
+    ax.grid(True, linestyle=":", linewidth=0.5, color="grey", alpha=0.4)
 
+    for m in metrics:
+        line, = ax.plot(
+            tasks, m[participant],
+            linestyle="-",
+            marker=m["marker"],
+            linewidth=1.5,
+            markersize=4.5,
+            color=m["color"],
+            label=m["label"],
+        )
+        if ax is ax_l:
+            legend_handles.append(line)
 
-# Legend 1 — metric lines
-legend_metrics = ax.legend(
-    handles=metric_handles,
-    loc="upper center",
-    bbox_to_anchor=(0.5, -0.13),
-    ncol=2,
+ax_l.set_ylabel("Value", labelpad=5)
+
+# Single shared legend in one row below both panels
+fig.legend(
+    handles=legend_handles,
+    loc="lower center",
+    bbox_to_anchor=(0.5, 0.0),
+    ncol=4,
     frameon=False,
-    fontsize=11,
-    handlelength=2.0,
+    fontsize=8.5,
+    handlelength=1.8,
+    columnspacing=1.2,
 )
-ax.add_artist(legend_metrics)
-
-# Legend 2 — participant line style
-participant_handles = [
-    Line2D([0], [0], linestyle="-",  linewidth=1.6, color="black", label=r"$P_1$ (stable)"),
-    Line2D([0], [0], linestyle="--", linewidth=1.6, color="black", label=r"$P_2$ (unstable)"),
-]
-ax.legend(
-    handles=participant_handles,
-    loc="upper center",
-    bbox_to_anchor=(0.5, -0.26),
-    ncol=2,
-    frameon=False,
-    fontsize=11,
-    handlelength=2.0,
-)
-
-fig.tight_layout()
 
 fig.savefig(out_dir / "example_summary.svg", bbox_inches="tight")
-
-plt.show()
+print("Saved example_summary.svg")
