@@ -22,6 +22,7 @@ class MultirepPreset:
     # the rest go to the highest base TR/GIR scores with no Q help.
     q_slot_limit_enabled: bool = False
     q_slot_limit: int = 0
+    q_hard_reset: bool = False
 
     # --- Infrastructure ---
     training_mode: TrainingMode = TrainingMode.REMOTE
@@ -38,6 +39,7 @@ class MultirepPreset:
 
     # --- Remote scheduling ---
     priority: int | None = None             # worker claim priority; higher = claimed first
+    force_remote: bool = True               # when True, retry remote forever instead of falling back to local
 
     @classmethod
     def from_file(cls, path: Union[str, Path]) -> "MultirepPreset":
@@ -54,6 +56,7 @@ class MultirepPreset:
             gir_weight=       int(data.get("gir_weight", 4)),
             q_slot_limit_enabled= bool(data.get("q_slot_limit_enabled", False)),
             q_slot_limit=     int(data.get("q_slot_limit", 0)),
+            q_hard_reset=     bool(data.get("q_hard_reset", False)),
             training_mode=    TrainingMode.from_string(data.get("training_mode", "remote")),
             fork=             bool(data.get("fork", True)),
             replication_factor= float(data.get("replication_factor", 1.0)),
@@ -62,4 +65,5 @@ class MultirepPreset:
             global_rep_only=  bool(data.get("global_rep_only", False)),
             vote_baseline=    str(data.get("vote_baseline", "local_trained")),
             priority=         int(raw_priority) if raw_priority is not None else None,
+            force_remote=     bool(data.get("force_remote", True)),
         )

@@ -42,6 +42,7 @@ struct TrainingSpecifications {
     uint256 girWeight; // GIR multiplier in selection score (default 4)
     bool qSlotLimitEnabled; // when true, cap how many slots may be won via the Q bonus
     uint256 qSlotLimit;     // max slots fillable using Q; the rest go by base score only
+    bool qHardReset;        // when true, selected users' Q resets to 0; otherwise subtracts WAD
 }
 
 // Per-user computed TaskRep outputs from one challenge. Stored on-chain by

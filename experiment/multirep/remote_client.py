@@ -35,7 +35,7 @@ from openfl.utils.printer import log
 _TERMINAL_OK   = {"completed"}
 _TERMINAL_FAIL = {"dead", "cancelled"}
 _POLL_INTERVAL = 2   # seconds between status checks
-_POLL_TIMEOUT  = 36000 # seconds before giving up (1 h)
+_POLL_TIMEOUT  = 0 # 0 = no timeout; >0 = seconds before giving up
 
 
 # ---------------------------------------------------------------------------
@@ -134,7 +134,7 @@ def poll_run_status(run_id: str, timeout: int = _POLL_TIMEOUT, interval: int = _
     Raises RuntimeError if the run enters a failed/cancelled state.
     """
     url = f"{_api_url()}/runs/{run_id}"
-    deadline = time.monotonic() + timeout
+    deadline = None if timeout == 0 else time.monotonic() + timeout
 
     while True:
         res = requests.get(url, timeout=15)
@@ -151,7 +151,7 @@ def poll_run_status(run_id: str, timeout: int = _POLL_TIMEOUT, interval: int = _
         if status in _TERMINAL_FAIL:
             raise RuntimeError(f"Remote run {run_id} ended with status '{status}' (failCount={fail_count})")
 
-        if time.monotonic() > deadline:
+        if deadline is not None and time.monotonic() > deadline:
             raise TimeoutError(
                 f"Remote run {run_id} did not complete within {timeout}s (last status: {status})"
             )
@@ -199,13 +199,21 @@ def extract_and_register_runrepo(archive_path: Path, dest_dir: Path) -> Path:
     dest_dir.mkdir(parents=True, exist_ok=True)
     log("remote_client", f"Extracting tarball to {dest_dir} …")
 
+    # Snapshot before extraction so repeated downloads to the same fingerprint-keyed
+    # dest_dir (e.g. SKIP_RUN_CACHE=True re-running previously seen tasks) don't
+    # cause the subdir count check to fail or point at the wrong run.
+    existing_subdirs = {c for c in dest_dir.iterdir() if c.is_dir()}
+
     with tarfile.open(archive_path, "r:gz") as tar:
         tar.extractall(dest_dir)
 
-    # Point repo_dir at the inner run folder (the folder inside the tarball).
-    # Ignore any files already in dest_dir (e.g. result.tar.gz) — only look at subdirs.
-    subdirs = [c for c in dest_dir.iterdir() if c.is_dir()]
-    run_dir = subdirs[0] if len(subdirs) == 1 else dest_dir
+    new_subdirs = [c for c in dest_dir.iterdir() if c.is_dir() and c not in existing_subdirs]
+    if len(new_subdirs) != 1:
+        raise RuntimeError(
+            f"Expected exactly 1 new subdir in {dest_dir} after extracting {archive_path.name}, "
+            f"got {len(new_subdirs)}: {[c.name for c in new_subdirs]}"
+        )
+    run_dir = new_subdirs[0]
 
     log("remote_client", f"Run trace extracted to {run_dir}")
 
@@ -260,7 +268,7 @@ def run_remote_and_setup_replay(
     download_url = fetch_run_download_url(run_id)
 
     _experiment_dir = Path(__file__).resolve().parents[1]
-    dest = _experiment_dir / "data" / "remote_runs" / fingerprint
+    dest = _experiment_dir / "data" / "remote_runs" / run_id
 
     archive = download_tarball(download_url, dest)
     extract_dir = extract_and_register_runrepo(archive, dest)
