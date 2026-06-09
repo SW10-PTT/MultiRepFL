@@ -76,6 +76,21 @@ def _distinct_curves(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def _behavior_on_task_type(rep: pd.DataFrame, task_type: int) -> pd.Series:
+    """Each row's user behaviour *on the given task type* (constant per user),
+    aligned back to ``rep``'s index.  Task-hoppers carry a different behaviour per
+    dataset, so the per-task ``behavior`` column flips at dataset switches; this
+    fixes a user to its behaviour on one dataset for coherent per-dataset grouping.
+    """
+    sub = rep[rep["task_type"] == task_type]
+    if sub.empty:
+        # no tasks of this type logged → fall back to the per-task label
+        return rep["behavior"]
+    by_user = sub.groupby("user_name")["behavior"].agg(
+        lambda s: s.mode().iat[0] if not s.mode().empty else s.iat[0])
+    return rep["user_name"].map(by_user)
+
+
 def _n_curves(df: pd.DataFrame) -> int:
     """Number of distinct (run, fingerprint) experimental curves in *df*."""
     if {"run", "fingerprint"} <= set(df.columns):
@@ -476,18 +491,24 @@ def plot_tr_development(pair: ExperimentPair) -> plt.Figure:
             rep = exp.reputation_timeline()
             if rep.empty:
                 continue
+            # Group by each user's behaviour *on this panel's dataset* (constant
+            # per user), not the per-task behaviour.  For task-hoppers the per-task
+            # label flips at every dataset switch, which would otherwise swap users
+            # in/out of a behaviour line and produce a spurious rise/crash sawtooth.
+            rep = rep.assign(_beh=_behavior_on_task_type(rep, tt))
             if exp.system == "globalrep":
                 # single shared global bucket → use tr_post (the live bucket value)
-                agg = rep.groupby(["behavior", "task_index"])["tr_post"].mean().reset_index()
-                agg = agg.rename(columns={"tr_post": "_tr"})
+                agg = rep.dropna(subset=["_beh"]).groupby(["_beh", "task_index"])["tr_post"].mean().reset_index()
+                agg = agg.rename(columns={"tr_post": "_tr", "_beh": "behavior"})
             else:
                 if "tr_all_post" not in rep.columns:
                     continue
                 val = rep["tr_all_post"].apply(
                     lambda d: d.get(tt) if isinstance(d, dict) else None
                 )
-                agg = (rep.assign(_tr=val).dropna(subset=["_tr"])
-                       .groupby(["behavior", "task_index"])["_tr"].mean().reset_index())
+                agg = (rep.assign(_tr=val).dropna(subset=["_tr", "_beh"])
+                       .groupby(["_beh", "task_index"])["_tr"].mean().reset_index()
+                       .rename(columns={"_beh": "behavior"}))
             for behavior, grp in agg.groupby("behavior"):
                 grp = grp.sort_values("task_index")
                 ax.plot(grp["task_index"], grp["_tr"],

@@ -139,6 +139,36 @@ def _generate_pair_graphs(pair: ExperimentPair, out_dir: Path) -> int:
                 out_dir / "taskhopper_selection_development.png")
     n += 2
 
+    # --- 7c. task-hopper-only: behaviour-role buckets + per-role/per-user dev ---
+    if gp._taskhoppers_present(pair):
+        # role-bucketed versions of the split graphs (Honest pooled; each
+        # malicious / free-rider variant in its own bucket)
+        # NB: no role version of final_accuracy_by_dominant_split — the dominant
+        # selected role is always "Honest" (the majority every task), so it is
+        # degenerate.  Role buckets are used for the participant-level splits only.
+        for tt in TASK_TYPES:
+            ds = DS_NAME[tt]
+            save_figure(gp.plot_selection_rate_by_split(pair, tt, bucket_fn=gp.role_bucket),
+                        out_dir / f"rolesplit_selection_{ds}.png")
+            save_figure(gp.plot_tr_by_split(pair, tt, bucket_fn=gp.role_bucket),
+                        out_dir / f"rolesplit_tr_{ds}.png")
+            n += 2
+        save_figure(gp.plot_gir_by_split(pair, bucket_fn=gp.role_bucket),
+                    out_dir / "rolesplit_gir.png")
+        save_figure(gp.plot_net_earnings_by_split(pair, bucket_fn=gp.role_bucket),
+                    out_dir / "rolesplit_net_earnings.png")
+        # mixed-behaviour earnings incl. honest baseline (req: add honest users)
+        save_figure(gp.plot_mixed_behavior_users(pair, include_honest=True),
+                    out_dir / "mixed_behavior_users_with_honest.png")
+        # per-user / per-role reputation development + selections-by-type
+        save_figure(gp.plot_mixed_behavior_tr_development(pair),
+                    out_dir / "mixed_behavior_tr_development.png")
+        save_figure(gp.plot_taskhopper_reputation_development_by_role(pair),
+                    out_dir / "taskhopper_reputation_development_by_role.png")
+        save_figure(gp.plot_selections_by_role_dataset(pair),
+                    out_dir / "selections_by_role_dataset.png")
+        n += 5
+
     # --- 8. proposed thesis graphs ---
     save_figure(tp.plot_score_decomposition(pair), out_dir / "score_decomposition.png")
     save_figure(tp.plot_cold_start_latency(pair, CIFAR_TT), out_dir / "cold_start_latency_cifar.png")
