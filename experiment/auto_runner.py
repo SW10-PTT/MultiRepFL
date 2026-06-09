@@ -66,7 +66,7 @@ def _check_ram_startup() -> None:
         sys.exit(1)
 
 def _check_ram_and_maybe_restart() -> None:
-    """Post-run check: if free RAM < threshold, clean up blockchain and restart after 30 s."""
+    """Post-run check: if free RAM < threshold, restart after 30 s."""
     try:
         free_gb = _free_ram_gb()
     except Exception as e:
@@ -76,11 +76,6 @@ def _check_ram_and_maybe_restart() -> None:
         return
     log("autorunner", f"[mem] Only {free_gb:.1f} GB free (need {_RAM_THRESHOLD_GB} GB). Restarting in 30 s...")
     stop_heartbeat_loop()
-    try:
-        from experiment.blockchain_launcher import _cleanup as _bc_cleanup
-        _bc_cleanup()
-    except Exception:
-        pass
     time.sleep(30)
     os.environ["_AUTORUNNER_RESTART_REASON"] = f"low_ram:{free_gb:.1f}GB"
     _restart()
@@ -97,7 +92,12 @@ def _git_commit() -> str | None:
         return None
 
 def _restart() -> None:
-    """Replace this process with a fresh instance. Safe to call from any thread."""
+    """Stop blockchain, then replace this process with a fresh instance."""
+    try:
+        from experiment.blockchain_launcher import _cleanup as _bc_cleanup
+        _bc_cleanup()
+    except Exception:
+        pass
     args = [sys.executable] + sys.argv
     if platform.system() == "Windows":
         subprocess.Popen(args)
@@ -112,11 +112,6 @@ def _switch_to_commit(sha: str) -> None:
     log("autorunner", "[version] Compiling contracts...")
     subprocess.check_call([sys.executable, "scripts/compile_contracts.py"], cwd=str(_repo_root))
     log("autorunner", f"[version] Done. Restarting as {sha[:8]}...")
-    try:
-        from experiment.blockchain_launcher import _cleanup as _bc_cleanup
-        _bc_cleanup()
-    except Exception:
-        pass
     os.environ["_AUTORUNNER_RESTART_REASON"] = f"version_switch:{sha[:8]}"
     _restart()
 
@@ -318,6 +313,7 @@ def worker_loop():
         experiment = None
         writer = None
         logger = None
+        experiment, filename = None, None
         try:
             if not check_worker_exists():
                 registerWorkerLoop()
@@ -474,6 +470,9 @@ def main():
     restart_reason = os.environ.pop("_AUTORUNNER_RESTART_REASON", None)
     if restart_reason:
         log("autorunner", f"[mem] Restarted — previous process shut down due to: {restart_reason}")
+    log("autorunner", "Compiling contracts...")
+    subprocess.check_call([sys.executable, "scripts/compile_contracts.py"], cwd=str(_repo_root))
+    log("autorunner", "Contracts compiled.")
     globals.reuse_runs = globals.ReplayMode.Record
     worker_loop()
 

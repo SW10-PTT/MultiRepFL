@@ -1,0 +1,179 @@
+{
+  "_doc": [
+    "20-user partition designed to exercise every graph feature in a short run.",
+    "",
+    "User groups:",
+    "  Balanced (4): Honest on both tasks, full label coverage — solid baseline reps.",
+    "  MNIST Experts (3): High data_percent on MNIST, low data_percent on CIFAR.",
+    "  CIFAR Experts (3): Mirror of above.",
+    "  Cross-task (2): Honest on one dataset, Malicious on the other — shows asymmetric GIR/TR.",
+    "  Malicious (2): Malicious on both — punished, balance drops, GIR collapses.",
+    "  Free-rider (2): Free-rides on both — same treatment as Malicious.",
+    "  Passive (4): Honest but low data_percent — rarely selected, Q builds up over tasks.",
+    "",
+    "data_percent sums to 100 per dataset.",
+    "Select 5 of 20 per task so unselected users accumulate Q patience."
+  ],
+  "presets": [
+    {
+      "id": "a1000000-0000-0000-0000-000000000001",
+      "name": "Balanced A",
+      "datasets": {
+        "MNIST":   { "behavior": "Honest", "data_percent": 6.0 },
+        "CIFAR-10":{ "behavior": "Honest", "data_percent": 6.0 }
+      }
+    },
+    {
+      "id": "a1000000-0000-0000-0000-000000000002",
+      "name": "Balanced B",
+      "datasets": {
+        "MNIST":   { "behavior": "Honest", "data_percent": 6.0 },
+        "CIFAR-10":{ "behavior": "Honest", "data_percent": 6.0 }
+      }
+    },
+    {
+      "id": "a1000000-0000-0000-0000-000000000013",
+      "name": "Balanced C",
+      "datasets": {
+        "MNIST":   { "behavior": "Honest", "data_percent": 6.0 },
+        "CIFAR-10":{ "behavior": "Honest", "data_percent": 6.0 }
+      }
+    },
+    {
+      "id": "a1000000-0000-0000-0000-000000000014",
+      "name": "Balanced D",
+      "datasets": {
+        "MNIST":   { "behavior": "Honest", "data_percent": 6.0 },
+        "CIFAR-10":{ "behavior": "Honest", "data_percent": 6.0 }
+      }
+    },
+    {
+      "id": "a1000000-0000-0000-0000-000000000003",
+      "name": "MNIST Expert 1",
+      "datasets": {
+        "MNIST":   { "behavior": "Honest", "data_percent": 8.0 },
+        "CIFAR-10":{ "behavior": "Honest", "data_percent": 2.0, "only_labels": [0,1,2,3,4,5,6,7,8] }
+      }
+    },
+    {
+      "id": "a1000000-0000-0000-0000-000000000004",
+      "name": "MNIST Expert 2",
+      "datasets": {
+        "MNIST":   { "behavior": "Honest", "data_percent": 8.0 },
+        "CIFAR-10":{ "behavior": "Honest", "data_percent": 2.0, "only_labels": [0,1,2,3,4,5,6,7,9] }
+      }
+    },
+    {
+      "id": "a1000000-0000-0000-0000-000000000015",
+      "name": "MNIST Expert 3",
+      "datasets": {
+        "MNIST":   { "behavior": "Honest", "data_percent": 8.0 },
+        "CIFAR-10":{ "behavior": "Honest", "data_percent": 2.0 }
+      }
+    },
+    {
+      "id": "a1000000-0000-0000-0000-000000000005",
+      "name": "CIFAR Expert 1",
+      "datasets": {
+        "MNIST":   { "behavior": "Honest", "data_percent": 2.0, "only_labels": [0,1,2,3,4,5,6,7,8] },
+        "CIFAR-10":{ "behavior": "Honest", "data_percent": 8.0 }
+      }
+    },
+    {
+      "id": "a1000000-0000-0000-0000-000000000006",
+      "name": "CIFAR Expert 2",
+      "datasets": {
+        "MNIST":   { "behavior": "Honest", "data_percent": 2.0, "only_labels": [1,2,3,4,5,6,7,8,9] },
+        "CIFAR-10":{ "behavior": "Honest", "data_percent": 8.0 }
+      }
+    },
+    {
+      "id": "a1000000-0000-0000-0000-000000000016",
+      "name": "CIFAR Expert 3",
+      "datasets": {
+        "MNIST":   { "behavior": "Honest", "data_percent": 2.0 },
+        "CIFAR-10":{ "behavior": "Honest", "data_percent": 8.0 }
+      }
+    },
+    {
+      "id": "a1000000-0000-0000-0000-000000000007",
+      "name": "Cross Honest-MNIST Mal-CIFAR",
+      "datasets": {
+        "MNIST":   { "behavior": "Honest",    "data_percent": 5.0 },
+        "CIFAR-10":{ "behavior": "Malicious", "data_percent": 5.0, "noise_scale": 1.0, "start_round": 1 }
+      }
+    },
+    {
+      "id": "a1000000-0000-0000-0000-000000000008",
+      "name": "Cross Mal-MNIST Honest-CIFAR",
+      "datasets": {
+        "MNIST":   { "behavior": "Malicious", "data_percent": 5.0, "noise_scale": 1.0, "start_round": 1 },
+        "CIFAR-10":{ "behavior": "Honest",    "data_percent": 5.0 }
+      }
+    },
+    {
+      "id": "a1000000-0000-0000-0000-000000000009",
+      "name": "Malicious Both",
+      "datasets": {
+        "MNIST":   { "behavior": "Malicious", "data_percent": 5.0, "noise_scale": 1.0, "start_round": 1 },
+        "CIFAR-10":{ "behavior": "Malicious", "data_percent": 5.0, "noise_scale": 1.0, "start_round": 1 }
+      }
+    },
+    {
+      "id": "a1000000-0000-0000-0000-000000000017",
+      "name": "Malicious Both 2",
+      "datasets": {
+        "MNIST":   { "behavior": "Malicious", "data_percent": 5.0, "noise_scale": 1.0, "start_round": 1 },
+        "CIFAR-10":{ "behavior": "Malicious", "data_percent": 5.0, "noise_scale": 1.0, "start_round": 1 }
+      }
+    },
+    {
+      "id": "a1000000-0000-0000-0000-000000000010",
+      "name": "Free-rider Both",
+      "datasets": {
+        "MNIST":   { "behavior": "Free-rider", "data_percent": 5.0, "noise_scale": 0.1, "start_round": 1 },
+        "CIFAR-10":{ "behavior": "Free-rider", "data_percent": 5.0, "noise_scale": 0.1, "start_round": 1 }
+      }
+    },
+    {
+      "id": "a1000000-0000-0000-0000-000000000018",
+      "name": "Free-rider Both 2",
+      "datasets": {
+        "MNIST":   { "behavior": "Free-rider", "data_percent": 5.0, "noise_scale": 0.1, "start_round": 1 },
+        "CIFAR-10":{ "behavior": "Free-rider", "data_percent": 5.0, "noise_scale": 0.1, "start_round": 1 }
+      }
+    },
+    {
+      "id": "a1000000-0000-0000-0000-000000000011",
+      "name": "Passive A",
+      "datasets": {
+        "MNIST":   { "behavior": "Honest", "data_percent": 4.0 },
+        "CIFAR-10":{ "behavior": "Honest", "data_percent": 4.0 }
+      }
+    },
+    {
+      "id": "a1000000-0000-0000-0000-000000000012",
+      "name": "Passive B",
+      "datasets": {
+        "MNIST":   { "behavior": "Honest", "data_percent": 4.0 },
+        "CIFAR-10":{ "behavior": "Honest", "data_percent": 4.0 }
+      }
+    },
+    {
+      "id": "a1000000-0000-0000-0000-000000000019",
+      "name": "Passive C",
+      "datasets": {
+        "MNIST":   { "behavior": "Honest", "data_percent": 4.0 },
+        "CIFAR-10":{ "behavior": "Honest", "data_percent": 4.0 }
+      }
+    },
+    {
+      "id": "a1000000-0000-0000-0000-000000000020",
+      "name": "Passive D",
+      "datasets": {
+        "MNIST":   { "behavior": "Honest", "data_percent": 4.0 },
+        "CIFAR-10":{ "behavior": "Honest", "data_percent": 4.0 }
+      }
+    }
+  ]
+}

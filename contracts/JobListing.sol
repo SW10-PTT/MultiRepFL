@@ -78,9 +78,8 @@ contract JobListing {
         trainingSpecs.qWeight = _qWeight;
         trainingSpecs.trWeight = _trWeight;
         trainingSpecs.girWeight = _girWeight;
-        // Q-slot cap defaults off (qSlotLimitEnabled = false). It is opt-in via
-        // setQSlotLimit, called post-deploy only when the preset enables it —
-        // see the constructor stack-depth note on setQSlotLimit.
+        // qHardReset and qSlotLimitEnabled default to false; set post-deploy via
+        // setQHardReset / setQSlotLimit to avoid constructor stack-depth overflow.
 
         challengeCodeHash = manager.getChallengeCodeHash();
     }
@@ -94,6 +93,12 @@ contract JobListing {
         require(selectedParticipants.length == 0, "ASD");
         trainingSpecs.qSlotLimitEnabled = true;
         trainingSpecs.qSlotLimit = limit;
+    }
+
+    function setQHardReset(bool enabled) external {
+        require(msg.sender == publisher, "ONP");
+        require(selectedParticipants.length == 0, "ASD");
+        trainingSpecs.qHardReset = enabled;
     }
     function debugTimes() external view returns (uint nowTs, uint closeTs) {
         return (block.timestamp, applicationWindowCloseTime);
@@ -189,7 +194,8 @@ contract JobListing {
         manager.updateQValuesAfterSelection(
             applicantAddresses,
             selected,
-            trainingSpecs.taskType
+            trainingSpecs.taskType,
+            trainingSpecs.qHardReset
         );
 
         emit SelectionComplete(selected);

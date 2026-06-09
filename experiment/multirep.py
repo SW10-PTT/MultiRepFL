@@ -67,11 +67,10 @@ _INTEGRITY_LEARNING_RATE = int(2e17)  # GIR EWMA learning rate
 # Preset file — fill in before running
 # ---------------------------------------------------------------------------
 
-preset_file = "experiment/presets/fast-test-skip-cache.json"
+preset_file = "experiment/presets/fast-test-local-mnist-only-multi.json"
 # preset_file = "experiment/presets/EXP-multirep-mixed-distribution-5-task-dataset-switch copy.json"
 
-FORCE_REMOTE = True           # if True, retry remote forever instead of falling back to local
-FORCE_REMOTE_RETRY_DELAY = 30  # seconds between retries when FORCE_REMOTE is True
+FORCE_REMOTE_RETRY_DELAY = 30  # seconds between retries when force_remote is True
 
 # ---------------------------------------------------------------------------
 # Output directory for multirep sessions
@@ -920,15 +919,19 @@ def _apply_preset_config(exp_config: ExperimentConfiguration, preset) -> None:
     exp_config.fork               = preset.fork
     exp_config.q_slot_limit_enabled = preset.q_slot_limit_enabled
     exp_config.q_slot_limit       = preset.q_slot_limit
+    exp_config.q_hard_reset       = preset.q_hard_reset
 
 
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
-def main(auto_graphs: bool = False, cleanup_session: bool = False):
+def main(auto_graphs: bool = False, cleanup_session: bool = False, seed_override: int | None = None):
     global fallback_count
     preset = MultirepPreset.from_file(preset_file)
+    if seed_override is not None:
+        log("multirep", f"[seed] overriding preset seed {preset.seed} -> {seed_override}")
+        preset.seed = seed_override
     tasks = preset.tasks
     partition_file = preset.partition_file
     training_mode = preset.training_mode
@@ -1070,7 +1073,7 @@ def main(auto_graphs: bool = False, cleanup_session: bool = False):
 
         selection_state = ExperimentRunner.select_participants_for_task(
             task.dataset, boot_config, all_users, manager,
-            force_remote=FORCE_REMOTE,
+            force_remote=preset.force_remote,
         )
         selected_users = selection_state.selected_users
 
@@ -1091,7 +1094,7 @@ def main(auto_graphs: bool = False, cleanup_session: bool = False):
         task_dir = tasks_dir / f"task_{i+1:03d}_{safe_dataset}_{fingerprint[:8]}"
         task_dir.mkdir(parents=True, exist_ok=True)
 
-        cached_run = None if (SKIP_RUN_CACHE or FORCE_REMOTE) else _fetch_cached_run(fingerprint)
+        cached_run = None if (SKIP_RUN_CACHE or preset.force_remote) else _fetch_cached_run(fingerprint)
         if cached_run is not None:
             log("multirep", f"Fingerprint {fingerprint[:8]}... found in RunRepo — skipping experiment.")
             _apply_cached_reps(all_users, cached_run, task_type)
@@ -1141,7 +1144,7 @@ def main(auto_graphs: bool = False, cleanup_session: bool = False):
             task_type=task_type,
             writer=writer, logger=task_logger, path=task_csv_path,
             session_state=session_state,
-            force_remote=FORCE_REMOTE,
+            force_remote=preset.force_remote,
             priority=preset.priority,
             total_expected_configs=len(tasks),
         )
@@ -1176,6 +1179,7 @@ def main(auto_graphs: bool = False, cleanup_session: bool = False):
         pkl_path = task_csv_path.with_suffix(".pkl")
         task_logger.save(pkl_path)
         task_pkl_path = pkl_path
+        log("multirep", f"Task output: {task_dir}")
 
         remote_src = Path(fl_globals.repo_dir)
         if remote_src.is_dir() and remote_src != task_dir:
@@ -1316,6 +1320,11 @@ if __name__ == "__main__":
         "--preset",
         help="Path to preset JSON file (overrides the hardcoded preset_file at the top of this module).",
     )
+    parser.add_argument(
+        "--seed", type=int, default=None,
+        help="Override the preset's RNG seed for this run (data partitioning / user seeds). "
+             "Leave unset to use the seed declared in the preset JSON.",
+    )
     args = parser.parse_args()
 
     if args.preset:
@@ -1330,7 +1339,7 @@ if __name__ == "__main__":
     if False:
         mp.freeze_support()
     try:
-        main(auto_graphs=args.graphs, cleanup_session=args.anvil)
+        main(auto_graphs=args.graphs, cleanup_session=args.anvil, seed_override=args.seed)
     finally:
         for p in mp.active_children():
             p.terminate()

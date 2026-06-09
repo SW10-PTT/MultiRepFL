@@ -76,6 +76,21 @@ def _distinct_curves(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def _behavior_on_task_type(rep: pd.DataFrame, task_type: int) -> pd.Series:
+    """Each row's user behaviour *on the given task type* (constant per user),
+    aligned back to ``rep``'s index.  Task-hoppers carry a different behaviour per
+    dataset, so the per-task ``behavior`` column flips at dataset switches; this
+    fixes a user to its behaviour on one dataset for coherent per-dataset grouping.
+    """
+    sub = rep[rep["task_type"] == task_type]
+    if sub.empty:
+        # no tasks of this type logged → fall back to the per-task label
+        return rep["behavior"]
+    by_user = sub.groupby("user_name")["behavior"].agg(
+        lambda s: s.mode().iat[0] if not s.mode().empty else s.iat[0])
+    return rep["user_name"].map(by_user)
+
+
 def _n_curves(df: pd.DataFrame) -> int:
     """Number of distinct (run, fingerprint) experimental curves in *df*."""
     if {"run", "fingerprint"} <= set(df.columns):
@@ -353,7 +368,7 @@ def _time_to_accuracy(exp: ExperimentRuns, mode: str) -> pd.DataFrame:
         if hit.empty:
             continue
         rows.append({"dataset": ds.lower(), "rounds": int(hit["round"].iloc[0])})
-    return pd.DataFrame(rows)
+    return pd.DataFrame(rows, columns=["dataset", "rounds"]) if rows else pd.DataFrame(columns=["dataset", "rounds"])
 
 
 def plot_time_to_accuracy(pair: ExperimentPair, mode: str = "threshold") -> plt.Figure:
@@ -476,18 +491,24 @@ def plot_tr_development(pair: ExperimentPair) -> plt.Figure:
             rep = exp.reputation_timeline()
             if rep.empty:
                 continue
+            # Group by each user's behaviour *on this panel's dataset* (constant
+            # per user), not the per-task behaviour.  For task-hoppers the per-task
+            # label flips at every dataset switch, which would otherwise swap users
+            # in/out of a behaviour line and produce a spurious rise/crash sawtooth.
+            rep = rep.assign(_beh=_behavior_on_task_type(rep, tt))
             if exp.system == "globalrep":
                 # single shared global bucket → use tr_post (the live bucket value)
-                agg = rep.groupby(["behavior", "task_index"])["tr_post"].mean().reset_index()
-                agg = agg.rename(columns={"tr_post": "_tr"})
+                agg = rep.dropna(subset=["_beh"]).groupby(["_beh", "task_index"])["tr_post"].mean().reset_index()
+                agg = agg.rename(columns={"tr_post": "_tr", "_beh": "behavior"})
             else:
                 if "tr_all_post" not in rep.columns:
                     continue
                 val = rep["tr_all_post"].apply(
                     lambda d: d.get(tt) if isinstance(d, dict) else None
                 )
-                agg = (rep.assign(_tr=val).dropna(subset=["_tr"])
-                       .groupby(["behavior", "task_index"])["_tr"].mean().reset_index())
+                agg = (rep.assign(_tr=val).dropna(subset=["_tr", "_beh"])
+                       .groupby(["_beh", "task_index"])["_tr"].mean().reset_index()
+                       .rename(columns={"_beh": "behavior"}))
             for behavior, grp in agg.groupby("behavior"):
                 grp = grp.sort_values("task_index")
                 ax.plot(grp["task_index"], grp["_tr"],
@@ -924,6 +945,113 @@ def plot_qvalue_selection_wait(with_q: ExperimentRuns, without_q: ExperimentRuns
     ax2.grid(True, axis="y", alpha=0.3)
 
     fig.suptitle("Effect of the Q-value (selection-pressure bonus) on participant wait time")
+    fig.tight_layout()
+    return fig
+
+
+def _coverage_curve(exp: ExperimentRuns) -> pd.DataFrame:
+    """Per task_index (mean over runs): fraction of users selected at least once
+    so far (coverage) and the Gini of cumulative selection counts."""
+    rep = exp.reputation_timeline()
+    if rep.empty:
+        return pd.DataFrame(columns=["task_index", "coverage", "gini"])
+    run_frames = []
+    for _run, g in rep.groupby("run"):
+        n_users = g["guid"].nunique()
+        order = sorted(g["task_index"].unique())
+        seen: set = set()
+        counts: dict = {}
+        cov, gini = [], []
+        for ti in order:
+            picked = g[(g["task_index"] == ti) & (g["was_selected"])]["guid"]
+            for gid in picked:
+                seen.add(gid)
+                counts[gid] = counts.get(gid, 0) + 1
+            cov.append(len(seen) / n_users if n_users else np.nan)
+            vec = np.array(list(counts.values()) + [0] * (n_users - len(counts)), dtype=float)
+            gini.append(_gini(vec))
+        run_frames.append(pd.DataFrame({"task_index": order, "coverage": cov, "gini": gini}))
+    allruns = pd.concat(run_frames, ignore_index=True)
+    return allruns.groupby("task_index")[["coverage", "gini"]].mean().reset_index()
+
+
+def plot_qvalue_coverage(with_q: ExperimentRuns, without_q: ExperimentRuns) -> plt.Figure:
+    """How evenly participation is shared *over time*, with vs without the Q-value.
+
+    Left: participation coverage — fraction of users selected at least once by
+    task t.  With the Q-value, every participant gets a turn sooner, so coverage
+    climbs to 1.0 faster.  Right: running Gini of cumulative selection counts —
+    lower = picks shared more equally as the session goes on."""
+    variants = [("With Q-value", "#1b9e77", _coverage_curve(with_q)),
+                ("Without Q-value", "#d95f02", _coverage_curve(without_q))]
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4.5))
+    for label, color, c in variants:
+        if c.empty:
+            continue
+        ax1.plot(c["task_index"], c["coverage"], color=color, lw=_LW, marker="o", ms=3, label=label)
+        ax2.plot(c["task_index"], c["gini"], color=color, lw=_LW, marker="o", ms=3, label=label)
+    ax1.set_xlabel("Task index"); ax1.set_ylabel("Fraction of users selected ≥ once")
+    ax1.set_ylim(0, 1.05); ax1.set_title("Participation coverage over time")
+    ax1.legend(fontsize=8); ax1.grid(True, alpha=0.3)
+    ax2.set_xlabel("Task index"); ax2.set_ylabel("Gini of cumulative selections")
+    ax2.set_ylim(0, 1.0); ax2.set_title("Selection inequality over time")
+    ax2.legend(fontsize=8); ax2.grid(True, alpha=0.3)
+    fig.suptitle("Effect of the Q-value: how fast everyone gets a turn")
+    fig.tight_layout()
+    return fig
+
+
+def _idle_streak_table(exp: ExperimentRuns) -> pd.DataFrame:
+    """One row per (run, user, task): the idle streak *entering* this task
+    (consecutive prior tasks the user was not selected for), the Q-value used for
+    the selection decision (q_pre), and whether they were then selected."""
+    rep = exp.reputation_timeline()
+    if rep.empty:
+        return pd.DataFrame(columns=["streak", "q_pre", "was_selected"])
+    rep = rep.sort_values(["run", "guid", "task_index"])
+    rows = []
+    for (_run, _gid), g in rep.groupby(["run", "guid"]):
+        streak = 0
+        for _, row in g.iterrows():
+            rows.append({"streak": streak, "q_pre": row["q_pre"],
+                         "was_selected": bool(row["was_selected"])})
+            streak = 0 if row["was_selected"] else streak + 1
+    return pd.DataFrame(rows)
+
+
+def plot_qvalue_mechanism(with_q: ExperimentRuns, without_q: ExperimentRuns,
+                          max_streak: int = 8) -> plt.Figure:
+    """The Q-value mechanism, made explicit.
+
+    Left: probability of being selected vs how long a user has sat idle.  The
+    Q-value is the long-unselected bonus, so with it P(selected) *rises* with the
+    idle streak (idle users get pulled back in); without it, an unselected user
+    has no recovery path and their chance stays low.  Right: the resulting idle-
+    streak distribution — with the Q-value, task-opportunities pile up at short
+    streaks; without it a long starvation tail appears."""
+    variants = [("With Q-value", "#1b9e77", _idle_streak_table(with_q)),
+                ("Without Q-value", "#d95f02", _idle_streak_table(without_q))]
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4.5))
+    for label, color, t in variants:
+        if t.empty:
+            continue
+        t = t.copy()
+        t["streak_c"] = t["streak"].clip(upper=max_streak)
+        # (left) P(selected) vs idle streak
+        p = t.groupby("streak_c")["was_selected"].mean().reset_index()
+        ax1.plot(p["streak_c"], p["was_selected"], color=color, lw=_LW, marker="o", ms=4, label=label)
+        # (right) distribution of idle streaks (share of task-opportunities)
+        d = t.groupby("streak_c").size()
+        d = (d / d.sum()).reset_index(name="frac")
+        ax2.plot(d["streak_c"], d["frac"], color=color, lw=_LW, marker="o", ms=4, label=label)
+    xlbl = f"Idle streak entering task (consecutive tasks unselected, capped at {max_streak})"
+    ax1.set_xlabel(xlbl); ax1.set_ylabel("P(selected)")
+    ax1.set_ylim(0, 1.05); ax1.set_title("Idle users get pulled back in")
+    ax1.legend(fontsize=8); ax1.grid(True, alpha=0.3)
+    ax2.set_xlabel(xlbl); ax2.set_ylabel("Share of task-opportunities")
+    ax2.set_title("Idle-streak distribution (Q prevents starvation tail)")
+    ax2.legend(fontsize=8); ax2.grid(True, alpha=0.3)
+    fig.suptitle("Effect of the Q-value: the long-unselected bonus and its consequence")
     fig.tight_layout()
     return fig
 
