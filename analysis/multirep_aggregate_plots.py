@@ -353,7 +353,7 @@ def _time_to_accuracy(exp: ExperimentRuns, mode: str) -> pd.DataFrame:
         if hit.empty:
             continue
         rows.append({"dataset": ds.lower(), "rounds": int(hit["round"].iloc[0])})
-    return pd.DataFrame(rows)
+    return pd.DataFrame(rows, columns=["dataset", "rounds"]) if rows else pd.DataFrame(columns=["dataset", "rounds"])
 
 
 def plot_time_to_accuracy(pair: ExperimentPair, mode: str = "threshold") -> plt.Figure:

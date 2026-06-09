@@ -12,7 +12,7 @@
     "  Confidence grows with task count; slow to mature for rarely-selected users.",
     "  Accuracy curves visible per task (run_data embedded in session pickle)."
   ],
-  "name": "EXP-globalrep-fast-test-local",
+  "name": "EXP-multirep-fast-test-local",
   "partition_file": "experiment/partitions/fast-test-20-users.json",
   "q_weight": 0.1,
   "tr_weight": 19,
@@ -24,7 +24,6 @@
   "allow_overlap": false,
   "force_remote": false,
   "seed": 42,
-  "global_rep_only": true,
   "vote_baseline": "local_trained",
   "tasks": [
     {

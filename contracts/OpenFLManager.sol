@@ -303,7 +303,8 @@ contract OpenFLManager {
     function updateQValuesAfterSelection(
         address[] calldata allRegistrants,
         address[] calldata selected,
-        TaskType taskType
+        TaskType taskType,
+        bool hardReset
     ) external {
         require(
             msg.sender == publisher || validJobs[msg.sender],
@@ -326,7 +327,7 @@ contract OpenFLManager {
             uint256 q = users[addr].QValue[taskType];
             uint256 newQ = q + increment;
             if (isSelected[addr]) {
-                newQ = newQ >= Q_WAD ? newQ - Q_WAD : 0;
+                newQ = hardReset ? 0 : (newQ >= Q_WAD ? newQ - Q_WAD : 0);
             }
             users[addr].QValue[taskType] = newQ;
         }
