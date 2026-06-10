@@ -5,9 +5,9 @@ Usage:
     python analysis/multirep_graphs.py <session-folder>  [--out <output-dir>]
     python analysis/multirep_graphs.py <session.pkl>     [--out <output-dir>]
 
-Graphs are saved as PNG files under <output-dir>.  When not specified, the
-default is a 'graphs/' subfolder inside the session folder (whether supplied
-directly or inferred from the tarball name).
+Graphs are saved as PNG files (or SVG/PDF with --format) under <output-dir>.
+When not specified, the default is a 'graphs/' subfolder inside the session
+folder for png, or 'graphs_<format>/' for other formats.
 """
 
 from __future__ import annotations
@@ -20,20 +20,25 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from analysis.multirep_loader import load_session, load_session_from_tarball
 from analysis import multirep_plots as mrp
-from analysis.plots import save_figure
+from analysis.plots import save_figure, set_figure_format
 
 
-def generate_all(source: Path, out_dir: Path | None = None) -> Path:
+def generate_all(source: Path, out_dir: Path | None = None, fmt: str = "png") -> Path:
+    set_figure_format(fmt)
     source = Path(source)
+
+    # PNG keeps the historical 'graphs/' folder; other formats get their own
+    # sibling folder (e.g. 'graphs_svg/') so formats never mix.
+    folder = "graphs" if fmt == "png" else f"graphs_{fmt}"
 
     if source.suffixes[-2:] == [".tar", ".gz"]:
         session = load_session_from_tarball(source)
         # Default graphs/ folder sits next to the tarball, inside the session dir.
-        default_out = source.parent / source.name.removesuffix(".tar.gz") / "graphs"
+        default_out = source.parent / source.name.removesuffix(".tar.gz") / folder
     else:
         session = load_session(source)  # handles folder or .pkl
         base = source if source.is_dir() else source.parent
-        default_out = base / "graphs"
+        default_out = base / folder
 
     if out_dir is None:
         out_dir = default_out
@@ -84,7 +89,7 @@ def generate_all(source: Path, out_dir: Path | None = None) -> Path:
         else:
             print("  [info] No accuracy data in session — skipping accuracy graphs.")
 
-    files = sorted(out_dir.glob("*.png"))
+    files = sorted(out_dir.glob(f"*.{fmt}"))
     print(f"  Saved {len(files)} graphs to {out_dir}")
     return out_dir
 
@@ -100,7 +105,13 @@ if __name__ == "__main__":
         "--out",
         type=Path,
         default=None,
-        help="Output directory for PNGs (default: <session>/graphs/)",
+        help="Output directory for graphs (default: <session>/graphs/ for png, <session>/graphs_<format>/ otherwise)",
+    )
+    parser.add_argument(
+        "--format",
+        choices=["png", "svg", "pdf"],
+        default="png",
+        help="Output image format (default: png)",
     )
     args = parser.parse_args()
-    generate_all(args.source, args.out)
+    generate_all(args.source, args.out, args.format)

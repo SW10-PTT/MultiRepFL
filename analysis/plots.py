@@ -540,7 +540,15 @@ def plot_merge_weights_by_behavior(agg_weights: pd.DataFrame, stats: pd.DataFram
 
 
 
+FIGURE_FORMAT = "png"
+
+
+def set_figure_format(fmt: str):
+    global FIGURE_FORMAT
+    FIGURE_FORMAT = fmt
+
+
 def save_figure(fig: plt.Figure, path, dpi: int = 150):
-    path = Path(path)
+    path = Path(path).with_suffix(f".{FIGURE_FORMAT}")
     path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(path, dpi=dpi, bbox_inches="tight")
