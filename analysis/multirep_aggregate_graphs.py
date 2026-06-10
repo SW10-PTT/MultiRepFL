@@ -37,9 +37,14 @@ from analysis.multirep_aggregate_loader import (
 )
 from analysis.plots import save_figure as _save, set_figure_format
 
+_OUT_BASE: Path | None = None
+
+
 def save_figure(fig, path):
-    """Save and immediately close the figure to keep memory bounded."""
-    _save(fig, path)
+    """Save (in every requested format, under format-specific sibling
+    directories of _OUT_BASE) and immediately close the figure to keep
+    memory bounded."""
+    _save(fig, path, base_root=_OUT_BASE)
     plt.close(fig)
 
 
@@ -187,11 +192,12 @@ def _generate_pair_graphs(pair: ExperimentPair, out_dir: Path) -> int:
     # --- 8b. new thesis graphs (specialisation, significance, adversarial) ---
     save_figure(tp.plot_tr_cross_task_transfer(pair), out_dir / "tr_cross_task_transfer.png")
     save_figure(tp.plot_specialization_heatmap(pair), out_dir / "specialization_heatmap.png")
+    save_figure(tp.plot_final_tr_spread(pair), out_dir / "final_tr_spread.png")
     save_figure(tp.plot_final_accuracy_ci(pair), out_dir / "final_accuracy_ci.png")
     save_figure(tp.plot_selection_merit_spearman(pair), out_dir / "selection_merit_spearman.png")
     save_figure(tp.plot_cumulative_earnings_by_behavior(pair), out_dir / "cumulative_earnings_by_behavior.png")
     save_figure(tp.plot_detection_rate_over_time(pair), out_dir / "detection_rate_over_time.png")
-    n += 6
+    n += 7
 
     # --- 9. run-averaged ports of the single-run graphs, per system ---
     for system, exp in pair.items():
@@ -315,6 +321,8 @@ def _generate_qslot_graphs(experiments: list[ExperimentRuns], out_dir: Path) -> 
 
 
 def main(root: Path, out: Path) -> None:
+    global _OUT_BASE
+    _OUT_BASE = out
     print(f"Scanning experiments under: {root}")
     experiments = discover_experiments(root)
     if not experiments:
@@ -346,11 +354,18 @@ if __name__ == "__main__":
     parser.add_argument("--root", type=Path, default=DEFAULT_ROOT,
                         help="Root folder of experiments (default: experiment/data/FinishedRuns)")
     parser.add_argument("--out", type=Path, default=None,
-                        help="Output folder (default: figures/aggregate for png, figures/aggregate_<format> otherwise)")
-    parser.add_argument("--format", choices=["png", "svg", "pdf"], default="png",
-                        help="Output image format (default: png)")
+                        help="Output folder for png (default: figures/aggregate). "
+                             "Non-png formats are written to sibling folders, e.g. figures/aggregate_svg.")
+    parser.add_argument("--format", default="png",
+                        help="Comma-separated output image format(s): png, svg, pdf "
+                             "(default: png). Each figure is generated once and saved "
+                             "to every requested format.")
     args = parser.parse_args()
-    set_figure_format(args.format)
+    formats = [f.strip() for f in args.format.split(",") if f.strip()]
+    for fmt in formats:
+        if fmt not in ("png", "svg", "pdf"):
+            parser.error(f"invalid --format '{fmt}' (choose from: png, svg, pdf)")
+    set_figure_format(formats)
     if args.out is None:
-        args.out = DEFAULT_OUT if args.format == "png" else DEFAULT_OUT.with_name(f"aggregate_{args.format}")
+        args.out = DEFAULT_OUT
     main(args.root, args.out)

@@ -896,21 +896,20 @@ def plot_qvalue_effect(with_q: ExperimentRuns, without_q: ExperimentRuns) -> plt
     ax1.plot([0, 1], [0, 1], color="#999", ls="--", lw=1, label="perfect equality")
     ax1.set_xlabel("Cumulative share of users (poorest→richest)")
     ax1.set_ylabel("Cumulative share of selections")
-    ax1.set_title("(a) Selection inequality (Lorenz)")
+    ax1.set_title("Selection inequality (Lorenz)")
     ax1.legend(fontsize=8); ax1.grid(True, alpha=0.3)
 
     ax2.set_xlabel("User rank")
     ax2.set_ylabel("Times selected")
-    ax2.set_title("(b) Selection count per user, ranked")
+    ax2.set_title("Selection count per user, ranked")
     ax2.legend(fontsize=8); ax2.grid(True, alpha=0.3)
 
     ax3.set_xlabel("User mean TR")
     ax3.set_ylabel("Times selected")
-    ax3.set_title("(c) Selection vs reputation")
+    ax3.set_title("Selection vs reputation")
     ax3.legend(fontsize=8); ax3.grid(True, alpha=0.3)
 
-    fig.suptitle("Effect of the Q-value on selection fairness "
-                 "(flatter Lorenz / lower Gini / flatter rank = more rotation)")
+    fig.suptitle("Effect of the Q-value on selection fairness")
     fig.tight_layout()
     return fig
 
