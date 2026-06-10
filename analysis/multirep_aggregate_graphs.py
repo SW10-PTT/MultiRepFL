@@ -35,7 +35,7 @@ from analysis.multirep_aggregate_loader import (
     discover_experiments,
     find_experiment,
 )
-from analysis.plots import save_figure as _save
+from analysis.plots import save_figure as _save, set_figure_format
 
 def save_figure(fig, path):
     """Save and immediately close the figure to keep memory bounded."""
@@ -345,7 +345,12 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate aggregate multirep comparison graphs")
     parser.add_argument("--root", type=Path, default=DEFAULT_ROOT,
                         help="Root folder of experiments (default: experiment/data/FinishedRuns)")
-    parser.add_argument("--out", type=Path, default=DEFAULT_OUT,
-                        help="Output folder (default: figures/aggregate)")
+    parser.add_argument("--out", type=Path, default=None,
+                        help="Output folder (default: figures/aggregate for png, figures/aggregate_<format> otherwise)")
+    parser.add_argument("--format", choices=["png", "svg", "pdf"], default="png",
+                        help="Output image format (default: png)")
     args = parser.parse_args()
+    set_figure_format(args.format)
+    if args.out is None:
+        args.out = DEFAULT_OUT if args.format == "png" else DEFAULT_OUT.with_name(f"aggregate_{args.format}")
     main(args.root, args.out)
