@@ -142,7 +142,9 @@ def _generate_pair_graphs(pair: ExperimentPair, out_dir: Path) -> int:
                 out_dir / "taskhopper_reputation_development.png")
     save_figure(gp.plot_taskhopper_selection_development(pair),
                 out_dir / "taskhopper_selection_development.png")
-    n += 2
+    save_figure(gp.plot_taskhopper_selection_development(pair, cumulative=False),
+                out_dir / "taskhopper_selection_development_actual.png")
+    n += 3
 
     # --- 7c. task-hopper-only: behaviour-role buckets + per-role/per-user dev ---
     if gp._taskhoppers_present(pair):
@@ -172,7 +174,35 @@ def _generate_pair_graphs(pair: ExperimentPair, out_dir: Path) -> int:
                     out_dir / "taskhopper_reputation_development_by_role.png")
         save_figure(gp.plot_selections_by_role_dataset(pair),
                     out_dir / "selections_by_role_dataset.png")
-        n += 5
+        save_figure(gp.plot_taskhopper_selection_development_by_role(pair),
+                    out_dir / "taskhopper_selection_development_by_role.png")
+        save_figure(gp.plot_taskhopper_selection_development_by_role(pair, cumulative=False),
+                    out_dir / "taskhopper_selection_development_by_role_actual.png")
+        save_figure(gp.plot_taskhopper_selection_development_individual(pair),
+                    out_dir / "taskhopper_selection_development_individual.png")
+        save_figure(gp.plot_taskhopper_selection_development_individual(pair, cumulative=False),
+                    out_dir / "taskhopper_selection_development_individual_actual.png")
+        save_figure(gp.plot_taskhopper_tr_development_by_role(pair),
+                    out_dir / "taskhopper_tr_development_by_role.png")
+        save_figure(gp.plot_taskhopper_tr_development_individual(pair),
+                    out_dir / "taskhopper_tr_development_individual.png")
+        n += 11
+        # per-dataset versions of the selection / TR development graphs
+        for tt in TASK_TYPES:
+            ds = DS_NAME[tt]
+            save_figure(gp.plot_taskhopper_selection_development_by_role(pair, task_type=tt),
+                        out_dir / f"taskhopper_selection_development_by_role_{ds}.png")
+            save_figure(gp.plot_taskhopper_selection_development_by_role(pair, cumulative=False, task_type=tt),
+                        out_dir / f"taskhopper_selection_development_by_role_{ds}_actual.png")
+            save_figure(gp.plot_taskhopper_selection_development_individual(pair, task_type=tt),
+                        out_dir / f"taskhopper_selection_development_individual_{ds}.png")
+            save_figure(gp.plot_taskhopper_selection_development_individual(pair, cumulative=False, task_type=tt),
+                        out_dir / f"taskhopper_selection_development_individual_{ds}_actual.png")
+            save_figure(gp.plot_taskhopper_tr_development_by_role_dataset(pair, tt),
+                        out_dir / f"taskhopper_tr_development_by_role_{ds}.png")
+            save_figure(gp.plot_taskhopper_tr_development_individual_dataset(pair, tt),
+                        out_dir / f"taskhopper_tr_development_individual_{ds}.png")
+            n += 6
 
     # --- 8. proposed thesis graphs ---
     save_figure(tp.plot_score_decomposition(pair), out_dir / "score_decomposition.png")

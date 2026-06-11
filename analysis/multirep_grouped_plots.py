@@ -578,9 +578,10 @@ def plot_taskhopper_reputation_development(pair: ExperimentPair) -> plt.Figure:
     return fig
 
 
-def plot_taskhopper_selection_development(pair: ExperimentPair) -> plt.Figure:
-    """Cumulative selection rate of task-hoppers over the session, split by
-    whether the running task is on their honest-side or adversary-side dataset.
+def plot_taskhopper_selection_development(pair: ExperimentPair,
+                                          cumulative: bool = True) -> plt.Figure:
+    """Selection rate of task-hoppers over the session, split by whether the
+    running task is on their honest-side or adversary-side dataset.
 
     Multi-rep should keep picking them for their honest dataset while dropping
     them on their adversary dataset; global-rep cannot separate the two."""
@@ -607,23 +608,389 @@ def plot_taskhopper_selection_development(pair: ExperimentPair) -> plt.Figure:
                 lambda r: "honest-side" if r["task_type"] == sides[r["user_name"]]["honest_tt"]
                 else "adversary-side", axis=1)
             for side, grp in rep.groupby("_side"):
-                # cumulative selection rate over task_index (selections / opportunities)
-                per_task = (grp.groupby("task_index")["was_selected"]
-                            .agg(["sum", "count"]).reset_index().sort_values("task_index"))
-                cum_rate = per_task["sum"].cumsum() / per_task["count"].cumsum()
-                ax.plot(per_task["task_index"], cum_rate, color=side_colors[side],
+                per_task = _selection_rate(grp, cumulative)
+                ax.plot(per_task["task_index"], per_task["rate"], color=side_colors[side],
                         lw=_LW, marker="o", ms=3, label=side)
         ax.set_title(SYSTEM_LABELS[system])
         ax.set_xlabel("Task index")
         ax.set_ylim(0, 1.05)
         ax.xaxis.set_major_locator(MaxNLocator(integer=True))
         ax.grid(True, alpha=0.3)
-    axes[0].set_ylabel("Cumulative selection rate")
+    ylab, rate_desc = _rate_labels(cumulative)
+    axes[0].set_ylabel(ylab)
     handles = [Line2D([0], [0], color=c, lw=_LW, marker="o", ms=4, label=s)
                for s, c in side_colors.items()]
     axes[-1].legend(handles=handles, title="Dataset side", fontsize=8)
-    fig.suptitle("Task-hopper selection development "
-                 "(cumulative pick rate on their honest vs adversary dataset)")
+    fig.suptitle(f"Task-hopper selection development "
+                 f"({rate_desc} on their honest vs adversary dataset)")
+    fig.tight_layout()
+    return fig
+
+
+_RATE_WINDOW = 5  # rolling window (in same-side tasks) for the actual-rate variant
+
+
+def _selection_rate(grp: pd.DataFrame, cumulative: bool = True) -> pd.DataFrame:
+    """Selection rate over task_index: cumulative (selections/opportunities since
+    task 0) or actual (rolling mean over the last _RATE_WINDOW same-side tasks)."""
+    per_task = (grp.groupby("task_index")["was_selected"]
+                .agg(["sum", "count"]).reset_index().sort_values("task_index"))
+    if cumulative:
+        per_task["rate"] = per_task["sum"].cumsum() / per_task["count"].cumsum()
+    else:
+        per_task["rate"] = (per_task["sum"].rolling(_RATE_WINDOW, min_periods=1).sum()
+                            / per_task["count"].rolling(_RATE_WINDOW, min_periods=1).sum())
+    return per_task
+
+
+def _rate_labels(cumulative: bool) -> tuple[str, str]:
+    """(y-axis label, suptitle rate description) for the two rate modes."""
+    if cumulative:
+        return "Cumulative selection rate", "cumulative pick rate"
+    return "Selection rate (rolling)", f"pick rate, rolling {_RATE_WINDOW} same-side tasks"
+
+
+def plot_taskhopper_selection_development_by_role(pair: ExperimentPair,
+                                                  cumulative: bool = True,
+                                                  task_type: int | None = None) -> plt.Figure:
+    """Selection rate of task-hoppers, broken out by adversary role (which
+    dataset they attack and how).  Rows: honest-side / adversary-side
+    opportunities; columns: system; one line per role.  With task_type set,
+    only that dataset's tasks count (each role then appears in one row only)."""
+    systems = [s for s, _ in pair.items()]
+    # roles among the task-hoppers only (full both-dataset adversaries are not hoppers)
+    roles_present: set = set()
+    for _, exp in pair.items():
+        roles_present |= {role_bucket(u) for u in _taskhopper_sides(exp)}
+    roles = [r for r in _ROLE_ORDER if r in roles_present and r != "Honest"]
+    fig, axes = plt.subplots(2, len(systems), figsize=(7 * len(systems), 8),
+                             sharey=True, squeeze=False)
+    if not roles or not _taskhoppers_present(pair):
+        for ax in axes.flat:
+            ax.text(0.5, 0.5, "No task-hoppers in this experiment",
+                    ha="center", va="center", transform=ax.transAxes, color="#888")
+        fig.suptitle("Task-hopper selection development by role (none present)")
+        fig.tight_layout()
+        return fig
+
+    for col, (system, exp) in enumerate(pair.items()):
+        sides = _taskhopper_sides(exp)
+        rep = exp.reputation_timeline()
+        rep = rep[rep["user_name"].isin(sides)].copy()
+        if task_type is not None:
+            rep = rep[rep["task_type"] == task_type]
+        if not rep.empty:
+            rep["_side"] = rep.apply(
+                lambda r: "honest-side" if r["task_type"] == sides[r["user_name"]]["honest_tt"]
+                else "adversary-side", axis=1)
+            rep["role"] = rep["user_name"].map(role_bucket)
+        for row_i, side in enumerate(["honest-side", "adversary-side"]):
+            ax = axes[row_i][col]
+            _mark_dataset_switches(ax, pair)
+            if not rep.empty:
+                for role in roles:
+                    grp = rep[(rep["_side"] == side) & (rep["role"] == role)]
+                    if grp.empty:
+                        continue
+                    per_task = _selection_rate(grp, cumulative)
+                    ax.plot(per_task["task_index"], per_task["rate"],
+                            color=ROLE_COLORS.get(role, "#888"), lw=_LW,
+                            marker="o", ms=3, label=role)
+            ax.set_title(f"{SYSTEM_LABELS[system]} — {side} tasks")
+            ax.set_ylim(0, 1.05)
+            ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+            ax.grid(True, alpha=0.3)
+        axes[1][col].set_xlabel("Task index")
+    ylab, rate_desc = _rate_labels(cumulative)
+    axes[0][0].set_ylabel(ylab)
+    axes[1][0].set_ylabel(ylab)
+    handles = [Line2D([0], [0], color=ROLE_COLORS.get(r, "#888"), lw=_LW,
+                      marker="o", ms=4, label=r) for r in roles]
+    axes[0][-1].legend(handles=handles, title="Role", fontsize=8)
+    ds = f"{TASK_TYPE_LABELS[task_type]} tasks only; " if task_type is not None else ""
+    fig.suptitle(f"Task-hopper selection development by role "
+                 f"({ds}{rate_desc}; top: tasks they are honest on, "
+                 f"bottom: tasks they attack)")
+    fig.tight_layout()
+    return fig
+
+
+def plot_taskhopper_selection_development_individual(pair: ExperimentPair,
+                                                     cumulative: bool = True,
+                                                     task_type: int | None = None) -> plt.Figure:
+    """One panel per task-hopper: selection rate on their honest vs adversary
+    dataset, global-rep vs multi-rep distinguished by line style.  With
+    task_type set, only that dataset's tasks count (one side per panel)."""
+    hoppers = sorted({u for _, exp in pair.items() for u in _taskhopper_sides(exp)})
+    if not hoppers:
+        fig, ax = plt.subplots(figsize=(7, 4.5))
+        ax.text(0.5, 0.5, "No task-hoppers in this experiment",
+                ha="center", va="center", transform=ax.transAxes, color="#888")
+        fig.suptitle("Task-hopper selection development per user (none present)")
+        fig.tight_layout()
+        return fig
+
+    fig, axes = plt.subplots(1, len(hoppers), figsize=(4.5 * len(hoppers), 4.4),
+                             sharey=True, squeeze=False)
+    axes = axes[0]
+    side_colors = {"honest-side": BEHAVIOR_COLORS["honest"],
+                   "adversary-side": BEHAVIOR_COLORS["malicious"]}
+    for ax, user in zip(axes, hoppers):
+        _mark_dataset_switches(ax, pair)
+        for system, exp in pair.items():
+            sides = _taskhopper_sides(exp)
+            if user not in sides:
+                continue
+            rep = exp.reputation_timeline()
+            rep = rep[rep["user_name"] == user].copy()
+            if task_type is not None:
+                rep = rep[rep["task_type"] == task_type]
+            if rep.empty:
+                continue
+            rep["_side"] = np.where(rep["task_type"] == sides[user]["honest_tt"],
+                                    "honest-side", "adversary-side")
+            for side, grp in rep.groupby("_side"):
+                per_task = _selection_rate(grp, cumulative)
+                ax.plot(per_task["task_index"], per_task["rate"],
+                        color=side_colors[side], ls=SYSTEM_LS[system], lw=_LW)
+        ax.set_title(user)
+        ax.set_xlabel("Task index")
+        ax.set_ylim(0, 1.05)
+        ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+        ax.grid(True, alpha=0.3)
+    ylab, rate_desc = _rate_labels(cumulative)
+    axes[0].set_ylabel(ylab)
+    side_handles = [Line2D([0], [0], color=c, lw=_LW, label=s)
+                    for s, c in side_colors.items()]
+    sys_handles = [Line2D([0], [0], color="#444", ls=SYSTEM_LS[s], lw=_LW,
+                          label=SYSTEM_LABELS[s]) for s, _ in pair.items()]
+    leg = axes[-1].legend(handles=side_handles, title="Dataset side",
+                          loc="upper right", fontsize=8)
+    axes[-1].add_artist(leg)
+    axes[-1].legend(handles=sys_handles, title="System", loc="lower right", fontsize=8)
+    ds = f"{TASK_TYPE_LABELS[task_type]} tasks only; " if task_type is not None else ""
+    fig.suptitle(f"Task-hopper selection development per user "
+                 f"({ds}{rate_desc} on honest vs adversary dataset)")
+    fig.tight_layout()
+    return fig
+
+
+def plot_taskhopper_tr_development_by_role(pair: ExperimentPair) -> plt.Figure:
+    """Task reputation of task-hoppers, broken out by adversary role.  Rows:
+    TR on their honest-side / adversary-side dataset; columns: system; one
+    line per role.  Same layout as the by-role selection development."""
+    systems = [s for s, _ in pair.items()]
+    roles_present: set = set()
+    for _, exp in pair.items():
+        roles_present |= {role_bucket(u) for u in _taskhopper_sides(exp)}
+    roles = [r for r in _ROLE_ORDER if r in roles_present and r != "Honest"]
+    fig, axes = plt.subplots(2, len(systems), figsize=(7 * len(systems), 8),
+                             sharey=True, squeeze=False)
+    if not roles or not _taskhoppers_present(pair):
+        for ax in axes.flat:
+            ax.text(0.5, 0.5, "No task-hoppers in this experiment",
+                    ha="center", va="center", transform=ax.transAxes, color="#888")
+        fig.suptitle("Task-hopper TR development by role (none present)")
+        fig.tight_layout()
+        return fig
+
+    for col, (system, exp) in enumerate(pair.items()):
+        sides = _taskhopper_sides(exp)
+        rep = exp.reputation_timeline()
+        rep = rep[rep["user_name"].isin(sides)].copy()
+        if not rep.empty:
+            rep["role"] = rep["user_name"].map(role_bucket)
+        for row_i, (which, side) in enumerate([("honest_tt", "honest-side"),
+                                               ("adv_tt", "adversary-side")]):
+            ax = axes[row_i][col]
+            _mark_dataset_switches(ax, pair)
+            if not rep.empty:
+                rep["_v"] = _side_tr(rep, exp, sides, which)
+                agg = (rep.dropna(subset=["_v"])
+                       .groupby(["role", "task_index"])["_v"].mean().reset_index())
+                for role in roles:
+                    grp = agg[agg["role"] == role].sort_values("task_index")
+                    if grp.empty:
+                        continue
+                    ax.plot(grp["task_index"], grp["_v"],
+                            color=ROLE_COLORS.get(role, "#888"), lw=_LW,
+                            marker="o", ms=3, label=role)
+            ax.set_title(f"{SYSTEM_LABELS[system]} — {side} TR")
+            ax.set_ylim(-0.03, 1.05)  # keep flat-zero TR lines visible off the axis
+            ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+            ax.grid(True, alpha=0.3)
+        axes[1][col].set_xlabel("Task index")
+    axes[0][0].set_ylabel("Task reputation")
+    axes[1][0].set_ylabel("Task reputation")
+    handles = [Line2D([0], [0], color=ROLE_COLORS.get(r, "#888"), lw=_LW,
+                      marker="o", ms=4, label=r) for r in roles]
+    axes[0][-1].legend(handles=handles, title="Role", fontsize=8)
+    fig.suptitle("Task-hopper TR development by role "
+                 "(top: TR on the dataset they are honest on, "
+                 "bottom: TR on the dataset they attack; "
+                 "global-rep rows are identical — one shared bucket)")
+    fig.tight_layout()
+    return fig
+
+
+def plot_taskhopper_tr_development_individual(pair: ExperimentPair) -> plt.Figure:
+    """One panel per task-hopper: TR on their honest vs adversary dataset,
+    global-rep vs multi-rep distinguished by line style."""
+    hoppers = sorted({u for _, exp in pair.items() for u in _taskhopper_sides(exp)})
+    if not hoppers:
+        fig, ax = plt.subplots(figsize=(7, 4.5))
+        ax.text(0.5, 0.5, "No task-hoppers in this experiment",
+                ha="center", va="center", transform=ax.transAxes, color="#888")
+        fig.suptitle("Task-hopper TR development per user (none present)")
+        fig.tight_layout()
+        return fig
+
+    fig, axes = plt.subplots(1, len(hoppers), figsize=(4.5 * len(hoppers), 4.4),
+                             sharey=True, squeeze=False)
+    axes = axes[0]
+    side_colors = {"honest-side": BEHAVIOR_COLORS["honest"],
+                   "adversary-side": BEHAVIOR_COLORS["malicious"]}
+    for ax, user in zip(axes, hoppers):
+        _mark_dataset_switches(ax, pair)
+        for system, exp in pair.items():
+            sides = _taskhopper_sides(exp)
+            if user not in sides:
+                continue
+            rep = exp.reputation_timeline()
+            rep = rep[rep["user_name"] == user].copy()
+            if rep.empty:
+                continue
+            for which, side in [("honest_tt", "honest-side"), ("adv_tt", "adversary-side")]:
+                rep["_v"] = _side_tr(rep, exp, sides, which)
+                agg = (rep.dropna(subset=["_v"])
+                       .groupby("task_index")["_v"].mean().reset_index().sort_values("task_index"))
+                ax.plot(agg["task_index"], agg["_v"],
+                        color=side_colors[side], ls=SYSTEM_LS[system], lw=_LW)
+        ax.set_title(user)
+        ax.set_xlabel("Task index")
+        ax.set_ylim(-0.03, 1.05)  # keep flat-zero TR lines visible off the axis
+        ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+        ax.grid(True, alpha=0.3)
+    axes[0].set_ylabel("Task reputation")
+    side_handles = [Line2D([0], [0], color=c, lw=_LW, label=s)
+                    for s, c in side_colors.items()]
+    sys_handles = [Line2D([0], [0], color="#444", ls=SYSTEM_LS[s], lw=_LW,
+                          label=SYSTEM_LABELS[s]) for s, _ in pair.items()]
+    leg = axes[-1].legend(handles=side_handles, title="Dataset side",
+                          loc="upper right", fontsize=8)
+    axes[-1].add_artist(leg)
+    axes[-1].legend(handles=sys_handles, title="System", loc="lower right", fontsize=8)
+    fig.suptitle("Task-hopper TR development per user "
+                 "(TR on honest vs adversary dataset; global-rep lines coincide — "
+                 "one shared bucket)")
+    fig.tight_layout()
+    return fig
+
+
+def plot_taskhopper_tr_development_by_role_dataset(pair: ExperimentPair,
+                                                   task_type: int) -> plt.Figure:
+    """Task reputation of task-hoppers *on one dataset*, one line per role,
+    one column per system.  Roles honest on that dataset should build TR;
+    roles attacking it should stay near zero under multi-rep."""
+    systems = [s for s, _ in pair.items()]
+    roles_present: set = set()
+    for _, exp in pair.items():
+        roles_present |= {role_bucket(u) for u in _taskhopper_sides(exp)}
+    roles = [r for r in _ROLE_ORDER if r in roles_present and r != "Honest"]
+    fig, axes = plt.subplots(1, len(systems), figsize=(7 * len(systems), 4.4),
+                             sharey=True, squeeze=False)
+    axes = axes[0]
+    if not roles or not _taskhoppers_present(pair):
+        for ax in axes:
+            ax.text(0.5, 0.5, "No task-hoppers in this experiment",
+                    ha="center", va="center", transform=ax.transAxes, color="#888")
+        fig.suptitle("Task-hopper TR development by role (none present)")
+        fig.tight_layout()
+        return fig
+
+    for ax, (system, exp) in zip(axes, pair.items()):
+        _mark_dataset_switches(ax, pair)
+        sides = _taskhopper_sides(exp)
+        rep = exp.reputation_timeline()
+        rep = rep[rep["user_name"].isin(sides)].copy()
+        if not rep.empty:
+            rep["role"] = rep["user_name"].map(role_bucket)
+            rep["_v"] = _tr_on_tt(rep, exp, task_type)
+            agg = (rep.dropna(subset=["_v"])
+                   .groupby(["role", "task_index"])["_v"].mean().reset_index())
+            for role in roles:
+                grp = agg[agg["role"] == role].sort_values("task_index")
+                if grp.empty:
+                    continue
+                ax.plot(grp["task_index"], grp["_v"],
+                        color=ROLE_COLORS.get(role, "#888"), lw=_LW,
+                        marker="o", ms=3, label=role)
+        ax.set_title(SYSTEM_LABELS[system])
+        ax.set_xlabel("Task index")
+        ax.set_ylim(-0.03, 1.05)  # keep flat-zero TR lines visible off the axis
+        ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+        ax.grid(True, alpha=0.3)
+    axes[0].set_ylabel(f"{TASK_TYPE_LABELS[task_type]} task reputation")
+    handles = [Line2D([0], [0], color=ROLE_COLORS.get(r, "#888"), lw=_LW,
+                      marker="o", ms=4, label=r) for r in roles]
+    axes[-1].legend(handles=handles, title="Role", fontsize=8)
+    fig.suptitle(f"Task-hopper {TASK_TYPE_LABELS[task_type]} TR development by role "
+                 f"(global-rep shows its single shared bucket)")
+    fig.tight_layout()
+    return fig
+
+
+def plot_taskhopper_tr_development_individual_dataset(pair: ExperimentPair,
+                                                      task_type: int) -> plt.Figure:
+    """One panel per task-hopper: TR on one dataset, global-rep vs multi-rep
+    by line style; colour marks whether the hopper is honest on or attacks it."""
+    hoppers = sorted({u for _, exp in pair.items() for u in _taskhopper_sides(exp)})
+    if not hoppers:
+        fig, ax = plt.subplots(figsize=(7, 4.5))
+        ax.text(0.5, 0.5, "No task-hoppers in this experiment",
+                ha="center", va="center", transform=ax.transAxes, color="#888")
+        fig.suptitle("Task-hopper TR development per user (none present)")
+        fig.tight_layout()
+        return fig
+
+    fig, axes = plt.subplots(1, len(hoppers), figsize=(4.5 * len(hoppers), 4.4),
+                             sharey=True, squeeze=False)
+    axes = axes[0]
+    side_colors = {"honest-side": BEHAVIOR_COLORS["honest"],
+                   "adversary-side": BEHAVIOR_COLORS["malicious"]}
+    for ax, user in zip(axes, hoppers):
+        _mark_dataset_switches(ax, pair)
+        for system, exp in pair.items():
+            sides = _taskhopper_sides(exp)
+            if user not in sides:
+                continue
+            rep = exp.reputation_timeline()
+            rep = rep[rep["user_name"] == user].copy()
+            if rep.empty:
+                continue
+            side = ("honest-side" if sides[user]["honest_tt"] == task_type
+                    else "adversary-side")
+            rep["_v"] = _tr_on_tt(rep, exp, task_type)
+            agg = (rep.dropna(subset=["_v"])
+                   .groupby("task_index")["_v"].mean().reset_index().sort_values("task_index"))
+            ax.plot(agg["task_index"], agg["_v"],
+                    color=side_colors[side], ls=SYSTEM_LS[system], lw=_LW)
+        ax.set_title(user)
+        ax.set_xlabel("Task index")
+        ax.set_ylim(-0.03, 1.05)  # keep flat-zero TR lines visible off the axis
+        ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+        ax.grid(True, alpha=0.3)
+    axes[0].set_ylabel(f"{TASK_TYPE_LABELS[task_type]} task reputation")
+    side_handles = [Line2D([0], [0], color=c, lw=_LW, label=s)
+                    for s, c in side_colors.items()]
+    sys_handles = [Line2D([0], [0], color="#444", ls=SYSTEM_LS[s], lw=_LW,
+                          label=SYSTEM_LABELS[s]) for s, _ in pair.items()]
+    leg = axes[-1].legend(handles=side_handles, title="Relation to dataset",
+                          loc="upper right", fontsize=8)
+    axes[-1].add_artist(leg)
+    axes[-1].legend(handles=sys_handles, title="System", loc="lower right", fontsize=8)
+    fig.suptitle(f"Task-hopper {TASK_TYPE_LABELS[task_type]} TR development per user "
+                 f"(global-rep shows its single shared bucket)")
     fig.tight_layout()
     return fig
 
