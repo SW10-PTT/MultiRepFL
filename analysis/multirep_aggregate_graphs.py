@@ -35,11 +35,16 @@ from analysis.multirep_aggregate_loader import (
     discover_experiments,
     find_experiment,
 )
-from analysis.plots import save_figure as _save
+from analysis.plots import save_figure as _save, set_figure_format
+
+_OUT_BASE: Path | None = None
+
 
 def save_figure(fig, path):
-    """Save and immediately close the figure to keep memory bounded."""
-    _save(fig, path)
+    """Save (in every requested format, under format-specific sibling
+    directories of _OUT_BASE) and immediately close the figure to keep
+    memory bounded."""
+    _save(fig, path, base_root=_OUT_BASE)
     plt.close(fig)
 
 
@@ -137,7 +142,9 @@ def _generate_pair_graphs(pair: ExperimentPair, out_dir: Path) -> int:
                 out_dir / "taskhopper_reputation_development.png")
     save_figure(gp.plot_taskhopper_selection_development(pair),
                 out_dir / "taskhopper_selection_development.png")
-    n += 2
+    save_figure(gp.plot_taskhopper_selection_development(pair, cumulative=False),
+                out_dir / "taskhopper_selection_development_actual.png")
+    n += 3
 
     # --- 7c. task-hopper-only: behaviour-role buckets + per-role/per-user dev ---
     if gp._taskhoppers_present(pair):
@@ -167,7 +174,35 @@ def _generate_pair_graphs(pair: ExperimentPair, out_dir: Path) -> int:
                     out_dir / "taskhopper_reputation_development_by_role.png")
         save_figure(gp.plot_selections_by_role_dataset(pair),
                     out_dir / "selections_by_role_dataset.png")
-        n += 5
+        save_figure(gp.plot_taskhopper_selection_development_by_role(pair),
+                    out_dir / "taskhopper_selection_development_by_role.png")
+        save_figure(gp.plot_taskhopper_selection_development_by_role(pair, cumulative=False),
+                    out_dir / "taskhopper_selection_development_by_role_actual.png")
+        save_figure(gp.plot_taskhopper_selection_development_individual(pair),
+                    out_dir / "taskhopper_selection_development_individual.png")
+        save_figure(gp.plot_taskhopper_selection_development_individual(pair, cumulative=False),
+                    out_dir / "taskhopper_selection_development_individual_actual.png")
+        save_figure(gp.plot_taskhopper_tr_development_by_role(pair),
+                    out_dir / "taskhopper_tr_development_by_role.png")
+        save_figure(gp.plot_taskhopper_tr_development_individual(pair),
+                    out_dir / "taskhopper_tr_development_individual.png")
+        n += 11
+        # per-dataset versions of the selection / TR development graphs
+        for tt in TASK_TYPES:
+            ds = DS_NAME[tt]
+            save_figure(gp.plot_taskhopper_selection_development_by_role(pair, task_type=tt),
+                        out_dir / f"taskhopper_selection_development_by_role_{ds}.png")
+            save_figure(gp.plot_taskhopper_selection_development_by_role(pair, cumulative=False, task_type=tt),
+                        out_dir / f"taskhopper_selection_development_by_role_{ds}_actual.png")
+            save_figure(gp.plot_taskhopper_selection_development_individual(pair, task_type=tt),
+                        out_dir / f"taskhopper_selection_development_individual_{ds}.png")
+            save_figure(gp.plot_taskhopper_selection_development_individual(pair, cumulative=False, task_type=tt),
+                        out_dir / f"taskhopper_selection_development_individual_{ds}_actual.png")
+            save_figure(gp.plot_taskhopper_tr_development_by_role_dataset(pair, tt),
+                        out_dir / f"taskhopper_tr_development_by_role_{ds}.png")
+            save_figure(gp.plot_taskhopper_tr_development_individual_dataset(pair, tt),
+                        out_dir / f"taskhopper_tr_development_individual_{ds}.png")
+            n += 6
 
     # --- 8. proposed thesis graphs ---
     save_figure(tp.plot_score_decomposition(pair), out_dir / "score_decomposition.png")
@@ -187,11 +222,12 @@ def _generate_pair_graphs(pair: ExperimentPair, out_dir: Path) -> int:
     # --- 8b. new thesis graphs (specialisation, significance, adversarial) ---
     save_figure(tp.plot_tr_cross_task_transfer(pair), out_dir / "tr_cross_task_transfer.png")
     save_figure(tp.plot_specialization_heatmap(pair), out_dir / "specialization_heatmap.png")
+    save_figure(tp.plot_final_tr_spread(pair), out_dir / "final_tr_spread.png")
     save_figure(tp.plot_final_accuracy_ci(pair), out_dir / "final_accuracy_ci.png")
     save_figure(tp.plot_selection_merit_spearman(pair), out_dir / "selection_merit_spearman.png")
     save_figure(tp.plot_cumulative_earnings_by_behavior(pair), out_dir / "cumulative_earnings_by_behavior.png")
     save_figure(tp.plot_detection_rate_over_time(pair), out_dir / "detection_rate_over_time.png")
-    n += 6
+    n += 7
 
     # --- 9. run-averaged ports of the single-run graphs, per system ---
     for system, exp in pair.items():
@@ -315,6 +351,8 @@ def _generate_qslot_graphs(experiments: list[ExperimentRuns], out_dir: Path) -> 
 
 
 def main(root: Path, out: Path) -> None:
+    global _OUT_BASE
+    _OUT_BASE = out
     print(f"Scanning experiments under: {root}")
     experiments = discover_experiments(root)
     if not experiments:
@@ -345,7 +383,19 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate aggregate multirep comparison graphs")
     parser.add_argument("--root", type=Path, default=DEFAULT_ROOT,
                         help="Root folder of experiments (default: experiment/data/FinishedRuns)")
-    parser.add_argument("--out", type=Path, default=DEFAULT_OUT,
-                        help="Output folder (default: figures/aggregate)")
+    parser.add_argument("--out", type=Path, default=None,
+                        help="Output folder for png (default: figures/aggregate). "
+                             "Non-png formats are written to sibling folders, e.g. figures/aggregate_svg.")
+    parser.add_argument("--format", default="png",
+                        help="Comma-separated output image format(s): png, svg, pdf "
+                             "(default: png). Each figure is generated once and saved "
+                             "to every requested format.")
     args = parser.parse_args()
+    formats = [f.strip() for f in args.format.split(",") if f.strip()]
+    for fmt in formats:
+        if fmt not in ("png", "svg", "pdf"):
+            parser.error(f"invalid --format '{fmt}' (choose from: png, svg, pdf)")
+    set_figure_format(formats)
+    if args.out is None:
+        args.out = DEFAULT_OUT
     main(args.root, args.out)
