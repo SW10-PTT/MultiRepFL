@@ -133,8 +133,8 @@ def plot_score_decomposition(pair: ExperimentPair) -> plt.Figure:
         ax.set_xlabel("Task index")
         ax.xaxis.set_major_locator(MaxNLocator(integer=True))
         ax.grid(True, alpha=0.3)
+        ax.legend(loc="upper left", fontsize=8)
     axes[0].set_ylabel("Mean selection-score contribution")
-    axes[-1].legend(loc="upper left", fontsize=8)
     fig.suptitle("Selection-score decomposition (what drives ranking)")
     fig.tight_layout()
     return fig
@@ -311,7 +311,7 @@ def plot_run_variability(pair: ExperimentPair) -> plt.Figure:
     ax.set_xticks(x)
     ax.set_xticklabels([TASK_TYPE_LABELS[MNIST_TT], TASK_TYPE_LABELS[CIFAR_TT]])
     ax.set_ylabel("Std of per-run mean final accuracy")
-    ax.set_title("Run-to-run variability (lower = more reproducible)")
+    ax.set_title("Run-to-run variability")
     ax.legend(title="System")
     ax.grid(True, axis="y", alpha=0.3)
     ax.set_axisbelow(True)
@@ -507,6 +507,72 @@ def plot_specialization_heatmap(pair: ExperimentPair) -> plt.Figure:
         fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04, label="Final TR")
     fig.suptitle("Per-user task-reputation by dataset "
                  "(global-rep: identical columns; multi-rep: specialised)")
+    fig.tight_layout()
+    return fig
+
+
+# =========================================================================
+# 9b. Spread of final per-user task reputation
+# =========================================================================
+
+def plot_final_tr_spread(pair: ExperimentPair, kind: str = "violin") -> plt.Figure:
+    """Distribution of each user's final task-reputation, one violin/box per
+    (dataset, system).
+
+    Companion to :func:`plot_tr_cross_task_transfer` — shows how spread out
+    users' final TRs are rather than the per-user pairing.  Global-rep's
+    single shared bucket means its MNIST and CIFAR distributions are
+    identical; multi-rep's per-task TRs may differ between datasets.
+    """
+    datasets = [("mnist", "tr_mnist"), ("cifar-10", "tr_cifar")]
+    systems = [s for s, _ in pair.items()]
+    fig, ax = plt.subplots(figsize=(8, 4.5))
+    width = 0.8 / max(1, len(systems))
+    x = np.arange(len(datasets))
+    rng = np.random.default_rng(0)
+
+    for i, (system, exp) in enumerate(pair.items()):
+        df = _final_tr_per_user(exp)
+        data = [df[col].dropna().to_numpy() if not df.empty else np.array([]) for _, col in datasets]
+        positions = x - 0.4 + i * width + width / 2
+        color = SYSTEM_COLORS[system]
+
+        if kind == "violin":
+            present = [(p, d) for p, d in zip(positions, data) if len(d) >= 2]
+            if present:
+                vp = ax.violinplot([d for _, d in present], positions=[p for p, _ in present],
+                                    widths=width * 0.9, showmedians=True, showextrema=False)
+                for body in vp["bodies"]:
+                    body.set_facecolor(color)
+                    body.set_alpha(0.5)
+                    body.set_edgecolor("black")
+                vp["cmedians"].set_color("black")
+        else:
+            bp = ax.boxplot(data, positions=positions, widths=width * 0.9,
+                            patch_artist=True, manage_ticks=False)
+            for patch in bp["boxes"]:
+                patch.set_facecolor(color)
+                patch.set_alpha(0.6)
+            for med in bp["medians"]:
+                med.set_color("black")
+
+        # jittered per-user points
+        for p, d in zip(positions, data):
+            if len(d) == 0:
+                continue
+            jitter = rng.uniform(-width * 0.3, width * 0.3, size=len(d))
+            ax.scatter(p + jitter, d, color="black", alpha=0.5, s=10, zorder=3)
+
+    ax.set_xticks(x)
+    ax.set_xticklabels([TASK_TYPE_LABELS[MNIST_TT], TASK_TYPE_LABELS[CIFAR_TT]])
+    ax.set_ylabel("Final Task Reputation (TR)")
+    ax.set_ylim(0, 1.05)
+    ax.set_title("Spread of final per-user task reputation, by dataset")
+    handles = [Patch(facecolor=SYSTEM_COLORS[s], alpha=0.6, edgecolor="black", label=SYSTEM_LABELS[s])
+               for s in systems]
+    ax.legend(handles=handles, title="System")
+    ax.grid(True, axis="y", alpha=0.3)
+    ax.set_axisbelow(True)
     fig.tight_layout()
     return fig
 

@@ -1,9 +1,12 @@
+import pickle
+import re
 from pathlib import Path
 
 import matplotlib
 import matplotlib.pyplot as plt
-from matplotlib.ticker import MaxNLocator
 from matplotlib.lines import Line2D
+from matplotlib.ticker import MaxNLocator
+from matplotlib.transforms import Bbox
 import numpy as np
 import pandas as pd
 
@@ -540,15 +543,143 @@ def plot_merge_weights_by_behavior(agg_weights: pd.DataFrame, stats: pd.DataFram
 
 
 
-FIGURE_FORMAT = "png"
+FIGURE_FORMATS = ["png"]
 
 
-def set_figure_format(fmt: str):
-    global FIGURE_FORMAT
-    FIGURE_FORMAT = fmt
+def set_figure_format(fmt: str | list[str]):
+    """Set the output format(s). Accepts a single format or a comma-separated
+    string / list of formats (e.g. "svg,pdf")."""
+    global FIGURE_FORMATS
+    if isinstance(fmt, str):
+        fmt = [f.strip() for f in fmt.split(",") if f.strip()]
+    FIGURE_FORMATS = fmt or ["png"]
 
 
-def save_figure(fig: plt.Figure, path, dpi: int = 150):
-    path = Path(path).with_suffix(f".{FIGURE_FORMAT}")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(path, dpi=dpi, bbox_inches="tight")
+def _slugify(text: str) -> str:
+    text = re.sub(r"[^\w\s-]", "", text).strip().lower()
+    return re.sub(r"[\s/]+", "-", text).strip("-")
+
+
+def _panel_groups(fig: plt.Figure) -> list[dict]:
+    """Group fig.axes into independent side-by-side panels.
+
+    Axes whose horizontal extents overlap (e.g. a twin axes sharing the same
+    plot area) are merged into one group. Colorbar axes are attached to the
+    group they sit immediately to the right of.
+    """
+    cbar_axes = [ax for ax in fig.axes if ax.get_label() == "<colorbar>"]
+    main_axes = [ax for ax in fig.axes if ax.get_label() != "<colorbar>"]
+
+    groups: list[dict] = []
+    for ax in main_axes:
+        bbox = ax.get_position()
+        for g in groups:
+            gb = g["bbox"]
+            if bbox.x0 < gb.x1 and bbox.x1 > gb.x0:
+                g["axes"].append(ax)
+                g["bbox"] = Bbox.from_extents(
+                    min(gb.x0, bbox.x0), min(gb.y0, bbox.y0),
+                    max(gb.x1, bbox.x1), max(gb.y1, bbox.y1))
+                break
+        else:
+            groups.append({"bbox": bbox, "axes": [ax]})
+
+    for cax in cbar_axes:
+        cb = cax.get_position()
+        nearest = min(groups, key=lambda g: abs(g["bbox"].x1 - cb.x0))
+        nearest["axes"].append(cax)
+
+    groups.sort(key=lambda g: g["bbox"].x0)
+    return groups
+
+
+def save_figure_panels(fig: plt.Figure, path: Path, dpi: int = 150) -> None:
+    """If `fig` has more than one side-by-side panel, also save each panel as
+    its own file: ``<stem>_panel<N>[-<title>]<suffix>`` next to `path`.
+
+    No-op for single-panel figures.
+    """
+    groups = _panel_groups(fig)
+    if len(groups) < 2:
+        return
+
+    suptitle = fig.get_suptitle()
+    fallback_ylabel = next(
+        (ax.get_ylabel() for ax in fig.axes
+         if ax.get_label() != "<colorbar>" and ax.get_ylabel()), "")
+    orig_w, orig_h = fig.get_size_inches()
+    panel_w = orig_w / len(groups)
+    index_of = {ax: i for i, ax in enumerate(fig.axes)}
+
+    for n, g in enumerate(groups, start=1):
+        fig2 = pickle.loads(pickle.dumps(fig))
+        keep = {index_of[ax] for ax in g["axes"]}
+        for i, ax in enumerate(list(fig2.axes)):
+            if i not in keep:
+                ax.remove()
+
+        cbar2 = [ax for ax in fig2.axes if ax.get_label() == "<colorbar>"]
+        main2 = [ax for ax in fig2.axes if ax.get_label() != "<colorbar>"]
+
+        for ax in main2:
+            ax.yaxis.set_tick_params(labelleft=True)
+            for lbl in ax.get_yticklabels():
+                lbl.set_visible(True)
+            if not cbar2 and not ax.get_ylabel() and fallback_ylabel:
+                ax.set_ylabel(fallback_ylabel)
+
+        if cbar2:
+            for ax in main2:
+                ax.set_position([0.1, 0.11, 0.72, 0.78])
+            for ax in cbar2:
+                ax.set_position([0.86, 0.11, 0.03, 0.78])
+            fig2.set_size_inches(panel_w * 1.2, orig_h)
+        else:
+            for ax in main2:
+                ax.set_position([0.13, 0.12, 0.82, 0.76])
+            fig2.set_size_inches(panel_w, orig_h)
+
+        title = main2[0].get_title() if main2 else ""
+        if not title and suptitle and main2:
+            title = suptitle
+            main2[0].set_title(suptitle, fontsize=10)
+
+        if fig2._suptitle is not None:
+            fig2._suptitle.remove()
+
+        slug = _slugify(title)
+        name = f"panel{n}-{slug}" if slug else f"panel{n}"
+        out = path.parent / f"{path.stem}_{name}{path.suffix}"
+        fig2.savefig(out, dpi=dpi, bbox_inches="tight")
+        plt.close(fig2)
+
+
+def _format_path(path: Path, fmt: str, base_root: Path | None) -> Path:
+    """Path for *fmt*, rooted under a format-specific sibling of *base_root*
+    (e.g. ``figures/aggregate`` -> ``figures/aggregate_svg``). Falls back to
+    *path* unchanged if no base_root is given, for the "png" format, or if
+    *path* is not under *base_root*."""
+    path = path.with_suffix(f".{fmt}")
+    if base_root is None or fmt == "png":
+        return path
+    try:
+        rel = path.relative_to(base_root)
+    except ValueError:
+        return path
+    return base_root.with_name(f"{base_root.name}_{fmt}") / rel
+
+
+def save_figure(fig: plt.Figure, path, dpi: int = 150, base_root: Path | None = None):
+    """Save *fig* in every format set via :func:`set_figure_format`.
+
+    If *base_root* is given and multiple formats (or a non-png format) are
+    requested, each format is written under a sibling directory of
+    *base_root* named ``<base_root>_<fmt>`` (png stays under *base_root*),
+    so the figure is computed once but saved everywhere it's needed.
+    """
+    path = Path(path)
+    for fmt in FIGURE_FORMATS:
+        out_path = _format_path(path, fmt, base_root)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(out_path, dpi=dpi, bbox_inches="tight")
+        save_figure_panels(fig, out_path, dpi=dpi)
