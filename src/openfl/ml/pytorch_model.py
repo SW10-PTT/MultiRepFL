@@ -1033,7 +1033,7 @@ class PytorchModel:
         return matrices
 
     def get_participant(self, address_or_id, participants=None):
-        return _find_participant(address_or_id, participants if participants is not None else self.participants)
+        return _find_participant(address_or_id, participants if participants is not None else self.participants + self.disqualified)
 
     @property
     def _test_data(self):
