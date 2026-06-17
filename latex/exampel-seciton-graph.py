@@ -21,8 +21,8 @@ mpl.rcParams.update({
 # --- Contract constants (from OpenFLChallenge.sol) ---
 TR_ALPHA   = 0.2
 TR_N_BLEND = 0.2
-TR_N_0     = 5   # use 5 here so maturity grows more gradually in the illustration
-TR_LAMBDA  = 20
+TR_N_0     = 2   # matches experiment config (Table 4)
+TR_LAMBDA  = 5   # matches experiment config (Table 4)
 TR_GIR_LR  = 0.2
 
 def simulate(C_list, V_ratio_list, tr_init=0.0, gir_init=0.0, mean_init=0.0, m2_init=0.0, k_offset=0):
@@ -45,13 +45,13 @@ def simulate(C_list, V_ratio_list, tr_init=0.0, gir_init=0.0, mean_init=0.0, m2_
 
 tasks = list(range(1, 11))
 
-C_P1       = [0.80, 0.82, 0.79, 0.81, 0.80, 0.82, 0.81, 0.79, 0.80, 0.81]
+C_P1       = [0.50, 0.52, 0.49, 0.51, 0.50, 0.52, 0.51, 0.49, 0.50, 0.51]
 V_ratio_P1 = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
 
-C_P2       = [0.80, 0.82, 0.10, 0.66, 0.67, 0.68, 0.52, 0.74, 0.58, 0.75]
-V_ratio_P2 = [1, 1, 0.25, 1, 1, 1, 0.5, 1, 0.5, 1]
+C_P2       = [0.50, 0.55, 0.12, 0.62, 0.25, 0.78, 0.15, 0.65, 0.22, 0.70]
+V_ratio_P2 = [1, 1, 0.25, 1, 0.5, 1, 0.25, 1, 0.5, 1]
 
-INIT = dict(tr_init=0.30, gir_init=0.60, mean_init=0.80, m2_init=0.0)
+INIT = dict(tr_init=0.25, gir_init=0.60, mean_init=0.50, m2_init=0.0)
 K_OFFSET = 5  # represents ~5 prior tasks already completed
 
 conf_p1, tr_p1, gir_p1 = simulate(C_P1, V_ratio_P1, **INIT, k_offset=K_OFFSET)
