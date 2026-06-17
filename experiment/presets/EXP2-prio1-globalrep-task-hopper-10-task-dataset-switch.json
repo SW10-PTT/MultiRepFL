@@ -4,7 +4,7 @@
     "Users good at MNIST but bad at CIFAR-10 (M3, F3) accumulate high MNIST TR and low CIFAR-10 TR.",
     "Reverse holds for M2/F2. Tasks run in blocks of 10: 10x MNIST, then 10x CIFAR-10, repeated for 50 total."
   ],
-  "name": "EXP-globalrep-task-hopper-10-task-dataset-switch",
+  "name": "EXP2-globalrep-task-hopper-10-task-dataset-switch",
   "priority": 10,
   "partition_file": "experiment/partitions/EXP-strong-task-hoppers-20-users.json",
   "q_weight": 0.1,

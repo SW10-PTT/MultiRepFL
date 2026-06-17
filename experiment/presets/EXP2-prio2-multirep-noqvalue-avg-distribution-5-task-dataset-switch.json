@@ -7,7 +7,7 @@
     "The reverse holds for M2/F2 (good CIFAR, bad MNIST).",
     "Tasks run in blocks of 5: 5x MNIST, then 5x CIFAR-10, repeated for 30 total."
   ],
-  "name": "EXP-multirep-noqvalue-avg-distribution-5-task-dataset-switch",
+  "name": "EXP2-multirep-noqvalue-avg-distribution-5-task-dataset-switch",
   "priority": 10,
   "partition_file": "experiment/partitions/EXP-avg-distribution-20-users.json",
   "q_weight": 0,
