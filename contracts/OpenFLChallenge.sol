@@ -276,6 +276,14 @@ contract OpenFLChallenge {
         rewardPerRound = totalReward / min_rounds;
         rewardLeft = totalReward;
 
+        // Deploy-time TaskRep tunables (default to prior hardcoded values when omitted upstream).
+        TR_ALPHA = taskSpecs.trAlpha;
+        TR_N_BLEND = taskSpecs.trNBlend;
+        TR_N_0 = taskSpecs.trN0;
+        TR_LAMBDA = taskSpecs.trLambda;
+        TR_INTEGRITY_LEARNING_RATE = taskSpecs.trIntegrityLearningRate;
+        TR_GAIN_CAP_MULTIPLIER = taskSpecs.trGainCapMultiplier;
+
         bool isTemplate = taskSpecs.taskType == TaskType.template;
 
         if (!isTemplate) {
@@ -1282,13 +1290,15 @@ contract OpenFLChallenge {
     // ---- TaskRepCalc fixed-point constants (WAD = 1e18) ----
     // Mirror of the same constants in the ContribScoreCalc.xlsx workbook.
     uint256 internal constant TR_WAD = 1e18;
-    uint256 internal constant TR_ALPHA = 2e17;
-    uint256 internal constant TR_N_BLEND = 2e17;
-    uint256 internal constant TR_N_0 = 2;
-    uint256 internal constant TR_LAMBDA = 5;
     uint256 internal constant TR_STAKE_WAD = 1e18;
-    uint256 internal constant TR_INTEGRITY_LEARNING_RATE = 2e17;
-    uint256 internal constant TR_GAIN_CAP_MULTIPLIER = 2;
+    // Deploy-set from ChallengeSpecifications; storage (not immutable) keeps runtime
+    // bytecode identical across deploys for the registerChallenge code-hash check.
+    uint256 internal TR_ALPHA;
+    uint256 internal TR_N_BLEND;
+    uint256 internal TR_N_0;
+    uint256 internal TR_LAMBDA;
+    uint256 internal TR_INTEGRITY_LEARNING_RATE;
+    uint256 internal TR_GAIN_CAP_MULTIPLIER;
 
     // Computed TaskRep outputs for this challenge run. Written once by
     // computeAndRecordTaskReps(); read by Python for remote replay.
@@ -1418,7 +1428,7 @@ contract OpenFLChallenge {
         uint256 stake,
         uint256 reward,
         uint256 nrActive
-    ) internal pure returns (uint256) {
+    ) internal view returns (uint256) {
         uint256 maxGain = nrActive == 0
             ? 0
             : (TR_GAIN_CAP_MULTIPLIER * reward) / nrActive;
@@ -1436,7 +1446,7 @@ contract OpenFLChallenge {
         uint256 priorMean,
         uint256 priorM2,
         uint256 k
-    ) internal pure returns (uint256 newMean, uint256 newM2) {
+    ) internal view returns (uint256 newMean, uint256 newM2) {
         if (k <= 1) {
             newMean = contribScore;
         } else {
@@ -1460,7 +1470,7 @@ contract OpenFLChallenge {
     function _trComputeConfidence(
         uint256 k,
         uint256 s_k
-    ) internal pure returns (uint256) {
+    ) internal view returns (uint256) {
         if (k == 0) return 0;
         uint256 maturity = (k * TR_WAD) / (k + TR_N_0);
         uint256 stability = (TR_WAD * TR_WAD) / (TR_WAD + TR_LAMBDA * s_k);
@@ -1471,7 +1481,7 @@ contract OpenFLChallenge {
         uint256 priorTaskRep,
         uint256 confidence,
         uint256 contribScore
-    ) internal pure returns (uint256) {
+    ) internal view returns (uint256) {
         uint256 weighted = (confidence * contribScore) / TR_WAD;
         return
             ((TR_WAD - TR_N_BLEND) * priorTaskRep + TR_N_BLEND * weighted) /
@@ -1482,7 +1492,7 @@ contract OpenFLChallenge {
         uint256 priorGIR,
         uint256 positiveVotes,
         uint256 totalVotes
-    ) internal pure returns (uint256) {
+    ) internal view returns (uint256) {
         uint256 V;
         if (totalVotes == 0) {
             V = 0;
