@@ -24,6 +24,15 @@ class MultirepPreset:
     q_slot_limit: int = 0
     q_hard_reset: bool = False
 
+    # --- TaskRep tunables (session-wide; default to the OpenFLChallenge.sol values) ---
+    # The three fractions are human decimals (WAD-converted at deploy).
+    tr_alpha: float = 0.2
+    tr_n_blend: float = 0.2
+    tr_n_0: int = 2
+    tr_lambda: int = 5
+    tr_integrity_learning_rate: float = 0.2
+    tr_gain_cap_multiplier: int = 2
+
     # --- Infrastructure ---
     training_mode: TrainingMode = TrainingMode.REMOTE
     fork: bool = True                       # True = Ganache fork, False = real net
@@ -47,6 +56,22 @@ class MultirepPreset:
             data = json.load(f)
         tasks = [MultirepRunConfig.from_dict(t) for t in data["tasks"]]
         raw_priority = data.get("priority")
+        tr_alpha = float(data.get("tr_alpha", 0.2))
+        tr_n_blend = float(data.get("tr_n_blend", 0.2))
+        tr_integrity_learning_rate = float(data.get("tr_integrity_learning_rate", 0.2))
+        tr_n_0 = int(data.get("tr_n_0", 2))
+        tr_lambda = int(data.get("tr_lambda", 5))
+        tr_gain_cap_multiplier = int(data.get("tr_gain_cap_multiplier", 2))
+        for _n, _v in (("tr_alpha", tr_alpha), ("tr_n_blend", tr_n_blend),
+                       ("tr_integrity_learning_rate", tr_integrity_learning_rate)):
+            if not (0.0 <= _v <= 1.0):
+                raise ValueError(f"{_n} must be in [0.0, 1.0], got {_v}")
+        if tr_n_0 < 1:
+            raise ValueError(f"tr_n_0 must be >= 1, got {tr_n_0}")
+        if tr_lambda < 0:
+            raise ValueError(f"tr_lambda must be >= 0, got {tr_lambda}")
+        if tr_gain_cap_multiplier < 1:
+            raise ValueError(f"tr_gain_cap_multiplier must be >= 1, got {tr_gain_cap_multiplier}")
         return cls(
             name=             data["name"],
             partition_file=   data["partition_file"],
@@ -57,6 +82,12 @@ class MultirepPreset:
             q_slot_limit_enabled= bool(data.get("q_slot_limit_enabled", False)),
             q_slot_limit=     int(data.get("q_slot_limit", 0)),
             q_hard_reset=     bool(data.get("q_hard_reset", False)),
+            tr_alpha=         tr_alpha,
+            tr_n_blend=       tr_n_blend,
+            tr_n_0=           tr_n_0,
+            tr_lambda=        tr_lambda,
+            tr_integrity_learning_rate= tr_integrity_learning_rate,
+            tr_gain_cap_multiplier=     tr_gain_cap_multiplier,
             training_mode=    TrainingMode.from_string(data.get("training_mode", "remote")),
             fork=             bool(data.get("fork", True)),
             replication_factor= float(data.get("replication_factor", 1.0)),
