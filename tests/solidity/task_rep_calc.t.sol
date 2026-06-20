@@ -20,7 +20,13 @@ contract OpenFLChallengeHarness is OpenFLChallenge {
             punishfactorContrib: 3,
             freeriderPenalty: 0,
             taskType: TaskType.template,
-            jobListingAddress: address(0)
+            jobListingAddress: address(0),
+            trAlpha: 2e17,
+            trNBlend: 2e17,
+            trN0: 2,
+            trLambda: 5,
+            trIntegrityLearningRate: 2e17,
+            trGainCapMultiplier: 2
         })
     ) {}
 
@@ -29,7 +35,7 @@ contract OpenFLChallengeHarness is OpenFLChallenge {
         uint256 stake,
         uint256 reward,
         uint256 nrActive
-    ) external pure returns (uint256) {
+    ) external view returns (uint256) {
         return _trTransformDelta(delta, stake, reward, nrActive);
     }
 
@@ -38,13 +44,13 @@ contract OpenFLChallengeHarness is OpenFLChallenge {
         uint256 priorRunningCMean,
         uint256 priorM2,
         uint256 k
-    ) external pure returns (uint256, uint256) {
+    ) external view returns (uint256, uint256) {
         return _trUpdateRunningStats(ContributionScore, priorRunningCMean, priorM2, k);
     }
 
     function tComputeConfidence(uint256 k, uint256 s_k)
         external
-        pure
+        view
         returns (uint256)
     {
         return _trComputeConfidence(k, s_k);
@@ -54,7 +60,7 @@ contract OpenFLChallengeHarness is OpenFLChallenge {
         uint256 PriorTaskRep,
         uint256 Confidence,
         uint256 ContributionScore
-    ) external pure returns (uint256) {
+    ) external view returns (uint256) {
         return _trUpdateContribScore(PriorTaskRep, Confidence, ContributionScore);
     }
 
@@ -62,7 +68,7 @@ contract OpenFLChallengeHarness is OpenFLChallenge {
         uint256 priorIntegrityRep,
         uint256 positiveVotes,
         uint256 totalVotes
-    ) external pure returns (uint256) {
+    ) external view returns (uint256) {
         return _trUpdateIntegrityRep(priorIntegrityRep, positiveVotes, totalVotes);
     }
 

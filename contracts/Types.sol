@@ -75,4 +75,11 @@ struct ChallengeSpecifications {
     uint8 freeriderPenalty;
     TaskType taskType;
     address jobListingAddress;
+    // Deploy-time TaskRep tunables (WAD-scaled for the three fractions).
+    uint256 trAlpha;
+    uint256 trNBlend;
+    uint256 trN0;
+    uint256 trLambda;
+    uint256 trIntegrityLearningRate;
+    uint256 trGainCapMultiplier;
 }

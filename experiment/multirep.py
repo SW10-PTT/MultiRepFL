@@ -920,6 +920,13 @@ def _apply_preset_config(exp_config: ExperimentConfiguration, preset) -> None:
     exp_config.q_slot_limit_enabled = preset.q_slot_limit_enabled
     exp_config.q_slot_limit       = preset.q_slot_limit
     exp_config.q_hard_reset       = preset.q_hard_reset
+    # TaskRep tunables: session-wide, fed into the per-task challenge constructor.
+    exp_config.tr_alpha           = preset.tr_alpha
+    exp_config.tr_n_blend         = preset.tr_n_blend
+    exp_config.tr_n_0             = preset.tr_n_0
+    exp_config.tr_lambda          = preset.tr_lambda
+    exp_config.tr_integrity_learning_rate = preset.tr_integrity_learning_rate
+    exp_config.tr_gain_cap_multiplier     = preset.tr_gain_cap_multiplier
 
 
 # ---------------------------------------------------------------------------
@@ -932,6 +939,15 @@ def main(auto_graphs: bool = False, cleanup_session: bool = False, seed_override
     if seed_override is not None:
         log("multirep", f"[seed] overriding preset seed {preset.seed} -> {seed_override}")
         preset.seed = seed_override
+    # Sync the replay-path EWMA mirror to the session's TaskRep tunables so the
+    # write-back math matches what each challenge contract is deployed with.
+    global _ALPHA, _N_BLEND, _N_0, _LAMBDA, _INTEGRITY_LEARNING_RATE, _GAIN_CAP_MULTIPLIER
+    _ALPHA = int(preset.tr_alpha * _WAD)
+    _N_BLEND = int(preset.tr_n_blend * _WAD)
+    _N_0 = int(preset.tr_n_0)
+    _LAMBDA = int(preset.tr_lambda)
+    _INTEGRITY_LEARNING_RATE = int(preset.tr_integrity_learning_rate * _WAD)
+    _GAIN_CAP_MULTIPLIER = int(preset.tr_gain_cap_multiplier)
     tasks = preset.tasks
     partition_file = preset.partition_file
     training_mode = preset.training_mode

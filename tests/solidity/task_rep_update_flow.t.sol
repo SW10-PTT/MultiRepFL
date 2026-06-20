@@ -22,7 +22,13 @@ contract MockChallenge is OpenFLChallenge {
             punishfactorContrib: 3,
             freeriderPenalty: 0,
             taskType: TaskType.template,
-            jobListingAddress: address(0)
+            jobListingAddress: address(0),
+            trAlpha: 2e17,
+            trNBlend: 2e17,
+            trN0: 2,
+            trLambda: 5,
+            trIntegrityLearningRate: 2e17,
+            trGainCapMultiplier: 2
         })
     ) {}
 

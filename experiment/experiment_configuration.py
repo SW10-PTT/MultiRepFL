@@ -24,6 +24,15 @@ from openfl.utils.types.TrainingSpecsJobListing import TrainingSpecsJobListing
 VALID_PARTITION_STRATEGIES = ("global", "per_user")
 VALID_VOTE_BASELINES = ("local_trained", "prev_global")
 
+# Deploy-time TaskRep tunables. Defaults mirror the hardcoded OpenFLChallenge.sol
+# values; the three fractions are human decimals here (WAD-converted at deploy).
+DEFAULT_TR_ALPHA = 0.2
+DEFAULT_TR_N_BLEND = 0.2
+DEFAULT_TR_N_0 = 2
+DEFAULT_TR_LAMBDA = 5
+DEFAULT_TR_INTEGRITY_LEARNING_RATE = 0.2
+DEFAULT_TR_GAIN_CAP_MULTIPLIER = 2
+
 class ExperimentConfiguration:
     def __init__(self,
                  name=None,
@@ -68,7 +77,13 @@ class ExperimentConfiguration:
                  gir_weight=4,   # GIR multiplier in selection score (preset-level constant).
                  q_slot_limit_enabled=False, # If True, cap how many slots may be won via the Q bonus; the rest go by base TR/GIR score only.
                  q_slot_limit=0,             # Max slots fillable using the Q bonus when q_slot_limit_enabled.
-                 q_hard_reset=False):        # If True, selected users' Q resets to 0; otherwise Q is reduced by WAD.
+                 q_hard_reset=False,         # If True, selected users' Q resets to 0; otherwise Q is reduced by WAD.
+                 tr_alpha=DEFAULT_TR_ALPHA,                              # EWMA weight for running mean/variance (fraction; WAD-converted at deploy).
+                 tr_n_blend=DEFAULT_TR_N_BLEND,                          # EWMA blend weight ContribScore -> TaskRep (fraction).
+                 tr_n_0=DEFAULT_TR_N_0,                                  # Maturity offset in confidence k/(k+N_0) (int).
+                 tr_lambda=DEFAULT_TR_LAMBDA,                            # Variance penalty coefficient (int).
+                 tr_integrity_learning_rate=DEFAULT_TR_INTEGRITY_LEARNING_RATE, # GIR EWMA learning rate (fraction).
+                 tr_gain_cap_multiplier=DEFAULT_TR_GAIN_CAP_MULTIPLIER): # Gain-cap multiplier in delta transform (int).
 
         self.name = name
         self.dataset = dataset
@@ -113,6 +128,23 @@ class ExperimentConfiguration:
         if self.q_slot_limit < 0:
             raise ValueError("q_slot_limit must be >= 0")
         self.q_hard_reset = bool(q_hard_reset)
+        # Deploy-time TaskRep tunables (fractions stored as human decimals; ints as-is).
+        self.tr_alpha = float(tr_alpha)
+        self.tr_n_blend = float(tr_n_blend)
+        self.tr_integrity_learning_rate = float(tr_integrity_learning_rate)
+        self.tr_n_0 = int(tr_n_0)
+        self.tr_lambda = int(tr_lambda)
+        self.tr_gain_cap_multiplier = int(tr_gain_cap_multiplier)
+        for _n, _v in (("tr_alpha", self.tr_alpha), ("tr_n_blend", self.tr_n_blend),
+                       ("tr_integrity_learning_rate", self.tr_integrity_learning_rate)):
+            if not (0.0 <= _v <= 1.0):
+                raise ValueError(f"{_n} must be in [0.0, 1.0], got {_v}")
+        if self.tr_n_0 < 1:
+            raise ValueError(f"tr_n_0 must be >= 1, got {self.tr_n_0}")
+        if self.tr_lambda < 0:
+            raise ValueError(f"tr_lambda must be >= 0, got {self.tr_lambda}")
+        if self.tr_gain_cap_multiplier < 1:
+            raise ValueError(f"tr_gain_cap_multiplier must be >= 1, got {self.tr_gain_cap_multiplier}")
         self.enabled_prints = (
             set(enabled_prints) if enabled_prints is not None
             else set(DEFAULT_ENABLED_PRINTS_CONFIG)
@@ -198,6 +230,12 @@ class ExperimentConfiguration:
             q_slot_limit_enabled=self.q_slot_limit_enabled,
             q_slot_limit=self.q_slot_limit,
             q_hard_reset=self.q_hard_reset,
+            tr_alpha=int(self.tr_alpha * 1e18),
+            tr_n_blend=int(self.tr_n_blend * 1e18),
+            tr_n_0=int(self.tr_n_0),
+            tr_lambda=int(self.tr_lambda),
+            tr_integrity_learning_rate=int(self.tr_integrity_learning_rate * 1e18),
+            tr_gain_cap_multiplier=int(self.tr_gain_cap_multiplier),
         )
 
     @property
@@ -420,6 +458,19 @@ class ExperimentConfiguration:
             data["q_slot_limit"] = self.q_slot_limit
         if self.q_hard_reset:
             data["q_hard_reset"] = True
+
+        # Fold TaskRep tunables into the fingerprint only when non-default, so
+        # configs that omit them keep the same hash as before (cache hits intact).
+        for _k, _v, _d in (
+            ("tr_alpha", self.tr_alpha, DEFAULT_TR_ALPHA),
+            ("tr_n_blend", self.tr_n_blend, DEFAULT_TR_N_BLEND),
+            ("tr_n_0", self.tr_n_0, DEFAULT_TR_N_0),
+            ("tr_lambda", self.tr_lambda, DEFAULT_TR_LAMBDA),
+            ("tr_integrity_learning_rate", self.tr_integrity_learning_rate, DEFAULT_TR_INTEGRITY_LEARNING_RATE),
+            ("tr_gain_cap_multiplier", self.tr_gain_cap_multiplier, DEFAULT_TR_GAIN_CAP_MULTIPLIER),
+        ):
+            if _v != _d:
+                data[_k] = _v
 
         blob = json.dumps(data, sort_keys=True, separators=(",", ":"))
         hash = hashlib.sha256(blob.encode()).hexdigest()
