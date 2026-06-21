@@ -325,29 +325,6 @@ All functions return a `matplotlib.figure.Figure`. Call `plt.show()` or `plots.s
 
 ---
 
-## What Changed in the Existing Code
-
-### `experiment/experiments.py`
-- Imports `ExperimentLogger` from the `analysis` package.
-- Before each experiment: instantiates `ExperimentLogger(experiment_id, metadata)` where `metadata` contains all config fields plus `dataset` and `timestamp`.
-- After each experiment: calls `logger.save(path.with_suffix(".pkl"))` to write the pickle file next to the CSV.
-
-### `experiment/experiment_runner.py`
-- `run_experiment()` accepts a new optional `logger=None` parameter and forwards it to `FLChallenge`.
-
-### `src/openfl/contracts/fl_challenge.py`
-- `FLChallenge.__init__()` accepts `logger=None` and stores it as `self.logger`.
-- `log_receipt()` now also calls `self.logger.log_receipt(...)` to capture every blockchain transaction.
-- `simulate()` calls:
-  - `logger.log_global_round(round=0, ...)` once for the baseline (before training starts).
-  - Per round after settlement: `logger.log_vote(...)` for every feedback matrix entry, `logger.log_user_round(...)` for every active and disqualified participant, and `logger.log_global_round(...)` for the round summary.
-- **The CSV / `AsyncWriter` path is completely unchanged.** Logger runs in parallel and adds no breaking changes.
-
-### `src/openfl/utils/async_writer.py`
-- `NullWriter` was missing `writeResult`, `writeComment`, and `finish` methods — calls to these raised `AttributeError` when no writer was provided. All three are now no-ops.
-
----
-
 ## Notes
 
 - **Normalization is not applied automatically on load.** Call `normalize_run()` / `normalize_runs()` explicitly before aggregating or plotting, otherwise GRS and contribution scores will be in raw wei (1e18 scale).
