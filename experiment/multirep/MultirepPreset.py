@@ -66,8 +66,8 @@ class MultirepPreset:
                        ("tr_integrity_learning_rate", tr_integrity_learning_rate)):
             if not (0.0 <= _v <= 1.0):
                 raise ValueError(f"{_n} must be in [0.0, 1.0], got {_v}")
-        if tr_n_0 < 1:
-            raise ValueError(f"tr_n_0 must be >= 1, got {tr_n_0}")
+        if tr_n_0 < 0:
+            raise ValueError(f"tr_n_0 must be >= 0, got {tr_n_0}")
         if tr_lambda < 0:
             raise ValueError(f"tr_lambda must be >= 0, got {tr_lambda}")
         if tr_gain_cap_multiplier < 1:
