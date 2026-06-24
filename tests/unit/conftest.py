@@ -12,6 +12,24 @@ from openfl.contracts.FLChallenge import FLChallenge
 
 
 @pytest.fixture
+def make_participant_stub():
+    """Factory for lightweight participant-like stubs.
+
+    AddressIndexList/AddressIndexMatrix/EvaluationData only read ``.id``,
+    ``.address`` and the callable ``.display_label()`` off their participants,
+    so a SimpleNamespace is enough — no web3/torch involved. Returns a factory
+    so callers can build a numbered list in one comprehension.
+    """
+    def _make(i, id=None, address=None, label=None):
+        return SimpleNamespace(
+            id=i if id is None else id,
+            address=address if address is not None else f"0xAddr{i}",
+            display_label=(lambda label=(label or f"user{i}"): label),
+        )
+    return _make
+
+
+@pytest.fixture
 def mock_w3():
     """Mocks a web3 connection to Ethereum."""
     w3 = MagicMock()
