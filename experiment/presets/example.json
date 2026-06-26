@@ -4,7 +4,15 @@
   "q_weight": 0.1,
   "tr_weight": 9,
   "gir_weight": 1,
+  "q_slot_limit_enabled": false,
+  "q_slot_limit": 2,
   "training_mode": "remote",
+  "tr_alpha": 0.2, 
+  "tr_n_blend": 0.2, 
+  "tr_n_0": 2,
+  "tr_lambda": 5, 
+  "tr_integrity_learning_rate": 0.2, 
+  "tr_gain_cap_multiplier": 2,
   "tasks": [
     {
       "dataset": "MNIST",

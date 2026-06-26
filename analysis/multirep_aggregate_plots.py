@@ -63,12 +63,50 @@ _EPS = 1e-6
 # small aggregation helpers
 # =========================================================================
 
+def _distinct_curves(df: pd.DataFrame) -> pd.DataFrame:
+    """Drop fingerprint cache-hit clones so variance bands reflect real spread.
+
+    The loader back-fills every task slot from the one computed curve sharing its
+    fingerprint, so identical (run, fingerprint, round) rows repeat.  Collapsing
+    them to one row per (run, fingerprint, round) keeps the mean unchanged but
+    stops the duplicated curves from artificially shrinking std/IQR.
+    """
+    if {"run", "fingerprint", "round"} <= set(df.columns):
+        return df.drop_duplicates(["run", "fingerprint", "round"])
+    return df
+
+
+def _behavior_on_task_type(rep: pd.DataFrame, task_type: int) -> pd.Series:
+    """Each row's user behaviour *on the given task type* (constant per user),
+    aligned back to ``rep``'s index.  Task-hoppers carry a different behaviour per
+    dataset, so the per-task ``behavior`` column flips at dataset switches; this
+    fixes a user to its behaviour on one dataset for coherent per-dataset grouping.
+    """
+    sub = rep[rep["task_type"] == task_type]
+    if sub.empty:
+        # no tasks of this type logged → fall back to the per-task label
+        return rep["behavior"]
+    by_user = sub.groupby("user_name")["behavior"].agg(
+        lambda s: s.mode().iat[0] if not s.mode().empty else s.iat[0])
+    return rep["user_name"].map(by_user)
+
+
+def _n_curves(df: pd.DataFrame) -> int:
+    """Number of distinct (run, fingerprint) experimental curves in *df*."""
+    if {"run", "fingerprint"} <= set(df.columns):
+        return int(df.drop_duplicates(["run", "fingerprint"]).shape[0])
+    if {"run", "task_index"} <= set(df.columns):
+        return int(df.drop_duplicates(["run", "task_index"]).shape[0])
+    return len(df)
+
+
 def _curve(df: pd.DataFrame, col: str, method: str):
     """Aggregate *col* over 'round'. Returns (x, center, lo, hi).
 
     method='mean'   → center=mean, band=±1 std
     method='median' → center=median, band=[Q1, Q3]
     """
+    df = _distinct_curves(df)
     g = df.groupby("round")[col]
     if method == "median":
         center = g.median()
@@ -193,7 +231,7 @@ def plot_metric_over_rounds(pair: ExperimentPair, task_type: int, col: str,
         x, center, lo, hi = _curve(sub, col, method)
         color = SYSTEM_COLORS[system]
         ax.plot(x, center, color=color, ls=SYSTEM_LS[system], lw=_LW,
-                label=f"{SYSTEM_LABELS[system]} ({exp.n_runs} run·{sub['task_index'].nunique()} task)")
+                label=f"{SYSTEM_LABELS[system]} ({_n_curves(sub)} distinct curves)")
         ax.fill_between(x, lo, hi, color=color, alpha=_FILL_ALPHA)
         plotted = True
 
@@ -262,9 +300,11 @@ def _final_accuracy(exp: ExperimentRuns) -> pd.DataFrame:
     ga = exp.global_accuracy()
     if ga.empty:
         return pd.DataFrame(columns=["dataset", "accuracy"])
+    # one row per distinct experimental curve (collapse fingerprint cache clones)
+    key = ["run", "fingerprint", "dataset"] if "fingerprint" in ga.columns else ["run", "task_index", "dataset"]
     last = (
         ga.sort_values("round")
-        .groupby(["run", "task_index", "dataset"], sort=False)
+        .groupby(key, sort=False)
         .last()
         .reset_index()
     )
@@ -313,7 +353,9 @@ def _time_to_accuracy(exp: ExperimentRuns, mode: str) -> pd.DataFrame:
     if ga.empty:
         return pd.DataFrame(columns=["dataset", "rounds"])
     rows = []
-    for (_, _, ds), g in ga.groupby(["run", "task_index", "dataset"], sort=False):
+    key = ["run", "fingerprint", "dataset"] if "fingerprint" in ga.columns else ["run", "task_index", "dataset"]
+    for _, g in ga.groupby(key, sort=False):
+        ds = g["dataset"].iloc[0]
         g = g.sort_values("round")
         acc = g["objective_global_accuracy"]
         if mode == "fraction":
@@ -326,7 +368,7 @@ def _time_to_accuracy(exp: ExperimentRuns, mode: str) -> pd.DataFrame:
         if hit.empty:
             continue
         rows.append({"dataset": ds.lower(), "rounds": int(hit["round"].iloc[0])})
-    return pd.DataFrame(rows)
+    return pd.DataFrame(rows, columns=["dataset", "rounds"]) if rows else pd.DataFrame(columns=["dataset", "rounds"])
 
 
 def plot_time_to_accuracy(pair: ExperimentPair, mode: str = "threshold") -> plt.Figure:
@@ -449,18 +491,24 @@ def plot_tr_development(pair: ExperimentPair) -> plt.Figure:
             rep = exp.reputation_timeline()
             if rep.empty:
                 continue
+            # Group by each user's behaviour *on this panel's dataset* (constant
+            # per user), not the per-task behaviour.  For task-hoppers the per-task
+            # label flips at every dataset switch, which would otherwise swap users
+            # in/out of a behaviour line and produce a spurious rise/crash sawtooth.
+            rep = rep.assign(_beh=_behavior_on_task_type(rep, tt))
             if exp.system == "globalrep":
                 # single shared global bucket → use tr_post (the live bucket value)
-                agg = rep.groupby(["behavior", "task_index"])["tr_post"].mean().reset_index()
-                agg = agg.rename(columns={"tr_post": "_tr"})
+                agg = rep.dropna(subset=["_beh"]).groupby(["_beh", "task_index"])["tr_post"].mean().reset_index()
+                agg = agg.rename(columns={"tr_post": "_tr", "_beh": "behavior"})
             else:
                 if "tr_all_post" not in rep.columns:
                     continue
                 val = rep["tr_all_post"].apply(
                     lambda d: d.get(tt) if isinstance(d, dict) else None
                 )
-                agg = (rep.assign(_tr=val).dropna(subset=["_tr"])
-                       .groupby(["behavior", "task_index"])["_tr"].mean().reset_index())
+                agg = (rep.assign(_tr=val).dropna(subset=["_tr", "_beh"])
+                       .groupby(["_beh", "task_index"])["_tr"].mean().reset_index()
+                       .rename(columns={"_beh": "behavior"}))
             for behavior, grp in agg.groupby("behavior"):
                 grp = grp.sort_values("task_index")
                 ax.plot(grp["task_index"], grp["_tr"],
@@ -472,7 +520,7 @@ def plot_tr_development(pair: ExperimentPair) -> plt.Figure:
         ax.xaxis.set_major_locator(MaxNLocator(integer=True))
         ax.grid(True, alpha=0.3)
     axes[0].set_ylabel("Task Reputation (TR)")
-    _add_behavior_system_legend(axes[-1], pair)
+    _add_behavior_system_legend(axes[-1], pair, ds_handles)
     fig.suptitle("Task-reputation development  (colour=behavior, style=system; "
                  "global-rep = one shared bucket shown in both panels)")
     fig.tight_layout()
@@ -489,7 +537,7 @@ def plot_gir_development(pair: ExperimentPair) -> plt.Figure:
     re-run will clear.
     """
     fig, ax = plt.subplots(figsize=(11, 4.5))
-    _mark_dataset_switches(ax, pair)
+    ds_handles = _mark_dataset_switches(ax, pair)
     globalrep_nonzero = False
     for system, exp in pair.items():
         rep = exp.reputation_timeline()
@@ -512,7 +560,7 @@ def plot_gir_development(pair: ExperimentPair) -> plt.Figure:
     if globalrep_nonzero:
         ax.text(0.5, 0.94, "⚠ global-rep GIR ≠ 0 → pre-fix data; re-run to clear",
                 ha="center", va="top", transform=ax.transAxes, fontsize=8, color="#b00")
-    _add_behavior_system_legend(ax, pair)
+    _add_behavior_system_legend(ax, pair, ds_handles)
     fig.tight_layout()
     return fig
 
@@ -520,7 +568,7 @@ def plot_gir_development(pair: ExperimentPair) -> plt.Figure:
 def plot_selection_rate_over_time(pair: ExperimentPair) -> plt.Figure:
     """Mean selection rate per behavior over task index. Behaviour→colour, system→style."""
     fig, ax = plt.subplots(figsize=(11, 4.5))
-    _mark_dataset_switches(ax, pair)
+    ds_handles = _mark_dataset_switches(ax, pair)
     for system, exp in pair.items():
         rep = exp.reputation_timeline()
         if rep.empty:
@@ -537,6 +585,68 @@ def plot_selection_rate_over_time(pair: ExperimentPair) -> plt.Figure:
     ax.xaxis.set_major_locator(MaxNLocator(integer=True))
     ax.grid(True, alpha=0.3)
     ax.set_title("Selection rate over tasks (colour=behavior, style=system)")
+    _add_behavior_system_legend(ax, pair, ds_handles)
+    fig.tight_layout()
+    return fig
+
+
+# =========================================================================
+# 4b. Single-dataset progression (only MNIST tasks, or only CIFAR tasks)
+# =========================================================================
+
+def _dataset_task_order(pair: ExperimentPair, task_type: int) -> dict[int, int]:
+    """task_index -> consecutive 0-based position among tasks of *task_type*."""
+    mp = _task_dataset_map(pair)
+    tis = sorted(ti for ti, tt in mp.items() if tt == task_type)
+    return {ti: i for i, ti in enumerate(tis)}
+
+
+def _progression_value(sub: pd.DataFrame, exp: ExperimentRuns, metric: str, task_type: int):
+    if metric == "tr":
+        if exp.system == "globalrep":
+            return sub["tr_post"]
+        return sub["tr_all_post"].apply(lambda d: d.get(task_type) if isinstance(d, dict) else None)
+    if metric == "gir":
+        return sub["gir_post"]
+    return sub["was_selected"].astype(float)
+
+
+def plot_metric_progression(pair: ExperimentPair, task_type: int, metric: str) -> plt.Figure:
+    """A metric over *only* the tasks of one dataset, x compressed to consecutive
+    dataset-task number — no flat gaps from the other dataset.
+
+    multi-rep shows that dataset's per-task reputation building continuously;
+    global-rep shows its single global bucket sampled at those tasks (so it keeps
+    rising across both datasets — the same global line appears in both variants).
+    """
+    order = _dataset_task_order(pair, task_type)
+    ylabel = {"tr": "Task Reputation (TR)", "gir": "Global Integrity Reputation (GIR)",
+              "selection": "Selection rate"}[metric]
+    fig, ax = plt.subplots(figsize=(9, 4.5))
+    for system, exp in pair.items():
+        rep = exp.reputation_timeline()
+        if rep.empty:
+            continue
+        sub = rep[rep["task_index"].isin(order)].copy()
+        if sub.empty:
+            continue
+        sub["_v"] = _progression_value(sub, exp, metric, task_type)
+        sub["_x"] = sub["task_index"].map(order)
+        agg = sub.dropna(subset=["_v"]).groupby(["behavior", "_x"])["_v"].mean().reset_index()
+        for behavior, grp in agg.groupby("behavior"):
+            grp = grp.sort_values("_x")
+            ax.plot(grp["_x"], grp["_v"], color=BEHAVIOR_COLORS.get(behavior, "#888"),
+                    ls=SYSTEM_LS[system], lw=_LW, alpha=0.9)
+    ax.set_xlabel(f"{TASK_TYPE_LABELS[task_type]} task # (consecutive, other dataset removed)")
+    ax.set_ylabel(ylabel)
+    if metric != "selection":
+        ax.set_ylim(0, 1.05)
+    else:
+        ax.set_ylim(-0.02, 1.02)
+    ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+    ax.grid(True, alpha=0.3)
+    ax.set_title(f"{TASK_TYPE_LABELS[task_type]}-only {ylabel} progression "
+                 "(colour=behavior, style=system)")
     _add_behavior_system_legend(ax, pair)
     fig.tight_layout()
     return fig
@@ -727,6 +837,83 @@ def _selection_waits(exp: ExperimentRuns) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def _qvalue_user_stats(exp: ExperimentRuns) -> pd.DataFrame:
+    """Per (run, user): selection count, longest idle streak, mean TR."""
+    rep = exp.reputation_timeline()
+    rows = []
+    if rep.empty:
+        return pd.DataFrame(columns=["n_sel", "max_idle", "mean_tr"])
+    for (_run, _guid), g in rep.groupby(["run", "guid"]):
+        g = g.sort_values("task_index")
+        sel = g["was_selected"].to_numpy().astype(bool)
+        mw = cur = 0
+        for s in sel:
+            cur = 0 if s else cur + 1
+            mw = max(mw, cur)
+        rows.append({"n_sel": int(sel.sum()), "max_idle": mw,
+                     "mean_tr": float(g["tr_post"].mean())})
+    return pd.DataFrame(rows)
+
+
+def _gini(x: np.ndarray) -> float:
+    x = np.sort(np.asarray(x, dtype=float))
+    n = len(x)
+    if n == 0 or x.sum() == 0:
+        return 0.0
+    idx = np.arange(1, n + 1)
+    return float((2 * (idx * x).sum() - (n + 1) * x.sum()) / (n * x.sum()))
+
+
+def plot_qvalue_effect(with_q: ExperimentRuns, without_q: ExperimentRuns) -> plt.Figure:
+    """Three clear views of what the Q-value (long-unselected bonus) does to
+    selection fairness:
+
+      (a) Lorenz curve of selection counts — how (un)equally picks are shared.
+      (b) Per-user selection count, ranked — flat = everyone gets turns.
+      (c) Selection count vs mean TR — without Q, picks track TR (rich-get-richer);
+          the Q-value decouples them so idle good users still get in.
+    """
+    variants = [("With Q-value", "#1b9e77", _qvalue_user_stats(with_q)),
+                ("Without Q-value", "#d95f02", _qvalue_user_stats(without_q))]
+    fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(16, 4.6))
+
+    for label, color, st in variants:
+        if st.empty:
+            continue
+        # (a) Lorenz curve
+        x = np.sort(st["n_sel"].to_numpy(dtype=float))
+        cum = np.cumsum(x)
+        cum = np.insert(cum / cum[-1], 0, 0) if cum[-1] > 0 else np.linspace(0, 1, len(x) + 1)
+        frac = np.linspace(0, 1, len(cum))
+        ax1.plot(frac, cum, color=color, lw=_LW, label=f"{label} (Gini={_gini(x):.2f})")
+        # (b) ranked selection counts
+        ranked = np.sort(st["n_sel"].to_numpy())[::-1]
+        ax2.plot(range(1, len(ranked) + 1), ranked, color=color, lw=_LW, marker="o",
+                 ms=3, label=label)
+        # (c) selection count vs mean TR
+        ax3.scatter(st["mean_tr"], st["n_sel"], color=color, alpha=0.6, s=24, label=label)
+
+    ax1.plot([0, 1], [0, 1], color="#999", ls="--", lw=1, label="perfect equality")
+    ax1.set_xlabel("Cumulative share of users (poorest→richest)")
+    ax1.set_ylabel("Cumulative share of selections")
+    ax1.set_title("Selection inequality (Lorenz)")
+    ax1.legend(fontsize=8); ax1.grid(True, alpha=0.3)
+
+    ax2.set_xlabel("User rank")
+    ax2.set_ylabel("Times selected")
+    ax2.set_title("Selection count per user, ranked")
+    ax2.legend(fontsize=8); ax2.grid(True, alpha=0.3)
+
+    ax3.set_xlabel("User mean TR")
+    ax3.set_ylabel("Times selected")
+    ax3.set_title("Selection vs reputation")
+    ax3.legend(fontsize=8); ax3.grid(True, alpha=0.3)
+
+    fig.suptitle("Effect of the Q-value on selection fairness")
+    fig.tight_layout()
+    return fig
+
+
 def plot_qvalue_selection_wait(with_q: ExperimentRuns, without_q: ExperimentRuns) -> plt.Figure:
     """Compare how long participants wait to be selected, with vs without the Q-value.
 
@@ -761,12 +948,123 @@ def plot_qvalue_selection_wait(with_q: ExperimentRuns, without_q: ExperimentRuns
     return fig
 
 
+def _coverage_curve(exp: ExperimentRuns) -> pd.DataFrame:
+    """Per task_index (mean over runs): fraction of users selected at least once
+    so far (coverage) and the Gini of cumulative selection counts."""
+    rep = exp.reputation_timeline()
+    if rep.empty:
+        return pd.DataFrame(columns=["task_index", "coverage", "gini"])
+    run_frames = []
+    for _run, g in rep.groupby("run"):
+        n_users = g["guid"].nunique()
+        order = sorted(g["task_index"].unique())
+        seen: set = set()
+        counts: dict = {}
+        cov, gini = [], []
+        for ti in order:
+            picked = g[(g["task_index"] == ti) & (g["was_selected"])]["guid"]
+            for gid in picked:
+                seen.add(gid)
+                counts[gid] = counts.get(gid, 0) + 1
+            cov.append(len(seen) / n_users if n_users else np.nan)
+            vec = np.array(list(counts.values()) + [0] * (n_users - len(counts)), dtype=float)
+            gini.append(_gini(vec))
+        run_frames.append(pd.DataFrame({"task_index": order, "coverage": cov, "gini": gini}))
+    allruns = pd.concat(run_frames, ignore_index=True)
+    return allruns.groupby("task_index")[["coverage", "gini"]].mean().reset_index()
+
+
+def plot_qvalue_coverage(with_q: ExperimentRuns, without_q: ExperimentRuns) -> plt.Figure:
+    """How evenly participation is shared *over time*, with vs without the Q-value.
+
+    Left: participation coverage — fraction of users selected at least once by
+    task t.  With the Q-value, every participant gets a turn sooner, so coverage
+    climbs to 1.0 faster.  Right: running Gini of cumulative selection counts —
+    lower = picks shared more equally as the session goes on."""
+    variants = [("With Q-value", "#1b9e77", _coverage_curve(with_q)),
+                ("Without Q-value", "#d95f02", _coverage_curve(without_q))]
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4.5))
+    for label, color, c in variants:
+        if c.empty:
+            continue
+        ax1.plot(c["task_index"], c["coverage"], color=color, lw=_LW, marker="o", ms=3, label=label)
+        ax2.plot(c["task_index"], c["gini"], color=color, lw=_LW, marker="o", ms=3, label=label)
+    ax1.set_xlabel("Task index"); ax1.set_ylabel("Fraction of users selected ≥ once")
+    ax1.set_ylim(0, 1.05); ax1.set_title("Participation coverage over time")
+    ax1.legend(fontsize=8); ax1.grid(True, alpha=0.3)
+    ax2.set_xlabel("Task index"); ax2.set_ylabel("Gini of cumulative selections")
+    ax2.set_ylim(0, 1.0); ax2.set_title("Selection inequality over time")
+    ax2.legend(fontsize=8); ax2.grid(True, alpha=0.3)
+    fig.suptitle("Effect of the Q-value: how fast everyone gets a turn")
+    fig.tight_layout()
+    return fig
+
+
+def _idle_streak_table(exp: ExperimentRuns) -> pd.DataFrame:
+    """One row per (run, user, task): the idle streak *entering* this task
+    (consecutive prior tasks the user was not selected for), the Q-value used for
+    the selection decision (q_pre), and whether they were then selected."""
+    rep = exp.reputation_timeline()
+    if rep.empty:
+        return pd.DataFrame(columns=["streak", "q_pre", "was_selected"])
+    rep = rep.sort_values(["run", "guid", "task_index"])
+    rows = []
+    for (_run, _gid), g in rep.groupby(["run", "guid"]):
+        streak = 0
+        for _, row in g.iterrows():
+            rows.append({"streak": streak, "q_pre": row["q_pre"],
+                         "was_selected": bool(row["was_selected"])})
+            streak = 0 if row["was_selected"] else streak + 1
+    return pd.DataFrame(rows)
+
+
+def plot_qvalue_mechanism(with_q: ExperimentRuns, without_q: ExperimentRuns,
+                          max_streak: int = 8) -> plt.Figure:
+    """The Q-value mechanism, made explicit.
+
+    Left: probability of being selected vs how long a user has sat idle.  The
+    Q-value is the long-unselected bonus, so with it P(selected) *rises* with the
+    idle streak (idle users get pulled back in); without it, an unselected user
+    has no recovery path and their chance stays low.  Right: the resulting idle-
+    streak distribution — with the Q-value, task-opportunities pile up at short
+    streaks; without it a long starvation tail appears."""
+    variants = [("With Q-value", "#1b9e77", _idle_streak_table(with_q)),
+                ("Without Q-value", "#d95f02", _idle_streak_table(without_q))]
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4.5))
+    for label, color, t in variants:
+        if t.empty:
+            continue
+        t = t.copy()
+        t["streak_c"] = t["streak"].clip(upper=max_streak)
+        # (left) P(selected) vs idle streak
+        p = t.groupby("streak_c")["was_selected"].mean().reset_index()
+        ax1.plot(p["streak_c"], p["was_selected"], color=color, lw=_LW, marker="o", ms=4, label=label)
+        # (right) distribution of idle streaks (share of task-opportunities)
+        d = t.groupby("streak_c").size()
+        d = (d / d.sum()).reset_index(name="frac")
+        ax2.plot(d["streak_c"], d["frac"], color=color, lw=_LW, marker="o", ms=4, label=label)
+    xlbl = f"Idle streak entering task (consecutive tasks unselected, capped at {max_streak})"
+    ax1.set_xlabel(xlbl); ax1.set_ylabel("P(selected)")
+    ax1.set_ylim(0, 1.05); ax1.set_title("Idle users get pulled back in")
+    ax1.legend(fontsize=8); ax1.grid(True, alpha=0.3)
+    ax2.set_xlabel(xlbl); ax2.set_ylabel("Share of task-opportunities")
+    ax2.set_title("Idle-streak distribution (Q prevents starvation tail)")
+    ax2.legend(fontsize=8); ax2.grid(True, alpha=0.3)
+    fig.suptitle("Effect of the Q-value: the long-unselected bonus and its consequence")
+    fig.tight_layout()
+    return fig
+
+
 # =========================================================================
 # internal
 # =========================================================================
 
-def _add_behavior_system_legend(ax, pair: ExperimentPair) -> None:
-    """Two-part legend: behaviour colours + system line styles."""
+def _add_behavior_system_legend(ax, pair: ExperimentPair, ds_handles: list | None = None) -> None:
+    """Behaviour colours + system line styles, plus an optional dataset-tint key.
+
+    *ds_handles* are the dataset Patch handles returned by ``_mark_dataset_switches``;
+    pass them so the background tint (which dataset each task ran) is explained.
+    """
     present = set()
     for _, exp in pair.items():
         rep = exp.reputation_timeline()
@@ -779,4 +1077,7 @@ def _add_behavior_system_legend(ax, pair: ExperimentPair) -> None:
                           label=SYSTEM_LABELS[s]) for s, _ in pair.items()]
     leg1 = ax.legend(handles=beh_handles, title="Behavior", loc="upper left", fontsize=8)
     ax.add_artist(leg1)
-    ax.legend(handles=sys_handles, title="System", loc="lower right", fontsize=8)
+    leg2 = ax.legend(handles=sys_handles, title="System", loc="lower right", fontsize=8)
+    if ds_handles:
+        ax.add_artist(leg2)
+        ax.legend(handles=ds_handles, title="Dataset (tint)", loc="lower left", fontsize=7)

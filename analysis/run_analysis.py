@@ -11,6 +11,10 @@ from analysis import load_runs_recursive, normalize_runs, merge_runs, aggregatio
 # Set to a specific timestamp folder, or leave as None to scan all folders
 FOLDER = "26-02-26--11_04_41"
 
+# Output image format: "png", "svg" or "pdf"
+FORMAT = "png"
+plots.set_figure_format(FORMAT)
+
 data_dir = REPO_ROOT / "experiment" / "data" / "experimentData"
 if FOLDER:
     data_dir = data_dir / FOLDER
@@ -51,8 +55,8 @@ fig3 = plots.plot_strategy_comparison_boxplot(agg_final)
 fig4 = plots.plot_grs_by_behavior(agg_grs)
 fig5 = plots.plot_round_kicked_by_strategy(agg_kicked)
 
-# Save
-figures_dir = REPO_ROOT / "figures"
+# Save (png keeps figures/; other formats get e.g. figures_svg/)
+figures_dir = REPO_ROOT / ("figures" if FORMAT == "png" else f"figures_{FORMAT}")
 figures_dir.mkdir(exist_ok=True)
 plots.save_figure(fig1, figures_dir / "accuracy_loss.png")
 plots.save_figure(fig2, figures_dir / "strategy_lines.png")

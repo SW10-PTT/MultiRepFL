@@ -40,6 +40,9 @@ struct TrainingSpecifications {
     uint256 qWeight;   // WAD-scaled additive Q bonus: score = normalWeight + qWeight * q / WAD
     uint256 trWeight;  // taskRep multiplier in selection score (default 6)
     uint256 girWeight; // GIR multiplier in selection score (default 4)
+    bool qSlotLimitEnabled; // when true, cap how many slots may be won via the Q bonus
+    uint256 qSlotLimit;     // max slots fillable using Q; the rest go by base score only
+    bool qHardReset;        // when true, selected users' Q resets to 0; otherwise subtracts WAD
 }
 
 // Per-user computed TaskRep outputs from one challenge. Stored on-chain by
@@ -72,4 +75,11 @@ struct ChallengeSpecifications {
     uint8 freeriderPenalty;
     TaskType taskType;
     address jobListingAddress;
+    // Deploy-time TaskRep tunables (WAD-scaled for the three fractions).
+    uint256 trAlpha;
+    uint256 trNBlend;
+    uint256 trN0;
+    uint256 trLambda;
+    uint256 trIntegrityLearningRate;
+    uint256 trGainCapMultiplier;
 }

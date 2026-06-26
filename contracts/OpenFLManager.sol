@@ -303,7 +303,8 @@ contract OpenFLManager {
     function updateQValuesAfterSelection(
         address[] calldata allRegistrants,
         address[] calldata selected,
-        TaskType taskType
+        TaskType taskType,
+        bool hardReset
     ) external {
         require(
             msg.sender == publisher || validJobs[msg.sender],
@@ -315,6 +316,13 @@ contract OpenFLManager {
         uint256 k = selected.length;
         uint256 increment = (k * Q_WAD) / n;
 
+        // Route through _repKey so the slot written here matches the one read by
+        // getUserRep/setUserQValue. In GlobalOnly every TaskType aliases onto the
+        // shared sentinel bucket, giving a single user-bound Q (accumulates while
+        // idle on any task, resets on selection for any task). In PerTask mode
+        // _repKey(taskType) == taskType, so behaviour is unchanged.
+        TaskType key = _repKey(taskType);
+
         // Mark selected addresses for O(k) lookup inside the O(n) loop.
         mapping(address => bool) storage isSelected = _tmpSelected;
         for (uint i = 0; i < k; i++) {
@@ -323,12 +331,12 @@ contract OpenFLManager {
 
         for (uint i = 0; i < n; i++) {
             address addr = allRegistrants[i];
-            uint256 q = users[addr].QValue[taskType];
+            uint256 q = users[addr].QValue[key];
             uint256 newQ = q + increment;
             if (isSelected[addr]) {
-                newQ = newQ >= Q_WAD ? newQ - Q_WAD : 0;
+                newQ = hardReset ? 0 : (newQ >= Q_WAD ? newQ - Q_WAD : 0);
             }
-            users[addr].QValue[taskType] = newQ;
+            users[addr].QValue[key] = newQ;
         }
 
         // Clean up the temporary selected-flag mapping.

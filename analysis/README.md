@@ -235,11 +235,24 @@ Q-value comparison.
 | Final accuracy & timing | `final_accuracy.png`, `time_to_accuracy_{threshold,fraction}.png` |
 | Selection | `selection_rate_<ds>.png`, `selection_rate_over_time.png`, `split_selection_propensity.png`, `cold_start_*.png` |
 | Reputation | `tr_development.png`, `gir_development.png`, `score_decomposition.png`, `taskrep_accuracy_corr_<ds>.png` |
-| Data-split groups | `split_{selection,tr,gir}_*.png`, `split_net_earnings*.png`, `mixed_behavior_users.png` |
-| Integrity / economics | `kicked_{round,rate}.png`, `freerider_economics.png` |
-| Reproducibility | `run_variability.png`, `selection_efficiency_<ds>.png` |
-| Per-system run-averaged ports | `runavg-<globalrep\|multirep>/*.png` |
-| Q-value comparison | `figures/aggregate/qvalue-comparison/qvalue_selection_wait.png` |
+| Specialisation (two-layer signature) | `tr_cross_task_transfer.png` (MNIST-TR vs CIFAR-TR per user; global-rep on y=x, multi-rep spreads), `specialization_heatmap.png` (user × dataset TR) |
+| Data-split groups | `split_{selection,tr,gir}_*.png`, `split_net_earnings*.png`, `mixed_behavior_users.png`, `contrib_vs_data_richness_<ds>.png`, `selection_merit_spearman.png` |
+| Task-hoppers (mixed-behaviour users) | `taskhopper_reputation_development.png` (honest-side TR / adversary-side TR / GIR over the session, global-rep vs multi-rep), `taskhopper_selection_development.png` (cumulative pick rate on each hopper's honest vs adversary dataset). Self-skip with a note unless the experiment has mixed-behaviour users (task-hopper presets). |
+| Task-hopper-only role views (gated on mixed-behaviour users) | `mixed_behavior_tr_development.png` (per mixed user: MNIST-TR & CIFAR-TR, global-rep vs multi-rep — multi-rep separates the two datasets' TR, global-rep's single bucket collapses them), `taskhopper_reputation_development_by_role.png` (MNIST-TR / CIFAR-TR / GIR, one line per malicious / free-rider type), `selections_by_role_dataset.png` (total selections per behaviour-role bucket × dataset — exposes global-rep's fixed selection set), `mixed_behavior_users_with_honest.png` (per-dataset earnings incl. an all-honest baseline). **Role-bucketed splits** (`split_category` → `role_bucket`: one Honest bucket + 6 malicious/free-rider buckets): `rolesplit_selection_<ds>.png`, `rolesplit_tr_<ds>.png`, `rolesplit_gir.png`, `rolesplit_net_earnings.png`. No `rolesplit_final_accuracy` — the dominant selected role is always Honest, so it is degenerate. |
+| Integrity / economics | `kicked_{round,rate}.png`, `freerider_economics.png`, `cumulative_earnings_by_behavior.png`, `detection_rate_over_time.png` (adversarial — populated for the task-hopper experiments) |
+| Reproducibility / significance | `run_variability.png`, `selection_efficiency_<ds>.png`, `final_accuracy_ci.png` (95% CI over *distinct* curves + Welch p) |
+| Per-system run-averaged ports | `runavg-<globalrep\|multirep>/*.png`, incl. `*_selected_progression.png` (TR/GIR/balance plotted only at the tasks each user was selected for, x = n-th selection) |
+| Q-value comparison | `figures/aggregate/qvalue-comparison/` — `qvalue_effect.png` (Lorenz/Gini of selection counts, ranked pick counts, picks-vs-TR scatter), `qvalue_selection_wait.png` (longest idle streak & mean selection gap, boxplots), `qvalue_coverage.png` (participation coverage + running Gini *over time* — how fast everyone gets a turn), `qvalue_mechanism.png` (P(selected) vs idle streak + idle-streak distribution — the long-unselected bonus and its starvation-preventing effect) |
+| Q-slot-cap comparison | `figures/aggregate/qslot-comparison/` — task-hopper **Q-on-all-slots** (baseline) vs **Q-slot cap = 2** (`qslot2`), both multi-rep. `selection_rate_by_behavior[_<ds>].png` & `selection_rate_individual.png` (per group + per user), `tr_development_by_behavior_<ds>.png` & `tr_development_individual_<ds>.png` (per-dataset TR over the session, per group + small-multiples per user), `gir_development_by_behavior.png`, `net_earnings_by_behavior.png`, `selection_fairness.png` (coverage + running Gini — rotation vs concentration), `idle_streak.png` (P(selected) & idle-streak distribution), `final_accuracy_per_task.png`. Shows the cap restores merit-based selection (adversaries picked far less, Gini ≫ 0) at no accuracy cost. |
+
+> **Variance honesty.** Fingerprint cache-hits do not re-log results — the loader
+> back-fills each cached task slot from the one computed curve sharing its
+> fingerprint. Aggregate statistics (curves, final accuracy, time-to-accuracy,
+> run variability) collapse those clones to one row per `(run, fingerprint)` so
+> the bands/CIs reflect genuinely distinct runs, not duplicated curves.
+> Behaviour-split graphs (`freerider_economics`, adversarial graphs) are
+> meaningful only where adversaries exist (task-hopper); they self-skip with a
+> note on the adversary-free data-split experiments.
 
 > **Caveat — re-run global-rep first.** A replay bug in `_apply_trs_reps`
 > (now fixed) let global-rep accrue GIR and per-task-type TR it should not have.
@@ -309,29 +322,6 @@ All functions return a `matplotlib.figure.Figure`. Call `plt.show()` or `plots.s
 | `plot_strategy_comparison_boxplot(agg_final)` | Box plot, one box per strategy | `agg_final_round_accuracy_by_strategy` output |
 | `plot_grs_by_behavior(agg_grs)` | One line per behavior with ±1σ bands | `agg_grs_by_behavior` output |
 | `save_figure(fig, path, dpi=150)` | Saves to PNG/PDF/SVG (inferred from extension) | — |
-
----
-
-## What Changed in the Existing Code
-
-### `experiment/experiments.py`
-- Imports `ExperimentLogger` from the `analysis` package.
-- Before each experiment: instantiates `ExperimentLogger(experiment_id, metadata)` where `metadata` contains all config fields plus `dataset` and `timestamp`.
-- After each experiment: calls `logger.save(path.with_suffix(".pkl"))` to write the pickle file next to the CSV.
-
-### `experiment/experiment_runner.py`
-- `run_experiment()` accepts a new optional `logger=None` parameter and forwards it to `FLChallenge`.
-
-### `src/openfl/contracts/fl_challenge.py`
-- `FLChallenge.__init__()` accepts `logger=None` and stores it as `self.logger`.
-- `log_receipt()` now also calls `self.logger.log_receipt(...)` to capture every blockchain transaction.
-- `simulate()` calls:
-  - `logger.log_global_round(round=0, ...)` once for the baseline (before training starts).
-  - Per round after settlement: `logger.log_vote(...)` for every feedback matrix entry, `logger.log_user_round(...)` for every active and disqualified participant, and `logger.log_global_round(...)` for the round summary.
-- **The CSV / `AsyncWriter` path is completely unchanged.** Logger runs in parallel and adds no breaking changes.
-
-### `src/openfl/utils/async_writer.py`
-- `NullWriter` was missing `writeResult`, `writeComment`, and `finish` methods — calls to these raised `AttributeError` when no writer was provided. All three are now no-ops.
 
 ---
 

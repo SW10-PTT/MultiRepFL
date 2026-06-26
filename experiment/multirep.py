@@ -50,7 +50,7 @@ from openfl.utils.async_writer import AsyncWriter
 # ---------------------------------------------------------------------------
 
 SKIP_RUN_CACHE = True  # set True to always run fresh (ignore fingerprint cache)
-
+SESSION_CLEANUP = False
 _WAD = 10 ** 18  # all on-chain rep values are WAD-scaled
 
 # EWMA constants — mirror JobListing.sol exactly.
@@ -67,11 +67,10 @@ _INTEGRITY_LEARNING_RATE = int(2e17)  # GIR EWMA learning rate
 # Preset file — fill in before running
 # ---------------------------------------------------------------------------
 
-preset_file = "experiment/presets/fast-test-local-mnist-only.json"
+preset_file = "experiment/presets/fast-test-local-mnist-only-multi.json"
 # preset_file = "experiment/presets/EXP-multirep-mixed-distribution-5-task-dataset-switch copy.json"
 
-FORCE_REMOTE = True           # if True, retry remote forever instead of falling back to local
-FORCE_REMOTE_RETRY_DELAY = 30  # seconds between retries when FORCE_REMOTE is True
+FORCE_REMOTE_RETRY_DELAY = 30  # seconds between retries when force_remote is True
 
 # ---------------------------------------------------------------------------
 # Output directory for multirep sessions
@@ -104,19 +103,39 @@ def compute_user_score(user: User, task_type: int, q_weight: int = 0, tr_weight:
     return normal_weight + (q_weight * q) // _WAD
 
 
-def getTopN(users: List[User], n: int, task_type: int, q_weight: int = 0, tr_weight: int = 6, gir_weight: int = 4) -> List[User]:
+def getTopN(users: List[User], n: int, task_type: int, q_weight: int = 0, tr_weight: int = 6, gir_weight: int = 4,
+            q_slot_limit_enabled: bool = False, q_slot_limit: int = 0) -> List[User]:
     """Mirror the smart contract's participant selection (retained for debugging/analysis)."""
     fps = {u: u.finger_print for u in users}
+    if q_slot_limit_enabled:
+        # Mirror JobListing._getTopNCapped: fill (n - q_slots) by base score
+        # (no Q bonus), then the remaining q_slots by full score from the rest.
+        q_slots = min(max(q_slot_limit, 0), n)
+        rep_slots = n - q_slots
+        by_base = sorted(users, key=lambda u: (-compute_user_score(u, task_type, 0, tr_weight, gir_weight), fps[u]))
+        rep_selected = by_base[:rep_slots]
+        rep_ids = {id(u) for u in rep_selected}
+        pool = [u for u in users if id(u) not in rep_ids]
+        pool.sort(key=lambda u: (-compute_user_score(u, task_type, q_weight, tr_weight, gir_weight), fps[u]))
+        selected = rep_selected + pool[:q_slots]
+    else:
+        selected = None  # computed from scores below
+    selected_set = {u.address for u in selected} if selected is not None else None
+
+    # Full-score ranking, used for the logging table (and as the selection in the
+    # uncapped path).
     scores = [(compute_user_score(u, task_type, q_weight, tr_weight, gir_weight), u) for u in users]
     scores.sort(key=lambda x: (-x[0], fps[x[1]]))
-    selected = [u for _, u in scores[:n]]
-    selected_set = {u.address for u in selected}
+    if selected is None:
+        selected = [u for _, u in scores[:n]]
+        selected_set = {u.address for u in selected}
 
     for _, u in scores:
         label = u.partition_spec.name if (u.partition_spec and u.partition_spec.name) else f"User {u.number}"
         fl_globals.fp_user_labels[fps[u]] = label
 
-    log("multirep", f"Selection (top {n} of {len(users)}, task_type={task_type}, q_weight={q_weight / _WAD:.4f}, tr={tr_weight}, gir={gir_weight}):")
+    cap_note = f", q_slot_limit={q_slot_limit}" if q_slot_limit_enabled else ""
+    log("multirep", f"Selection (top {n} of {len(users)}, task_type={task_type}, q_weight={q_weight / _WAD:.4f}, tr={tr_weight}, gir={gir_weight}{cap_note}):")
     log("multirep", f"  {'Name':<16} {'TR':>8} {'GIR':>8} {'Q':>8} {'Score':>10}  fp[:8]  sel")
     for score, u in scores:
         marker = "YES" if u.address in selected_set else "no"
@@ -818,7 +837,7 @@ def _run_remote(preset: MultirepRunConfig, exp_config: ExperimentConfiguration, 
             pool_size = preset.remote_pool_size
             use_existing_run = None
 
-            if pool_size > 0:
+            if pool_size > 0 and not SKIP_RUN_CACHE:
                 pool = [None] * pool_size
                 runs = _fetch_runs_by_fingerprint(fingerprint)
                 for i, run in enumerate(runs[:pool_size]):
@@ -898,15 +917,37 @@ def _apply_preset_config(exp_config: ExperimentConfiguration, preset) -> None:
     exp_config.global_rep_only    = preset.global_rep_only
     exp_config.vote_baseline      = preset.vote_baseline
     exp_config.fork               = preset.fork
+    exp_config.q_slot_limit_enabled = preset.q_slot_limit_enabled
+    exp_config.q_slot_limit       = preset.q_slot_limit
+    exp_config.q_hard_reset       = preset.q_hard_reset
+    # TaskRep tunables: session-wide, fed into the per-task challenge constructor.
+    exp_config.tr_alpha           = preset.tr_alpha
+    exp_config.tr_n_blend         = preset.tr_n_blend
+    exp_config.tr_n_0             = preset.tr_n_0
+    exp_config.tr_lambda          = preset.tr_lambda
+    exp_config.tr_integrity_learning_rate = preset.tr_integrity_learning_rate
+    exp_config.tr_gain_cap_multiplier     = preset.tr_gain_cap_multiplier
 
 
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
-def main(auto_graphs: bool = False, cleanup_session: bool = False):
+def main(auto_graphs: bool = False, cleanup_session: bool = False, seed_override: int | None = None):
     global fallback_count
     preset = MultirepPreset.from_file(preset_file)
+    if seed_override is not None:
+        log("multirep", f"[seed] overriding preset seed {preset.seed} -> {seed_override}")
+        preset.seed = seed_override
+    # Sync the replay-path EWMA mirror to the session's TaskRep tunables so the
+    # write-back math matches what each challenge contract is deployed with.
+    global _ALPHA, _N_BLEND, _N_0, _LAMBDA, _INTEGRITY_LEARNING_RATE, _GAIN_CAP_MULTIPLIER
+    _ALPHA = int(preset.tr_alpha * _WAD)
+    _N_BLEND = int(preset.tr_n_blend * _WAD)
+    _N_0 = int(preset.tr_n_0)
+    _LAMBDA = int(preset.tr_lambda)
+    _INTEGRITY_LEARNING_RATE = int(preset.tr_integrity_learning_rate * _WAD)
+    _GAIN_CAP_MULTIPLIER = int(preset.tr_gain_cap_multiplier)
     tasks = preset.tasks
     partition_file = preset.partition_file
     training_mode = preset.training_mode
@@ -967,7 +1008,7 @@ def main(auto_graphs: bool = False, cleanup_session: bool = False):
     publisher = all_users[0]
     rpc = get_RPC_Endpoint()
     privkeys = get_PRIVKEYS(full_config)
-    manager = Manager(publisher, True).init(
+    manager = Manager(publisher, True, global_rep_only=preset.global_rep_only).init(
         full_config.number_of_good_contributors,
         full_config.number_of_bad_contributors,
         full_config.number_of_freerider_contributors,
@@ -976,6 +1017,7 @@ def main(auto_graphs: bool = False, cleanup_session: bool = False):
         rpc,
         privkeys,
     )
+    manager.assert_reputation_mode()
 
     # Replace the static fallback enum with the authoritative definition from the contract.
     global _task_type_enum, _REAL_TASK_TYPES
@@ -993,6 +1035,16 @@ def main(auto_graphs: bool = False, cleanup_session: bool = False):
     tr_weight = preset.tr_weight
     gir_weight = preset.gir_weight
     experiment_name = preset.name
+
+    # Session config summary — surfaces selection knobs in one place so a
+    # misconfigured/missing toggle is caught up front (cf. the global_rep_only
+    # regression that slipped through in one path).
+    _cap_desc = (f"ON (limit={preset.q_slot_limit}: {preset.q_slot_limit} of "
+                 f"N slots may use Q, rest by base TR/GIR)"
+                 if preset.q_slot_limit_enabled else "OFF")
+    log("multirep", f"Selection config: q_weight={preset.q_weight}, tr_weight={tr_weight}, "
+                    f"gir_weight={gir_weight}, global_rep_only={preset.global_rep_only}, "
+                    f"q_slot_limit={_cap_desc}")
     session_state: dict = {"experiment_id": None}  # persists experiment_id across tasks for REMOTE mode
 
     for i, task in enumerate(tasks):
@@ -1037,7 +1089,7 @@ def main(auto_graphs: bool = False, cleanup_session: bool = False):
 
         selection_state = ExperimentRunner.select_participants_for_task(
             task.dataset, boot_config, all_users, manager,
-            force_remote=FORCE_REMOTE,
+            force_remote=preset.force_remote,
         )
         selected_users = selection_state.selected_users
 
@@ -1058,7 +1110,7 @@ def main(auto_graphs: bool = False, cleanup_session: bool = False):
         task_dir = tasks_dir / f"task_{i+1:03d}_{safe_dataset}_{fingerprint[:8]}"
         task_dir.mkdir(parents=True, exist_ok=True)
 
-        cached_run = None if SKIP_RUN_CACHE else _fetch_cached_run(fingerprint)
+        cached_run = None if (SKIP_RUN_CACHE or preset.force_remote) else _fetch_cached_run(fingerprint)
         if cached_run is not None:
             log("multirep", f"Fingerprint {fingerprint[:8]}... found in RunRepo — skipping experiment.")
             _apply_cached_reps(all_users, cached_run, task_type)
@@ -1108,7 +1160,7 @@ def main(auto_graphs: bool = False, cleanup_session: bool = False):
             task_type=task_type,
             writer=writer, logger=task_logger, path=task_csv_path,
             session_state=session_state,
-            force_remote=FORCE_REMOTE,
+            force_remote=preset.force_remote,
             priority=preset.priority,
             total_expected_configs=len(tasks),
         )
@@ -1143,6 +1195,7 @@ def main(auto_graphs: bool = False, cleanup_session: bool = False):
         pkl_path = task_csv_path.with_suffix(".pkl")
         task_logger.save(pkl_path)
         task_pkl_path = pkl_path
+        log("multirep", f"Task output: {task_dir}")
 
         remote_src = Path(fl_globals.repo_dir)
         if remote_src.is_dir() and remote_src != task_dir:
@@ -1252,7 +1305,7 @@ def main(auto_graphs: bool = False, cleanup_session: bool = False):
         if session_dir.exists():
             _shutil.rmtree(session_dir)
             log("multirep", f"Removed session dir: {session_dir}")
-        if tarball is not None and tarball_uploaded and tarball.exists():
+        if tarball is not None and tarball_uploaded and tarball.exists() and SESSION_CLEANUP:
             tarball.unlink()
             log("multirep", f"Removed session tarball: {tarball}")
 
@@ -1283,6 +1336,11 @@ if __name__ == "__main__":
         "--preset",
         help="Path to preset JSON file (overrides the hardcoded preset_file at the top of this module).",
     )
+    parser.add_argument(
+        "--seed", type=int, default=None,
+        help="Override the preset's RNG seed for this run (data partitioning / user seeds). "
+             "Leave unset to use the seed declared in the preset JSON.",
+    )
     args = parser.parse_args()
 
     if args.preset:
@@ -1297,7 +1355,7 @@ if __name__ == "__main__":
     if False:
         mp.freeze_support()
     try:
-        main(auto_graphs=args.graphs, cleanup_session=args.anvil)
+        main(auto_graphs=args.graphs, cleanup_session=args.anvil, seed_override=args.seed)
     finally:
         for p in mp.active_children():
             p.terminate()
