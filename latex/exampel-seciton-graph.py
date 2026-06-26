@@ -65,8 +65,8 @@ metrics = [
     {"label": r"Integrity rep. $\mathit{GIR}$","color": "#D55E00", "marker": "D", "P1": gir_p1,  "P2": gir_p2  },
 ]
 
-out_dir = Path("figures")
-out_dir.mkdir(exist_ok=True)
+out_dir = Path("figures/exam")
+out_dir.mkdir(parents=True, exist_ok=True)
 
 fig, (ax_l, ax_r) = plt.subplots(1, 2, figsize=(9.0, 3.4), sharey=True)
 fig.subplots_adjust(wspace=0.08, bottom=0.22)
@@ -112,3 +112,41 @@ fig.legend(
 
 fig.savefig(out_dir / "example_summary.svg", bbox_inches="tight")
 print("Saved example_summary.svg")
+plt.close(fig)
+
+# --- Split panels ---
+for participant, title, fname in [
+    ("P1", r"$P_1$ — stable",   "example_stable.svg"),
+    ("P2", r"$P_2$ — unstable", "example_unstable.svg"),
+]:
+    fig_s, ax_s = plt.subplots(figsize=(5.0, 3.4))
+    fig_s.subplots_adjust(bottom=0.38)
+
+    ax_s.set_title(title, pad=6)
+    ax_s.set_xlabel(r"Completed tasks of type $t$", labelpad=4)
+    ax_s.set_ylabel("Value", labelpad=5)
+    ax_s.set_xticks(tasks)
+    ax_s.set_xlim(0.5, 10.5)
+    ax_s.set_ylim(0, 1.05)
+    ax_s.grid(True, linestyle=":", linewidth=0.5, color="grey", alpha=0.4)
+
+    handles = []
+    for m in metrics:
+        line, = ax_s.plot(
+            tasks, m[participant],
+            linestyle="-", marker=m["marker"],
+            linewidth=1.5, markersize=4.5,
+            color=m["color"], label=m["label"],
+        )
+        handles.append(line)
+
+    fig_s.legend(
+        handles=handles,
+        loc="lower center", bbox_to_anchor=(0.5, 0.02),
+        ncol=2, frameon=False, fontsize=8.5,
+        handlelength=1.8, columnspacing=1.2,
+    )
+
+    fig_s.savefig(out_dir / fname, bbox_inches="tight")
+    print(f"Saved {fname}")
+    plt.close(fig_s)
